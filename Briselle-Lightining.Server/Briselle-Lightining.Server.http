@@ -1,0 +1,6 @@
+@Briselle_Lightining.Server_HostAddress = http://localhost:5083
+
+GET {{Briselle_Lightining.Server_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

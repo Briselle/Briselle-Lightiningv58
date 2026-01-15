@@ -1,0 +1,33 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.13.35828.75 d17.13
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{54A90642-561A-4BB1-A94E-469ADEE60C69}") = "briselle-lightining.client", "briselle-lightining.client\briselle-lightining.client.esproj", "{9C13EF85-9F01-9B60-0933-72855DE4256D}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Briselle-Lightining.Server", "Briselle-Lightining.Server\Briselle-Lightining.Server.csproj", "{75C5B900-D9D1-4916-A794-B3468C5797F6}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{9C13EF85-9F01-9B60-0933-72855DE4256D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{9C13EF85-9F01-9B60-0933-72855DE4256D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{9C13EF85-9F01-9B60-0933-72855DE4256D}.Debug|Any CPU.Deploy.0 = Debug|Any CPU
+		{9C13EF85-9F01-9B60-0933-72855DE4256D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{9C13EF85-9F01-9B60-0933-72855DE4256D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{9C13EF85-9F01-9B60-0933-72855DE4256D}.Release|Any CPU.Deploy.0 = Release|Any CPU
+		{75C5B900-D9D1-4916-A794-B3468C5797F6}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{75C5B900-D9D1-4916-A794-B3468C5797F6}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{75C5B900-D9D1-4916-A794-B3468C5797F6}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{75C5B900-D9D1-4916-A794-B3468C5797F6}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {E93E6AA7-6D1F-4209-A6D0-971E469758E8}
+	EndGlobalSection
+EndGlobal

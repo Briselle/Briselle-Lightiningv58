@@ -1,0 +1,527 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+    :root {
+        --color-primary: 1 118 211; /* Salesforce Blue */
+        --color-secondary: 112 110 107; /* Gray */
+        --color-accent: 72 26 90; /* Purple */
+        --color-success: 4 132 75; /* Green */
+        --color-warning: 255 183 93; /* Yellow */
+        --color-error: 194 57 52; /* Red */
+        --color-background: 243 243 243; /* Light Gray */
+    }
+
+    html, body {
+        @apply antialiased;
+        @apply bg-[#f3f3f3];
+        @apply text-gray-900;
+        @apply font-sans;
+    }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center rounded-md px-4 py-2 text-sm font-medium;
+    @apply focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2;
+    @apply transition-colors duration-200;
+  }
+  
+  .btn-sm {
+    @apply px-3 py-1.5 text-xs;
+  }
+  
+  .btn-primary {
+    @apply btn bg-primary text-white hover:bg-primary/90 focus-visible:ring-primary;
+  }
+  
+  .btn-secondary {
+    @apply btn bg-white text-gray-700 hover:bg-gray-50 border border-gray-300 focus-visible:ring-primary;
+  }
+  
+  .btn-success {
+    @apply btn bg-success text-white hover:bg-success/90 focus-visible:ring-success;
+  }
+  
+  .btn-danger {
+    @apply btn bg-error text-white hover:bg-error/90 focus-visible:ring-error;
+  }
+  
+  .input {
+    @apply block w-full rounded-md border border-gray-300 px-3 py-2;
+    @apply focus:border-primary focus:ring-primary focus:outline-none focus:ring-1;
+  }
+  
+  .input-sm {
+    @apply input px-2 py-1 text-sm;
+  }
+  
+  .card {
+    @apply bg-white rounded-lg shadow-sm;
+  }
+  
+  .page-title {
+    @apply text-2xl font-bold text-gray-900 mb-6;
+  }
+
+  .section-title {
+    @apply text-xl font-semibold text-gray-800 mb-4;
+  }
+
+  .app-container {
+    height: 100vh;
+    width: 100vw;
+    @apply overflow-hidden;
+  }
+
+  .sidebar-item {
+    @apply flex items-center gap-2 px-4 py-2 text-gray-700 rounded-md;
+    @apply hover:bg-primary/10 hover:text-primary;
+    @apply transition-colors duration-150;
+  }
+
+  .sidebar-item.active {
+    @apply bg-primary/10 text-primary font-medium;
+  }
+
+  /* Loading animation */
+  .loading-spinner {
+    @apply animate-spin;
+  }
+
+  /* Table styles */
+  .data-table {
+    @apply border-collapse w-full;
+  }
+
+  .data-table th {
+    @apply px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider;
+    @apply bg-gray-50;
+  }
+
+  .data-table td {
+    @apply px-4 py-2 text-sm text-gray-900;
+    @apply border-b border-gray-200;
+  }
+
+  .data-table tr:hover td {
+    @apply bg-gray-50;
+  }
+
+  /* Override hover globally when 'no-hover' class is applied */
+  table.data-table.no-hover tr:hover td {
+    background-color: inherit !important;
+  }
+
+  /* Professional Theme */
+  .data-table.theme-professional {
+    @apply shadow-lg border border-gray-300;
+  }
+
+  .data-table.theme-professional th {
+    @apply bg-gradient-to-r from-cyan-600 to-cyan-700 text-white;
+    border-bottom: 2px solid #0891b2;
+  }
+
+  .data-table.theme-professional td {
+    @apply border-b border-cyan-100;
+  }
+
+  .data-table.theme-professional tr:hover td {
+    @apply bg-cyan-50;
+  }
+
+  .data-table.theme-professional.striped tbody tr:nth-child(even) {
+    @apply bg-cyan-25;
+  }
+
+  /* Modern Theme */
+  .data-table.theme-modern {
+    @apply rounded-lg overflow-hidden shadow-xl;
+  }
+
+  .data-table.theme-modern th {
+    @apply bg-gradient-to-r from-emerald-600 to-emerald-700 text-white;
+    border-bottom: 2px solid #10b981;
+  }
+
+  .data-table.theme-modern td {
+    @apply border-b border-emerald-100;
+  }
+
+  .data-table.theme-modern tr:hover td {
+    @apply bg-emerald-50;
+  }
+
+  .data-table.theme-modern.striped tbody tr:nth-child(even) {
+    @apply bg-emerald-25;
+  }
+
+  /* Minimal Theme */
+  .data-table.theme-minimal {
+    @apply border-0 shadow-none;
+  }
+
+  .data-table.theme-minimal th {
+    @apply bg-gradient-to-r from-yellow-500 to-yellow-600 text-white border-b-2 border-yellow-600;
+  }
+
+  .data-table.theme-minimal td {
+    @apply border-b border-yellow-100;
+  }
+
+  .data-table.theme-minimal tr:hover td {
+    @apply bg-yellow-50;
+  }
+
+  .data-table.theme-minimal.striped tbody tr:nth-child(even) {
+    @apply bg-yellow-25;
+  }
+
+  /* Table view sizes */
+  .data-table.compact {
+    @apply text-xs;
+  }
+
+  .data-table.compact th,
+  .data-table.compact td {
+    @apply px-2 py-1;
+  }
+
+  .data-table.comfortable th,
+  .data-table.comfortable td {
+    @apply px-6 py-4;
+  }
+
+  .data-table.spacious th,
+  .data-table.spacious td {
+    @apply px-8 py-6;
+  }
+
+  /* Striped rows */
+  .data-table.striped tbody tr:nth-child(even) {
+    @apply bg-gray-25;
+  }
+
+  /* Sticky header */
+  .data-table.sticky-header thead {
+    @apply sticky top-0 z-10;
+  }
+
+  /* Row actions visibility */
+  .show-actions .row-actions {
+    @apply opacity-100;
+  }
+
+  /* Dropdown styles */
+  .dropdown {
+    @apply relative inline-block;
+  }
+
+  .dropdown:hover .dropdown-content {
+    @apply block;
+  }
+
+  .dropdown-content {
+    @apply hidden;
+  }
+
+  /* Indeterminate checkbox */
+  input[type="checkbox"]:indeterminate {
+    @apply bg-primary border-primary;
+  }
+
+  input[type="checkbox"]:indeterminate::before {
+    content: '';
+    @apply block w-2 h-0.5 bg-white absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2;
+  }
+
+  /* Drag and drop styles */
+  .dragging {
+    @apply opacity-50;
+  }
+
+  .drag-over {
+    @apply bg-blue-50 border-blue-300;
+  }
+
+  /* Search animation */
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      transform: translateY(-10px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+
+  .animate-slideDown {
+    animation: slideDown 0.3s ease-out;
+  }
+
+  /* Smooth width transition for search */
+  .search-expand {
+    transition: width 0.3s ease-out;
+  }
+
+
+    /* ===============================
+   Freeze Column (INDEX-BASED)
+=============================== */
+    .freeze-column-index {
+
+        z-index: 20;
+        border-right: 2px solid #d1d5db;
+    }
+    /* ===============================
+   Freeze Header
+=============================== */
+    .freeze-header thead th {
+        position: sticky;
+        top: 0;
+        z-index: 30;
+        border-bottom: 2px solid #d1d5db;
+    }
+
+
+  /* Row reorder styles */
+  .row-dragging {
+    opacity: 0.5;
+    background-color: #f3f4f6;
+  }
+
+  .row-drag-over {
+    border-top: 2px solid #3b82f6;
+  }
+
+  /* Column reorder styles */
+  .column-dragging {
+    opacity: 0.5;
+  }
+
+  .column-drag-over {
+    border-left: 2px solid #3b82f6;
+  }
+
+  /* Improved dropdown positioning */
+  .dropdown-content {
+    max-height: 300px;
+    overflow-y: auto;
+  }
+
+  /* Button height consistency */
+  .table-panel-button {
+    height: 40px;
+    min-height: 40px;
+  }
+}
+
+/* Animation keyframes */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+@keyframes slideInRight {
+    from {
+        transform: translateX(20px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateX(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideInUp {
+    from {
+        transform: translateY(20px);
+        opacity: 0;
+    }
+
+    to {
+        transform: translateY(0);
+        opacity: 1;
+    }
+}
+
+@keyframes slideInUp {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+.fade-in {
+    animation: fadeIn 0.3s ease-out;
+}
+
+.slide-in-right {
+    animation: slideInRight 0.3s ease-out;
+}
+
+.slide-in-up {
+  animation: slideInUp 0.3s ease-out;
+}
+
+/* Column resize cursor */
+.col-resize {
+  cursor: col-resize;
+}
+
+/* Custom scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  @apply bg-gray-100 rounded;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  @apply bg-gray-300 rounded;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  @apply bg-gray-400;
+}
+
+/* Utility classes */
+.bg-gray-25 {
+  background-color: #fafafa;
+}
+
+.bg-cyan-25 {
+  background-color: #f0fdfa;
+}
+
+.bg-emerald-25 {
+  background-color: #f0fdf4;
+}
+
+.bg-yellow-25 {
+  background-color: #fefce8;
+}
+
+/* Focus styles */
+.focus-ring {
+  @apply focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-2;
+}
+
+/* Transition utilities */
+.transition-all-200 {
+  transition: all 0.2s ease-in-out;
+}
+
+.transition-colors-150 {
+  transition: color 0.15s ease-in-out, background-color 0.15s ease-in-out, border-color 0.15s ease-in-out;
+}
+
+/* Text utilities */
+.text-truncate {
+  @apply truncate;
+}
+
+.text-wrap {
+  white-space: normal;
+  word-wrap: break-word;
+}
+
+/* Shadow utilities */
+.shadow-card {
+  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.1), 0 1px 2px 0 rgba(0, 0, 0, 0.06);
+}
+
+.shadow-card-hover {
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+/* Modal backdrop */
+.modal-backdrop {
+  backdrop-filter: blur(4px);
+}
+
+/* Loading states */
+.loading-skeleton {
+  @apply animate-pulse bg-gray-200 rounded;
+}
+
+/* Error states */
+.error-border {
+  @apply border-red-300 focus:border-red-500 focus:ring-red-500;
+}
+
+/* Success states */
+.success-border {
+  @apply border-green-300 focus:border-green-500 focus:ring-green-500;
+}
+
+/* Disabled states */
+.disabled {
+  @apply opacity-50 cursor-not-allowed;
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+
+    .data-table {
+        @apply text-xs;
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+  
+  .data-table th,
+  .data-table td {
+    @apply px-2 py-1 border border-gray-300;
+  }
+}
+
+/* Mobile responsive */
+@media (max-width: 640px) {
+  .data-table {
+    @apply text-xs;
+  }
+  
+  .data-table th,
+  .data-table td {
+    @apply px-2 py-2;
+  }
+  
+  .btn {
+    @apply px-3 py-1.5 text-xs;
+  }
+}
+
+/* Dark mode support (if needed in future) */
+@media (prefers-color-scheme: dark) {
+  .dark-mode {
+    @apply bg-gray-900 text-white;
+  }
+  
+  .dark-mode .card {
+    @apply bg-gray-800 border-gray-700;
+  }
+  
+  .dark-mode .data-table th {
+    @apply bg-gray-700 text-gray-300;
+  }
+  
+  .dark-mode .data-table td {
+    @apply border-gray-700;
+  }
+  
+  .dark-mode .data-table tr:hover td {
+    @apply bg-gray-700;
+  }
+}
