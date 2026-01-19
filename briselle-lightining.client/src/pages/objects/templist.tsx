@@ -42,7 +42,6 @@ const defaultConfig: TableConfig = {
     // Display Options
     enableWrapText: false,
     enableTooltips: true,
-    enableStickyHeader: true,
     enableRowReorder: true,
 
     // Title and Info Options
