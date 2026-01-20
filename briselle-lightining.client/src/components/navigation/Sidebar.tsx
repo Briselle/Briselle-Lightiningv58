@@ -68,6 +68,11 @@ function Sidebar({ isOpen, currentPath }: SidebarProps) {
           icon: <Table size={20} />,
       },
       {
+          title: 'Templates (Refactored)',
+          path: '/templist2',
+          icon: <Table size={20} />,
+      },
+      {
           title: 'Demo Table',
           path: '/demo',
           icon: <Zap size={20} />,

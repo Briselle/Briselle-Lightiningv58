@@ -18,6 +18,7 @@ const UsersList = lazy(() => import('./pages/users/UsersList'));
 const UserDetail = lazy(() => import('./pages/users/UserDetail'));
 const Login = lazy(() => import('./pages/auth/Login'));
 const Templist = lazy(() => import('./pages/objects/templist'));
+const Templist2 = lazy(() => import('./pages/objects/templist2'));
 const ConfigurableDemo = lazy(() => import('./pages/objects/DemoTemplate'));
 function App() {
   // For demo purposes, we'll assume the user is authenticated
@@ -48,8 +49,9 @@ function App() {
             <Route path="/objects/:id" element={<ObjectDetail />} />
             <Route path="/objects/:id/config" element={<ObjectConfig />} />
 
-                      {/* TEmplate routes */}
+                      {/* Template routes */}
                       <Route path="/templist" element={<Templist />} />
+                      <Route path="/templist2" element={<Templist2 />} />
 
                       {/* Configurable Template Demo */}
                       <Route path="/demo" element={<ConfigurableDemo />} />

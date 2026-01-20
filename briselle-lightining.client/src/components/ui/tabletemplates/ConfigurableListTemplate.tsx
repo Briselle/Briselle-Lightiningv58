@@ -1152,11 +1152,25 @@ export default function ConfigurableListTemplate({
                         </td>
                     </tr>
                     {groupRows.map((row, groupRowIdx) => {
-                        const actualIndex = sortedData.findIndex(r => (r.id && row.id && r.id === row.id) || r === row);
+                        // Find the actual index in sortedData for proper row tracking
+                        // This ensures selection and styling work correctly
+                        const actualIndex = sortedData.findIndex(r => {
+                            // Try to match by ID first, then by reference
+                            if (r.id && row.id && r.id === row.id) return true;
+                            if (r === row) return true;
+                            // Fallback: compare all keys
+                            return JSON.stringify(r) === JSON.stringify(row);
+                        });
                         const rowIndex = actualIndex >= 0 ? actualIndex : groupRowIdx;
+                        // Use a stable unique key based on row.id or entity_id
+                        // CRITICAL: Use entity_id or id, NOT idx, so React can track rows across sort changes
+                        // Also include a sort signature to ensure React sees this as a new render when sorting changes
+                        const sortSignature = sortCriteria.map(s => `${s.column}-${s.order}`).join('|');
+                        const rowKey = row.entity_id || row.id || `${groupValue}-${groupRowIdx}-${JSON.stringify(row).substring(0, 50)}`;
+                        const stableRowKey = `${rowKey}-${sortSignature}`;
                         return (
                         <tr
-                            key={`${groupValue}-${groupRowIdx}`}
+                            key={stableRowKey}
                             className={cn(
                                 config.enableRowHoverHighlight ? 'hover:bg-gray-100 transition-colors group' : 'group',
                                 config.enableStripedRows && rowIndex % 2 === 1 && 'bg-gray-50',
@@ -1176,8 +1190,8 @@ export default function ConfigurableListTemplate({
                                         "px-4 py-2 text-sm text-gray-700",
                                         config.enableColumnDivider ? 'border-r border-gray-200' : '',
                                         !config.enableRowDivider ? '!border-b-0' : '',
-                                        // Show border on checkbox column when freezeIndex = 1 (only checkbox frozen)
-                                        checkboxFrozen && (config.freezePaneColumnIndexNo || 1) === 1 && 'border-r-2 border-gray-300'
+                                        // Show border on checkbox column when freezeIndex = 1 (only checkbox frozen) AND feature is enabled
+                                        checkboxFrozen && config.enablefreezePaneColumnIndex && (config.freezePaneColumnIndexNo || 1) === 1 && 'border-r-2 border-gray-300'
                                     )}
                                     style={{
                                         width: checkboxColumnWidth ? `${checkboxColumnWidth}px` : 'auto',
@@ -1230,19 +1244,22 @@ export default function ConfigurableListTemplate({
                                     const shouldShowBorder = freezeIndex >= 2 && colIndex === freezeIndex - 2;
                                     const rowBg = config.enableStripedRows && rowIndex % 2 === 1 ? 'rgb(249 250 251)' : 'white';
                                     const leftOffset = isFrozen ? getFreezeLeftOffset(colIndex) : 0;
+                                    const cellValue = row[col]?.toString() || '-';
                                     
                                     return (
                                     <td
-                                        key={col}
+                                        key={`${stableRowKey}-${col}`}
                                         className={cn(
                                             "px-4 py-2 text-sm text-gray-700",
                                             config.enableColumnDivider && colIndex < arr.length - 1 ? 'border-r border-gray-200' : '',
                                             !config.enableRowDivider ? '!border-b-0' : '',
                                             // Border only on last frozen data column
-                                            shouldShowBorder && 'border-r-2 border-gray-300'
+                                            shouldShowBorder && 'border-r-2 border-gray-300 freeze-border-sticky'
                                         )}
                                         style={{
-                                            width: columnWidths[col] ? `${columnWidths[col]}px` : 'auto',
+                                            width: columnWidths[col] ? `${columnWidths[col]}px` : undefined,
+                                            minWidth: columnWidths[col] ? `${columnWidths[col]}px` : undefined,
+                                            maxWidth: columnWidths[col] ? `${columnWidths[col]}px` : undefined,
                                             boxSizing: 'border-box',
                                             ...(isFrozen ? {
                                                 position: 'sticky',
@@ -1257,11 +1274,11 @@ export default function ConfigurableListTemplate({
                                             {config.enableInlineEdit?.includes(col) ? (
                                                 <input
                                                     type="text"
-                                                    defaultValue={row[col]?.toString() || ''}
+                                                    defaultValue={cellValue}
                                                     className="w-full border-none bg-transparent focus:bg-white focus:border focus:border-primary focus:outline-none px-1 py-0.5 rounded"
                                                 />
                                             ) : (
-                                                row[col]?.toString() || '-'
+                                                cellValue
                                             )}
                                         </span>
                                         {colIndex === 0 && (row['isCustom'] === true || row['isCustom'] === 1) && (
@@ -1319,9 +1336,19 @@ export default function ConfigurableListTemplate({
             ));
         }
 
-        return sortedData.map((row, idx) => (
+        return sortedData.map((row, idx) => {
+            // Use a stable unique key based on row.id or entity_id
+            // This ensures React properly re-renders when sort order changes
+            // CRITICAL: Use entity_id or id, NOT idx, so React can track rows across sort changes
+            // Also include a sort signature to ensure React sees this as a new render when sorting changes
+            const sortSignature = sortCriteria.map(s => `${s.column}-${s.order}`).join('|');
+            const rowKey = row.entity_id || row.id || `row-${idx}-${JSON.stringify(row).substring(0, 50)}`;
+            // Include sort signature in key to force React to re-render when sort changes
+            const stableRowKey = `${rowKey}-${sortSignature}`;
+            
+            return (
             <tr
-                key={row.id || idx}
+                key={stableRowKey}
                 className={cn(
                     config.enableRowHoverHighlight ? 'hover:bg-gray-100 transition-colors group' : 'group',
                     config.enableStripedRows && idx % 2 === 1 && 'bg-gray-50',
@@ -1392,22 +1419,25 @@ export default function ConfigurableListTemplate({
                                 .map((col, colIndex, arr) => {
                                     const isFrozen = isColumnFrozen(colIndex);
                                     const freezeIndex = (config.freezePaneColumnIndexNo || 1);
-                                    const shouldShowBorder = freezeIndex >= 2 && colIndex === freezeIndex - 2;
-                                    const rowBg = config.enableStripedRows && rowIndex % 2 === 1 ? 'rgb(249 250 251)' : 'white';
+                                    const shouldShowBorder = config.enablefreezePaneColumnIndex && freezeIndex >= 2 && colIndex === freezeIndex - 2;
+                                    const rowBg = config.enableStripedRows && idx % 2 === 1 ? 'rgb(249 250 251)' : 'white';
                                     const leftOffset = isFrozen ? getFreezeLeftOffset(colIndex) : 0;
+                                    const cellValue = row[col]?.toString() || '-';
                                     
                                     return (
                                     <td
-                                        key={col}
+                                        key={`${stableRowKey}-${col}`}
                                         className={cn(
                                             "px-4 py-2 text-sm text-gray-700",
                                             config.enableColumnDivider && colIndex < arr.length - 1 ? 'border-r border-gray-200' : '',
                                             !config.enableRowDivider ? '!border-b-0' : '',
                                             // Border only on last frozen data column
-                                            shouldShowBorder && 'border-r-2 border-gray-300'
+                                            shouldShowBorder && 'border-r-2 border-gray-300 freeze-border-sticky'
                                         )}
                                         style={{
-                                            width: columnWidths[col] ? `${columnWidths[col]}px` : 'auto',
+                                            width: columnWidths[col] ? `${columnWidths[col]}px` : undefined,
+                                            minWidth: columnWidths[col] ? `${columnWidths[col]}px` : undefined,
+                                            maxWidth: columnWidths[col] ? `${columnWidths[col]}px` : undefined,
                                             boxSizing: 'border-box',
                                             ...(isFrozen ? {
                                                 position: 'sticky',
@@ -1422,11 +1452,11 @@ export default function ConfigurableListTemplate({
                                             {config.enableInlineEdit?.includes(col) ? (
                                                 <input
                                                     type="text"
-                                                    defaultValue={row[col]?.toString() || ''}
+                                                    defaultValue={cellValue}
                                                     className="w-full border-none bg-transparent focus:bg-white focus:border focus:border-primary focus:outline-none px-1 py-0.5 rounded"
                                                 />
                                             ) : (
-                                                row[col]?.toString() || '-'
+                                                cellValue
                                             )}
                                         </span>
                                         {colIndex === 0 && (row['isCustom'] === true || row['isCustom'] === 1) && (
@@ -1438,7 +1468,7 @@ export default function ConfigurableListTemplate({
                                     );
                                 })}
 
-                {config.enableRowActions && (
+                            {config.enableRowActions && (
                     <td className={cn(
                         "px-4 py-2 text-sm text-gray-700",
                         !config.enableRowDivider ? '!border-b-0' : '',
@@ -1479,7 +1509,8 @@ export default function ConfigurableListTemplate({
                     </td>
                 )}
             </tr>
-        ));
+            );
+        });
     };
 
     // ===== ORPHANED CODE BLOCK REMOVED (was lines 1110-2409) =====
@@ -1758,7 +1789,7 @@ export default function ConfigurableListTemplate({
                         enableFreezePaneRowHeader={config.enableFreezePaneRowHeader || false}
                         enablefreezePaneColumnIndex={config.enablefreezePaneColumnIndex || false}
                         freezePaneColumnIndexNo={config.freezePaneColumnIndexNo || 1}
-                        maxColumnIndex={visibleColumns.length} // Max = number of visible data columns
+                        maxColumnIndex={Math.max(1, activeColumns.length || 1)} // Max = number of active columns from columnVisibility configuration (min 1)
                         // Refresh
                         enableRefresh={config.enableRefresh || false}
                         refreshButtonType={config.refreshButtonType || 'icon'}
@@ -1833,18 +1864,20 @@ export default function ConfigurableListTemplate({
                                                 className={cn(
                                                     "px-4 py-2 text-sm text-gray-700",
                                                     config.enableColumnDivider ? 'border-r border-gray-200' : '',
-                                                    // Show border on checkbox column when freezeIndex = 1 (only checkbox frozen)
-                                                    checkboxFrozen && (config.freezePaneColumnIndexNo || 1) === 1 && 'border-r-2 border-gray-300'
+                                                    // Show border on checkbox column when freezeIndex = 1 (only checkbox frozen) AND feature is enabled
+                                                    checkboxFrozen && config.enablefreezePaneColumnIndex && (config.freezePaneColumnIndexNo || 1) === 1 && 'border-r-2 border-gray-300'
                                                 )}
                                                 style={{
-                                                    width: checkboxColumnWidth ? `${checkboxColumnWidth}px` : 'auto',
+                                                    width: checkboxColumnWidth ? `${checkboxColumnWidth}px` : undefined,
+                                                    minWidth: checkboxColumnWidth ? `${checkboxColumnWidth}px` : undefined,
+                                                    maxWidth: checkboxColumnWidth ? `${checkboxColumnWidth}px` : undefined,
                                                     boxSizing: 'border-box',
                                                     ...(checkboxFrozen ? {
                                                         position: 'sticky',
                                                         left: '0px',
                                                         zIndex: 26,
                                                         backgroundColor: 'rgb(249 250 251)', // bg-gray-100
-                                                        boxShadow: (config.freezePaneColumnIndexNo || 1) === 1 ? '2px 0 4px rgba(0, 0, 0, 0.1)' : 'none'
+                                                        boxShadow: config.enablefreezePaneColumnIndex && (config.freezePaneColumnIndexNo || 1) === 1 ? '2px 0 4px rgba(0, 0, 0, 0.1)' : 'none'
                                                     } : {})
                                                 }}
                                             >
@@ -1872,11 +1905,12 @@ export default function ConfigurableListTemplate({
                                             .map((col, colIndex, arr) => {
                                                 const isFrozen = isColumnFrozen(colIndex);
                                                 const freezeIndex = (config.freezePaneColumnIndexNo || 1);
-                                                // Border logic:
-                                                // If freezeIndex = 1, freeze checkbox only, no border on data columns
-                                                // If freezeIndex = 2, freeze checkbox + first data column, border on colIndex 0
-                                                // If freezeIndex = 3, freeze checkbox + first two data columns, border on colIndex 1
-                                                const shouldShowBorder = freezeIndex >= 2 && colIndex === freezeIndex - 2;
+                                        // Border logic:
+                                        // If freezeIndex = 1, freeze checkbox only, no border on data columns
+                                        // If freezeIndex = 2, freeze checkbox + first data column, border on colIndex 0
+                                        // If freezeIndex = 3, freeze checkbox + first two data columns, border on colIndex 1
+                                        // Only show border if feature is enabled
+                                        const shouldShowBorder = config.enablefreezePaneColumnIndex && freezeIndex >= 2 && colIndex === freezeIndex - 2;
                                                 const leftOffset = isFrozen ? getFreezeLeftOffset(colIndex) : 0;
                                                 
                                                 return (
@@ -1895,15 +1929,18 @@ export default function ConfigurableListTemplate({
                                             // If freezePaneColumnIndexNo = 3, freeze colIndex < 2, so border on colIndex 1 (last frozen = colIndex 1)
                                             // If freezePaneColumnIndexNo = 1, no data columns frozen, so no border
                                             // Last frozen colIndex = freezePaneColumnIndexNo - 2 (only when freezePaneColumnIndexNo >= 2)
-                                            shouldShowBorder && 'border-r-2 border-gray-300'
+                                            shouldShowBorder && 'border-r-2 border-gray-300 freeze-border-sticky'
                                                     )}
                                                     style={{ 
-                                                        width: columnWidths[col] ? `${columnWidths[col]}px` : 'auto',
+                                                        width: columnWidths[col] ? `${columnWidths[col]}px` : undefined,
+                                                        minWidth: columnWidths[col] ? `${columnWidths[col]}px` : undefined,
+                                                        maxWidth: columnWidths[col] ? `${columnWidths[col]}px` : undefined,
                                                         boxSizing: 'border-box',
                                                         ...(isFrozen ? {
                                                             position: 'sticky',
                                                             left: `${leftOffset}px`,
-                                                            zIndex: 25,
+                                                            // Higher z-index for header to ensure it stays on top, especially when row header is also sticky
+                                                            zIndex: config.enableFreezePaneRowHeader ? 31 : 25,
                                                             backgroundColor: 'rgb(249 250 251)', // bg-gray-100
                                                             boxShadow: shouldShowBorder ? '2px 0 4px rgba(0, 0, 0, 0.1)' : 'none'
                                                         } : {})
@@ -1944,7 +1981,7 @@ export default function ConfigurableListTemplate({
                                 </thead>
                             )}
 
-                            <tbody>
+                            <tbody key={`tbody-${sortCriteria.map(s => `${s.column}-${s.order}`).join('-')}-${sortedData.length}-${sortedData[0]?.entity_id || sortedData[0]?.id || 'empty'}`}>
                                 {renderTableRows()}
                             </tbody>
                             <TableFooter
@@ -2028,6 +2065,24 @@ export default function ConfigurableListTemplate({
                 
                
             />
+            
+            {/* CSS for sticky freeze border */}
+            <style>{`
+                .freeze-border-sticky {
+                    position: relative;
+                }
+                .freeze-border-sticky::after {
+                    content: '';
+                    position: absolute;
+                    right: -2px;
+                    top: 0;
+                    bottom: 0;
+                    width: 2px;
+                    background-color: #d1d5db;
+                    pointer-events: none;
+                    z-index: 100;
+                }
+            `}</style>
         </div>
  );
 }
