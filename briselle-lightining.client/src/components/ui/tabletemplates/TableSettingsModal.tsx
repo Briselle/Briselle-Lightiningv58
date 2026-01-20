@@ -2,14 +2,14 @@ import React, { useState, useEffect, useRef } from 'react';
 import { X, Save, Settings, RotateCcw, AlertTriangle, Monitor, Palette, Move, Eye, PanelBottom, LayoutPanelLeft, Dices, Database, BookmarkCheck, AppWindow, MonitorSpeaker } from 'lucide-react';
 import { TableConfig } from './ConfigurableListTemplate';
 import { TabItem } from './table-components/TableTabPanel';
-import DisplaySettingsSection from './settings-sections/DisplaySettingsSection';
-import LayoutSettingsSection from './settings-sections/LayoutSettingsSection';
-import BehaviorSettingsSection from './settings-sections/BehaviorSettingsSection';
-import DataSettingsSection from './settings-sections/DataSettingsSection';
-import ThemeSettingsSection from './settings-sections/ThemeSettingsSection';
-import PresetSettingsSection from './settings-sections/PresetSettingsSection';
-import TabSettingsSection from './settings-sections/TabSettingsSection';
-import DeviceSettingsSection from './settings-sections/DeviceSettingsSection';
+import DisplaySettingsSection from './modal-settings-sections/DisplaySettingsSection';
+import LayoutSettingsSection from './modal-settings-sections/LayoutSettingsSection';
+import BehaviorSettingsSection from './modal-settings-sections/BehaviorSettingsSection';
+import DataSettingsSection from './modal-settings-sections/DataSettingsSection';
+import ThemeSettingsSection from './modal-settings-sections/ThemeSettingsSection';
+import PresetSettingsSection from './modal-settings-sections/PresetSettingsSection';
+import TabSettingsSection from './modal-settings-sections/TabSettingsSection';
+import DeviceSettingsSection from './modal-settings-sections/DeviceSettingsSection';
 
 export interface TableSettingsModalProps {
     isOpen: boolean;

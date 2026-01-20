@@ -22,6 +22,14 @@ import { loadTableConfig, loadTablePresets } from "./utils/loadTableConfig";
 
 export interface TableConfig {
     [x: string]: any;
+
+    // Search Function Variables
+    enableSearch?: boolean;
+    searchButtonType?: 'icon' | 'button';
+    searchButtonAlign?: 'left' | 'right';
+    searchQuery?: string;
+
+
     // Core Features
     enableSort?: boolean;
     enableHeader?: boolean;
@@ -36,8 +44,7 @@ export interface TableConfig {
     enableRowReorder?: boolean;
 
 
-    // Advanced Features
-    enableSearch?: boolean;
+
     enableFilter?: boolean;
     enableExport?: boolean;
     enableImport?: boolean;
@@ -82,9 +89,7 @@ export interface TableConfig {
     tableBackground?: boolean;
     tableBackgroundColor?: string;
 
-    // Button Display Options with Alignment
-    searchButtonType?: 'icon' | 'button';
-    searchButtonAlign?: 'left' | 'right';
+   
     sortButtonType?: 'icon' | 'button';
     sortButtonAlign?: 'left' | 'right';
     filterButtonType?: 'icon' | 'button';
