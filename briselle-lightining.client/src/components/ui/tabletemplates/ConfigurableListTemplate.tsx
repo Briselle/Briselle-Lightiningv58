@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 
 import {
     Plus, AlertTriangle, ExternalLink, Settings, Edit, Trash2,
@@ -18,6 +18,7 @@ import { SortCriteria } from "./action-components/Action_Sort";
 import { FilterCriteria } from "./action-components/Action_Filter";
 import { TablePreset } from "./action-components/Action_Preset";
 import { loadTableConfig, loadTablePresets } from "./utils/loadTableConfig";
+import { DEFAULT_PRESETS, getDefaultPreset, loadCustomPresetsFromStorage, saveCustomPresetsToStorage } from "./utils/presets";
 
 
 export interface TableConfig {
@@ -225,6 +226,7 @@ export default function ConfigurableListTemplate({
     const [selectedRows, setSelectedRows] = useState<number[]>([]);
     const [groupByColumn, setGroupByColumn] = useState<string | null>(null);
     const [presets, setPresets] = useState<TablePreset[]>([]);
+    const [activePresetId, setActivePresetId] = useState<string>('default');
     const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
     const [checkboxColumnWidth, setCheckboxColumnWidth] = useState<number | null>(null);
     const [draggedRowIndex, setDraggedRowIndex] = useState<number | null>(null);
@@ -388,26 +390,32 @@ export default function ConfigurableListTemplate({
 
 
 
-    // Load presets from localStorage with default presets
+    // Load presets from single source of truth - only on mount
     useEffect(() => {
-        console.log('[CLT] config updated near localstorage preset:', {
-        enableFreezePaneColumnIndex: config.enableFreezePaneColumnIndex,
-        freezePaneColumnIndexNo: config.freezePaneColumnIndexNo,
-    });
-
-        const savedPresets = localStorage.getItem('tablePresets'); 
-        if (savedPresets) {
-            try {
-                const parsedPresets = JSON.parse(savedPresets);
-                setPresets(parsedPresets);
-            } catch (error) {
-                console.error('Error loading presets:', error);
-                setDefaultPresets();
-            }
+        // Load system presets from presets.ts
+        const systemPresets = DEFAULT_PRESETS;
+        
+        // Load custom presets from localStorage
+        const customPresets = loadCustomPresetsFromStorage();
+        
+        // Combine system and custom presets
+        const allPresets = [...systemPresets, ...customPresets];
+        setPresets(allPresets);
+        
+        // Apply default preset on first load if config is empty or not initialized
+        const hasConfig = Object.keys(config).length > 0;
+        if (!hasConfig) {
+            const defaultPreset = getDefaultPreset();
+            setActivePresetId(defaultPreset.id);
+            onConfigChange(defaultPreset.config);
         } else {
-            setDefaultPresets();
+            // If config exists, attempt to keep current active preset (fallback to default)
+            const def = getDefaultPreset();
+            if (!activePresetId || activePresetId === 'default') {
+                setActivePresetId(def.id);
+            }
         }
-    }, []);
+    }, []); // Only run on mount - presets are updated via setPresets from onPresetsChange
 
     // Ctrl+F search activation is now handled by Action_Search component
     // No need for this handler here since search is managed by individual action components
@@ -416,7 +424,7 @@ export default function ConfigurableListTemplate({
         setIsTableSettingsOpen(true);
     };
 
-    const handleCloseTableSettings = (False: any) => {
+    const handleCloseTableSettings = () => {
         setIsTableSettingsOpen(false);
     };
     const handleFilterClick = () => {
@@ -434,9 +442,127 @@ export default function ConfigurableListTemplate({
         // Implement import logic
     };
 
+    const [showPrintConsent, setShowPrintConsent] = React.useState(false);
+
     const handlePrintClick = () => {
-        console.log("Print button clicked!");
-        window.print();
+        setShowPrintConsent(true);
+    };
+
+    const handlePrintConfirm = () => {
+        setShowPrintConsent(false);
+        // Use setTimeout to ensure modal is closed before printing
+        setTimeout(() => {
+            const printContent = document.getElementById('printable-table-content');
+            if (!printContent) {
+                console.error('Print content not found');
+                return;
+            }
+
+            // Create a new window for printing
+            const printWindow = window.open('', '_blank');
+            if (!printWindow) {
+                alert('Please allow pop-ups to print');
+                return;
+            }
+
+            // Get all styles from the current document
+            const styles = Array.from(document.styleSheets)
+                .map(sheet => {
+                    try {
+                        return Array.from(sheet.cssRules)
+                            .map(rule => rule.cssText)
+                            .join('\n');
+                    } catch (e) {
+                        return '';
+                    }
+                })
+                .join('\n');
+
+            // Clone the content
+            const content = printContent.cloneNode(true) as HTMLElement;
+            
+            // Write to print window
+            printWindow.document.write(`
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>Print - ${title}</title>
+                    <style>
+                        ${styles}
+                        @media print {
+                            @page {
+                                margin: 0.25in;
+                                size: landscape;
+                            }
+                            body {
+                                margin: 0;
+                                padding: 0;
+                            }
+                            .no-print {
+                                display: none !important;
+                            }
+                            * {
+                                box-sizing: border-box;
+                            }
+                        }
+                        body {
+                            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                            padding: 10px;
+                            margin: 0;
+                        }
+                        #printable-table-content {
+                            width: 100%;
+                            overflow: visible;
+                        }
+                        .overflow-x-auto {
+                            overflow-x: visible !important;
+                        }
+                        table {
+                            width: 100% !important;
+                            max-width: 100% !important;
+                            border-collapse: collapse;
+                            table-layout: auto;
+                        }
+                        th, td {
+                            border: 1px solid #e5e7eb;
+                            padding: 6px 8px;
+                            text-align: left;
+                            white-space: nowrap;
+                            font-size: 11px;
+                        }
+                        th {
+                            background-color: #f9fafb;
+                            font-weight: 600;
+                        }
+                        @media print {
+                            table {
+                                font-size: 9px;
+                            }
+                            th, td {
+                                padding: 4px 6px;
+                            }
+                        }
+                    </style>
+                </head>
+                <body>
+                    ${content.innerHTML}
+                </body>
+                </html>
+            `);
+            
+            printWindow.document.close();
+            
+            // Trigger print after content is loaded
+            printWindow.onload = () => {
+                printWindow.print();
+                // Close the window after printing (optional)
+                // printWindow.close();
+            };
+        }, 100);
+    };
+
+    const handlePrintCancel = () => {
+        setShowPrintConsent(false);
     };
 
     const handleChangeOwnerClick = () => {
@@ -481,7 +607,19 @@ export default function ConfigurableListTemplate({
         }));
     }, []);
 
+    // Removed setDefaultPresets - now using single source from utils/presets.ts
+    // This function is kept for backward compatibility but should not be used
     const setDefaultPresets = () => {
+        // Use presets from single source
+        const systemPresets = DEFAULT_PRESETS;
+        const customPresets = loadCustomPresetsFromStorage();
+        const allPresets = [...systemPresets, ...customPresets];
+        setPresets(allPresets);
+        localStorage.setItem('tablePresets', JSON.stringify(allPresets));
+    };
+    
+    // OLD CODE - REMOVED - Now using presets.ts as single source
+    /* const setDefaultPresets_OLD = () => {
         const defaultPresets: TablePreset[] = [
             {
                 id: 'default',
@@ -547,7 +685,7 @@ export default function ConfigurableListTemplate({
                     tabList: [],
                 },
                 isDefault: true,
-                presetId: ""
+                presetId: "default"
             },
             {
                 id: 'all-icons-right',
@@ -593,7 +731,9 @@ export default function ConfigurableListTemplate({
                     presetButtonAlign: 'right',
                     theme: 'default',
                     tableView: 'default'
-                }
+                },
+                isDefault: false,
+                presetId: 'all-icons-right'
             },
             {
                 id: 'all-buttons-right',
@@ -639,7 +779,9 @@ export default function ConfigurableListTemplate({
                     presetButtonAlign: 'right',
                     theme: 'professional',
                     tableView: 'comfortable'
-                }
+                },
+                isDefault: false,
+                presetId: 'all-buttons-right'
             },
             {
                 id: 'left-aligned-modern',
@@ -682,7 +824,9 @@ export default function ConfigurableListTemplate({
                     presetButtonAlign: 'left',
                     theme: 'modern',
                     tableView: 'comfortable'
-                }
+                },
+                isDefault: false,
+                presetId: 'left-aligned-modern'
             },
             {
                 id: 'compact-minimal',
@@ -712,7 +856,9 @@ export default function ConfigurableListTemplate({
                     presetButtonAlign: 'right',
                     theme: 'minimal',
                     tableView: 'compact'
-                }
+                },
+                isDefault: false,
+                presetId: 'compact-minimal'
             },
             {
                 id: 'data-analyst',
@@ -764,12 +910,15 @@ export default function ConfigurableListTemplate({
                     presetButtonAlign: 'left',
                     theme: 'professional',
                     tableView: 'spacious'
-                }
+                },
+                isDefault: false,
+                presetId: 'data-analyst'
             }
         ];
         setPresets(defaultPresets);
         localStorage.setItem('tablePresets', JSON.stringify(defaultPresets));
     };
+    */
 
     // Dropdown click-outside handlers are now managed by individual action components
     // Each action component (Action_Search, Action_Sort, etc.) handles its own dropdown state
@@ -1054,8 +1203,58 @@ export default function ConfigurableListTemplate({
 
     // Apply preset handler
     const applyPreset = (preset: TablePreset) => {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({
+                location:'ConfigurableListTemplate.tsx:applyPreset',
+                message:'Applying preset to table config',
+                data:{
+                    presetId:preset.id,
+                    presetName:preset.name,
+                    presetConfigKeys:Object.keys(preset.config||{}),
+                    currentConfigKeys:Object.keys(config||{}).length
+                },
+                timestamp:Date.now(),
+                sessionId:'debug-session',
+                runId:'run1',
+                hypothesisId:'D'
+            })
+        }).catch(()=>{});
+        // #endregion
+        setActivePresetId(preset.id);
         onConfigChange(preset.config);
     };
+
+    useEffect(() => {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({
+                location:'ConfigurableListTemplate.tsx:configEffect',
+                message:'Config prop changed',
+                data:{
+                    configKeys:Object.keys(config||{}).length,
+                    sample:{
+                        searchButtonType: config.searchButtonType,
+                        sortButtonType: config.sortButtonType,
+                        filterButtonType: config.filterButtonType,
+                        exportButtonType: config.exportButtonType,
+                        importButtonType: config.importButtonType,
+                        theme: config.theme,
+                        tableView: config.tableView
+                    }
+                },
+                timestamp:Date.now(),
+                sessionId:'debug-session',
+                runId:'run1',
+                hypothesisId:'E'
+            })
+        }).catch(()=>{});
+        // #endregion
+    }, [config]);
 
 
 
@@ -1137,26 +1336,12 @@ export default function ConfigurableListTemplate({
     };
 
     const renderTableRows = () => {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ConfigurableListTemplate.tsx:1139',message:'renderTableRows called',data:{hasGroupedData:!!groupedData,groupByColumn,sortedDataCount:sortedData.length,groupedDataKeys:groupedData?Object.keys(groupedData):[]},timestamp:Date.now(),sessionId:'debug-session',runId:'run5',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
-        
         if (groupedData) {
-            // #region agent log
-            const groupEntries = Object.entries(groupedData);
-            const allGroupedRowIds = groupEntries.flatMap(([,rows])=>rows.map(r=>r.entity_id||r.id));
-            fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ConfigurableListTemplate.tsx:1145',message:'Rendering grouped data',data:{groupCount:groupEntries.length,groupValues:groupEntries.map(([gv])=>gv),totalRows:groupEntries.reduce((sum,[,rows])=>sum+rows.length,0),sortedDataCount:sortedData.length,groupByColumn,allGroupedRowIds,allSortedRowIds:sortedData.map(r=>r.entity_id||r.id)},timestamp:Date.now(),sessionId:'debug-session',runId:'run5',hypothesisId:'B'})}).catch(()=>{});
-            // #endregion
-            
-            return groupEntries.map(([groupValue, groupRows]) => {
-                // #region agent log
-                if (groupValue === Object.keys(groupedData)[0]) { // Log first group
-                    fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ConfigurableListTemplate.tsx:1150',message:'Rendering first group',data:{groupValue,groupRowsCount:groupRows.length,firstRowEntityId:groupRows[0]?.entity_id,firstRowId:groupRows[0]?.id,allRowEntityIds:groupRows.map(r=>r.entity_id||r.id)},timestamp:Date.now(),sessionId:'debug-session',runId:'run5',hypothesisId:'C'})}).catch(()=>{});
-                }
-                // #endregion
+            return Object.entries(groupedData).map(([groupValue, groupRows]) => {
+                const sortSignature = sortCriteria.map(s => `${s.column}-${s.order}`).join('|');
                 
                 return (
-                <React.Fragment key={`group-${groupValue}-${groupByColumn}-${sortCriteria.map(s => `${s.column}-${s.order}`).join('-')}`}>
+                <React.Fragment key={`group-${groupValue}-${groupByColumn}-${sortSignature}`}>
                     <tr className="bg-gray-100 font-medium">
                         <td
                             colSpan={
@@ -1187,17 +1372,12 @@ export default function ConfigurableListTemplate({
                         const rowIndex = actualIndex >= 0 ? actualIndex : groupRowIdx;
                         // Use a stable unique key based on row.id or entity_id
                         // CRITICAL: Use entity_id or id, NOT idx, so React can track rows across sort changes
-                        // Include groupValue and groupByColumn in key to ensure uniqueness when grouping
+                        // Also include a sort signature to ensure React sees this as a new render when sorting changes
+                        // Include group info in key to ensure uniqueness when grouping
                         const sortSignature = sortCriteria.map(s => `${s.column}-${s.order}`).join('|');
                         const rowKey = row.entity_id || row.id || `${groupValue}-${groupRowIdx}-${JSON.stringify(row).substring(0, 50)}`;
-                        // Include group info in key to prevent duplicate rendering
+                        // Include group info in key to prevent duplicate rendering when grouping changes
                         const stableRowKey = `${rowKey}-group-${groupValue}-${groupByColumn}-${sortSignature}`;
-                        
-                        // #region agent log
-                        if (groupValue === Object.keys(groupedData)[0] && groupRowIdx < 2) { // Log first 2 rows of first group
-                            fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ConfigurableListTemplate.tsx:1175',message:'Rendering grouped row',data:{groupValue,groupRowIdx,rowKey,stableRowKey,rowEntityId:row.entity_id,rowId:row.id,actualIndex,rowIndex},timestamp:Date.now(),sessionId:'debug-session',runId:'run4',hypothesisId:'C'})}).catch(()=>{});
-                        }
-                        // #endregion
                         
                         return (
                         <tr
@@ -1368,10 +1548,6 @@ export default function ConfigurableListTemplate({
             });
         }
 
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ConfigurableListTemplate.tsx:1371',message:'Rendering non-grouped data',data:{sortedDataCount:sortedData.length,groupByColumn,hasGroupedData:!!groupedData,allRowIds:sortedData.map(r=>r.entity_id||r.id)},timestamp:Date.now(),sessionId:'debug-session',runId:'run5',hypothesisId:'D'})}).catch(()=>{});
-        // #endregion
-        
         return sortedData.map((row, idx) => {
             // Use a stable unique key based on row.id or entity_id
             // This ensures React properly re-renders when sort order changes
@@ -1382,12 +1558,6 @@ export default function ConfigurableListTemplate({
             // Include sort signature in key to force React to re-render when sort changes
             // Also include "ungrouped" to ensure key is different from grouped keys
             const stableRowKey = `${rowKey}-ungrouped-${sortSignature}`;
-            
-            // #region agent log
-            if (idx < 2) { // Log first 2 rows
-                fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ConfigurableListTemplate.tsx:1383',message:'Rendering non-grouped row',data:{idx,rowKey,stableRowKey,rowEntityId:row.entity_id,rowId:row.id,groupByColumn},timestamp:Date.now(),sessionId:'debug-session',runId:'run5',hypothesisId:'E'})}).catch(()=>{});
-            }
-            // #endregion
             
             return (
             <tr
@@ -1702,9 +1872,37 @@ export default function ConfigurableListTemplate({
     
 
     return (
-        
         <div className="fade-in">
-            {/* Title Section */}
+            {/* Print Consent Modal */}
+            {showPrintConsent && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+                        <h2 className="text-xl font-bold text-gray-900 mb-4">Print Confirmation</h2>
+                        <p className="text-gray-700 mb-6">
+                            This action will take the data outside of the Briselle Platform limits. 
+                            Are you sure you want to proceed with printing?
+                        </p>
+                        <div className="flex justify-end space-x-3">
+                            <button
+                                onClick={handlePrintCancel}
+                                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handlePrintConfirm}
+                                className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+                            >
+                                Proceed
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+            
+            {/* Printable Content Container */}
+            <div id="printable-table-content">
+                {/* Title Section */}
             {config.enableTitle && (
                 <div style={getTitleStyle()} className={config.enableTitleBackground ? 'mb-0' : 'mb-6'}>
                     <div className="flex justify-between items-center">
@@ -1873,6 +2071,7 @@ export default function ConfigurableListTemplate({
                         presetButtonType={config.presetButtonType || 'icon'}
                         presetButtonAlign={config.presetButtonAlign || 'right'}
                         presets={presets}
+                activePresetId={activePresetId}
                         onPresetClick={handlePresetClick}
                         onPresetApply={applyPreset}
                         // Table View
@@ -2052,7 +2251,9 @@ export default function ConfigurableListTemplate({
                 )}
             </div>
 
-            {/* Bulk Actions Bar */}
+            </div>
+
+            {/* Bulk Actions Bar - Outside printable content so it doesn't print */}
             {config.enableBulkActions && selectedRows.length > 0 && (
                 <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-white border border-gray-200 rounded-lg shadow-lg p-4 z-50">
                     <div className="flex items-center space-x-4">
@@ -2099,34 +2300,17 @@ export default function ConfigurableListTemplate({
             <TableSettingsModal
                 isOpen={isTableSettingsOpen}
                 onSave={onConfigChange}
-                onClose={() => handleCloseTableSettings(false)}
-                currentConfig={config}          // ✅ CRITICAL FIX
-                //{/*onConfigChange={onConfigChange}*/}
-                fieldMappings={fieldMappings}
+                onClose={handleCloseTableSettings}
+                currentConfig={config}
                 presets={presets}
                 onPresetsChange={setPresets}
-                
-               
+                activePresetId={activePresetId}
+                onPresetSelect={setActivePresetId}
             />
-            
+
             {/* CSS for sticky freeze border */}
-            <style>{`
-                .freeze-border-sticky {
-                    position: relative;
-                }
-                .freeze-border-sticky::after {
-                    content: '';
-                    position: absolute;
-                    right: -2px;
-                    top: 0;
-                    bottom: 0;
-                    width: 2px;
-                    background-color: #d1d5db;
-                    pointer-events: none;
-                    z-index: 100;
-                }
-            `}</style>
+            <style dangerouslySetInnerHTML={{ __html: `.freeze-border-sticky { position: relative; } .freeze-border-sticky::after { content: ""; position: absolute; right: -2px; top: 0; bottom: 0; width: 2px; background-color: #d1d5db; pointer-events: none; z-index: 100; }` }} />
         </div>
- );
+    );
 }
 

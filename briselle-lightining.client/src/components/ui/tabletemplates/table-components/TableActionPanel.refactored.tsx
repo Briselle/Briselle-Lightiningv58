@@ -116,6 +116,7 @@ interface TableActionPanelProps {
     presetButtonType: 'icon' | 'button';
     presetButtonAlign: 'left' | 'right';
     presets: TablePreset[];
+    activePresetId?: string;
     onPresetClick: () => void;
     onPresetApply: (preset: TablePreset) => void;
     
@@ -339,6 +340,7 @@ const TableActionPanel: React.FC<TableActionPanelProps> = (props) => {
             presetButtonType={props.presetButtonType}
             presetButtonAlign={props.presetButtonAlign}
             presets={props.presets}
+            activePresetId={props.activePresetId}
             onPresetClick={props.onPresetClick}
             onPresetApply={props.onPresetApply}
         />,

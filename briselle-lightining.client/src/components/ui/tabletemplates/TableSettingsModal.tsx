@@ -11,19 +11,21 @@ import PresetSettingsSection from './modal-settings-sections/PresetSettingsSecti
 import TabSettingsSection from './modal-settings-sections/TabSettingsSection';
 import DeviceSettingsSection from './modal-settings-sections/DeviceSettingsSection';
 
+import { TablePreset } from './action-components/Action_Preset';
+import { DEFAULT_PRESETS } from './utils/presets';
+
 export interface TableSettingsModalProps {
     isOpen: boolean;
     onClose: () => void;
     currentConfig: TableConfig;
     onSave: (config: TableConfig) => void;
+    presets?: TablePreset[];
+    onPresetsChange?: (presets: TablePreset[]) => void;
+    activePresetId?: string;
+    onPresetSelect?: (presetId: string) => void;
 }
 
-const defaultPresets = [
-    { id: 'default', name: 'Default', config: {} },
-    { id: 'salesforce', name: 'Salesforce Classic', config: { theme: 'professional', enableStripedRows: true } },
-];
-
-const TableSettingsModal: React.FC<TableSettingsModalProps> = ({ isOpen, onClose, currentConfig, onSave }) => {
+const TableSettingsModal: React.FC<TableSettingsModalProps> = ({ isOpen, onClose, currentConfig, onSave, presets = [], onPresetsChange, activePresetId, onPresetSelect }) => {
     const [activeTab, setActiveTab] = useState('display');
     const [modalConfig, setModalConfig] = useState<TableConfig>(currentConfig);
     const [selectedPreset, setSelectedPreset] = useState('default');
@@ -99,14 +101,74 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({ isOpen, onClose
             setMenuStyle(settings.menuStyle || 'icon');
             setModalOverlayTransparency(settings.overlayTransparency || 60);
         }
-    }, [currentConfig]);
+
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({
+                location:'TableSettingsModal.tsx:useEffect',
+                message:'Modal init with current config and presets',
+                data:{
+                    presetCount: presets.length,
+                    currentConfigKeys: Object.keys(currentConfig || {}).length,
+                    defaultConfigCaptured: !!defaultConfig,
+                    activePresetId
+                },
+                timestamp:Date.now(),
+                sessionId:'debug-session',
+                runId:'run1',
+                hypothesisId:'A'
+            })
+        }).catch(()=>{});
+        // #endregion
+    }, [currentConfig, presets, activePresetId]);
+
+    useEffect(() => {
+        if (activePresetId) {
+            setSelectedPreset(activePresetId);
+        } else if (presets.length) {
+            const def = presets.find(p => p.isDefault) || presets[0];
+            setSelectedPreset(def.id);
+        }
+    }, [activePresetId, presets]);
 
     const handleChange = (key: keyof TableConfig, value: any) => {
         setModalConfig(prev => ({ ...prev, [key]: value }));
     };
 
     const handleSave = () => {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({
+                location:'TableSettingsModal.tsx:handleSave',
+                message:'Saving modal config',
+                data:{
+                    selectedPreset,
+                    modalConfigKeys:Object.keys(modalConfig||{}).length,
+                    sample:{
+                        searchButtonType: modalConfig.searchButtonType,
+                        sortButtonType: modalConfig.sortButtonType,
+                        filterButtonType: modalConfig.filterButtonType,
+                        exportButtonType: modalConfig.exportButtonType,
+                        importButtonType: modalConfig.importButtonType,
+                        theme: modalConfig.theme,
+                        tableView: modalConfig.tableView
+                    }
+                },
+                timestamp:Date.now(),
+                sessionId:'debug-session',
+                runId:'run1',
+                hypothesisId:'B'
+            })
+        }).catch(()=>{});
+        // #endregion
         onSave(modalConfig);
+        if (onPresetSelect) {
+            onPresetSelect(selectedPreset);
+        }
 
         // Save modal settings
         const modalSettings = {
@@ -139,37 +201,100 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({ isOpen, onClose
         onClose();
     };
 
-    const handlePresetChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
-        const presetId = e.target.value;
+    // Separate system presets (from DEFAULT_PRESETS) from custom presets to avoid storing system presets in localStorage
+    const systemPresetIds = new Set(DEFAULT_PRESETS.map(p => p.id));
+    const systemPresets = presets.filter(p => systemPresetIds.has(p.id));
+    const allCustomPresets = [
+        ...presets.filter(p => !systemPresetIds.has(p.id)),
+        ...customPresets
+    ].filter((p, idx, arr) => arr.findIndex(x => x.id === p.id) === idx);
+
+    const handlePresetChange = (presetId: string) => {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{
+            method:'POST',
+            headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({
+                location:'TableSettingsModal.tsx:handlePresetChange',
+                message:'Preset change requested',
+                data:{
+                    presetId,
+                    availablePresetIds:[...systemPresets, ...allCustomPresets].map(p=>p.id)
+                },
+                timestamp:Date.now(),
+                sessionId:'debug-session',
+                runId:'run1',
+                hypothesisId:'B'
+            })
+        }).catch(()=>{});
+        // #endregion
         setSelectedPreset(presetId);
-        const preset = [...defaultPresets, ...customPresets].find(p => p.id === presetId);
+        if (onPresetSelect) {
+            onPresetSelect(presetId);
+        }
+        const preset = [...systemPresets, ...allCustomPresets].find(p => p.id === presetId);
         if (preset) {
-            // Apply preset config, but preserve tab and title panel settings
-            setModalConfig(prev => ({
+            // Start from preset config (match action panel behavior), then preserve only tab settings
+            const nextConfig = {
                 ...preset.config,
-                ...prev,
                 // Preserve tab settings
-                enableTabs: prev.enableTabs,
-                tabHeight: prev.tabHeight,
-                tabAlignment: prev.tabAlignment,
-                tabOrientation: prev.tabOrientation,
-                tabLabelWidth: prev.tabLabelWidth,
-                tabCustomSelection: prev.tabCustomSelection,
-                tabSelectionColor: prev.tabSelectionColor,
-                tabCustomHover: prev.tabCustomHover,
-                tabHoverColor: prev.tabHoverColor,
-                tabPanelBackground: prev.tabPanelBackground,
-                tabList: prev.tabList,
-                // Preserve title panel settings
-                enableTitle: prev.enableTitle,
-                enableNewButton: prev.enableNewButton,
-                enableTitleBackground: prev.enableTitleBackground,
-                titleBackgroundColor: prev.titleBackgroundColor,
-                titleTableSpacing: prev.titleTableSpacing,
-                enableTablePanel: prev.enableTablePanel,
-                tablePanelBackground: prev.tablePanelBackground,
-                tablePanelBackgroundColor: prev.tablePanelBackgroundColor,
-            }));
+                enableTabs: modalConfig.enableTabs,
+                tabHeight: modalConfig.tabHeight,
+                tabAlignment: modalConfig.tabAlignment,
+                tabOrientation: modalConfig.tabOrientation,
+                tabLabelWidth: modalConfig.tabLabelWidth,
+                tabCustomSelection: modalConfig.tabCustomSelection,
+                tabSelectionColor: modalConfig.tabSelectionColor,
+                tabCustomHover: modalConfig.tabCustomHover,
+                tabHoverColor: modalConfig.tabHoverColor,
+                tabPanelBackground: modalConfig.tabPanelBackground,
+                tabList: modalConfig.tabList
+            };
+
+            // Apply preset config, but preserve tab and title panel settings
+            setModalConfig(nextConfig);
+            onSave(nextConfig);
+            if (onPresetSelect) {
+                onPresetSelect(presetId);
+            }
+
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{
+                method:'POST',
+                headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({
+                    location:'TableSettingsModal.tsx:handlePresetChange',
+                    message:'Preset applied to modal config',
+                    data:{
+                        presetId,
+                        presetConfigKeys:Object.keys(preset.config||{}),
+                        modalConfigKeys:Object.keys(modalConfig||{}).length,
+                        presetSample:{
+                            searchButtonType: preset.config?.searchButtonType,
+                            sortButtonType: preset.config?.sortButtonType,
+                            filterButtonType: preset.config?.filterButtonType,
+                            exportButtonType: preset.config?.exportButtonType,
+                            importButtonType: preset.config?.importButtonType,
+                            theme: preset.config?.theme,
+                            tableView: preset.config?.tableView
+                        },
+                        nextConfigSample:{
+                            searchButtonType: nextConfig.searchButtonType,
+                            sortButtonType: nextConfig.sortButtonType,
+                            filterButtonType: nextConfig.filterButtonType,
+                            exportButtonType: nextConfig.exportButtonType,
+                            importButtonType: nextConfig.importButtonType,
+                            theme: nextConfig.theme,
+                            tableView: nextConfig.tableView
+                        }
+                    },
+                    timestamp:Date.now(),
+                    sessionId:'debug-session',
+                    runId:'run1',
+                    hypothesisId:'C'
+                })
+            }).catch(()=>{});
+            // #endregion
         }
     };
 
@@ -177,17 +302,24 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({ isOpen, onClose
         const presetName = prompt('Enter preset name:');
         if (presetName) {
             const newPresetId = `custom-${Date.now()}`;
-            const newPreset = {
+            const newPreset: TablePreset = {
                 id: newPresetId,
+                presetId: newPresetId,
                 name: presetName,
                 config: {
                     ...modalConfig,
                     // Exclude tab and title panel settings from saved preset
                 }
             };
-            const updatedPresets = [...customPresets, newPreset];
-            setCustomPresets(updatedPresets);
-            localStorage.setItem('customTablePresets', JSON.stringify(updatedPresets));
+            const updatedCustomPresets = [...customPresets, newPreset];
+            setCustomPresets(updatedCustomPresets);
+            localStorage.setItem('customTablePresets', JSON.stringify(updatedCustomPresets));
+            
+            // Update presets in parent component if callback provided
+            if (onPresetsChange) {
+                const updatedAllPresets = [...presets, newPreset];
+                onPresetsChange(updatedAllPresets);
+            }
         }
     };
 
@@ -728,11 +860,22 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({ isOpen, onClose
                                             modalHeaderFontSize={modalHeaderFontSize}
                                             modalContentFontSize={modalContentFontSize}
                                             selectedPreset={selectedPreset}
-                                            customPresets={customPresets}
+                                            systemPresets={systemPresets}
+                                            customPresets={allCustomPresets}
                                             onPresetChange={handlePresetChange}
                                             onSavePreset={handleSavePreset}
                                             onDeletePreset={handleDeletePreset}
                                             onFactoryReset={handleFactoryReset}
+                                            onPresetsChange={onPresetsChange}
+                                            onConfigChange={(config) => {
+                                                setModalConfig(config);
+                                                onSave(config);
+                                            if (onPresetSelect) {
+                                                onPresetSelect(selectedPreset);
+                                            }
+                                            }}
+                                            currentConfig={modalConfig}
+                                        onPresetSelect={onPresetSelect}
                                         />
                                     )}
 

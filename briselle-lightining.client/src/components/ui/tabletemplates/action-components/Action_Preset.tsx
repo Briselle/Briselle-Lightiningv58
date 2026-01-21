@@ -15,6 +15,7 @@ interface Action_PresetProps {
     presetButtonType: 'icon' | 'button';
     presetButtonAlign: 'left' | 'right';
     presets: TablePreset[];
+    activePresetId?: string;
     onPresetClick: () => void;
     onPresetApply: (preset: TablePreset) => void;
 }
@@ -24,6 +25,7 @@ const Action_Preset: React.FC<Action_PresetProps> = ({
     presetButtonType,
     presetButtonAlign,
     presets,
+    activePresetId,
     onPresetClick,
     onPresetApply,
 }) => {
@@ -88,7 +90,13 @@ const Action_Preset: React.FC<Action_PresetProps> = ({
                 }}
                 className="flex items-center justify-center px-3 py-2 border border-gray-300 rounded-md hover:bg-gray-50 h-10"
             >
-                {getButtonContent(<Bookmark size={16} />, 'Presets', presetButtonType || 'icon')}
+                {getButtonContent(
+                    <Bookmark size={16} />,
+                    activePresetId 
+                        ? `Preset: ${(presets.find(p => p.id === activePresetId)?.name) || 'Presets'}`
+                        : 'Presets',
+                    presetButtonType || 'icon'
+                )}
                 <ChevronDown size={14} className="ml-1" />
             </button>
 
@@ -111,6 +119,9 @@ const Action_Preset: React.FC<Action_PresetProps> = ({
                                 className="w-full text-left px-4 py-2 text-sm hover:bg-gray-100 flex items-center"
                             >
                                 {preset.name}
+                                {preset.id === activePresetId && (
+                                    <span className="ml-2 text-xs text-green-600">Active</span>
+                                )}
                                 {preset.isDefault && <Star size={12} className="ml-2 text-yellow-500" />}
                             </button>
                         ))}
