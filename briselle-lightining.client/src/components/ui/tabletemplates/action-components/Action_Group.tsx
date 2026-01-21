@@ -117,14 +117,14 @@ const Action_Group: React.FC<Action_GroupProps> = ({
                                     Active group
                                 </div>
 
-                                <div className="flex items-center justify-between p-2 bg-purple-50 rounded">
-                                    <span className="text-sm text-purple-700">
+                                <div className="flex items-center justify-between p-2 bg-blue-50 rounded">
+                                    <span className="text-sm text-blue-700">
                                         {fieldMappings[groupByColumn]}
                                     </span>
 
                                     <button
                                         onClick={() => onGroupByColumnChange(null)}
-                                        className="text-purple-600 hover:text-purple-800"
+                                        className="text-blue-600 hover:text-blue-800"
                                         title="Remove grouping"
                                     >
                                         <X size={14} />

@@ -1137,9 +1137,26 @@ export default function ConfigurableListTemplate({
     };
 
     const renderTableRows = () => {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ConfigurableListTemplate.tsx:1139',message:'renderTableRows called',data:{hasGroupedData:!!groupedData,groupByColumn,sortedDataCount:sortedData.length,groupedDataKeys:groupedData?Object.keys(groupedData):[]},timestamp:Date.now(),sessionId:'debug-session',runId:'run5',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+        
         if (groupedData) {
-            return Object.entries(groupedData).map(([groupValue, groupRows]) => (
-                <React.Fragment key={groupValue}>
+            // #region agent log
+            const groupEntries = Object.entries(groupedData);
+            const allGroupedRowIds = groupEntries.flatMap(([,rows])=>rows.map(r=>r.entity_id||r.id));
+            fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ConfigurableListTemplate.tsx:1145',message:'Rendering grouped data',data:{groupCount:groupEntries.length,groupValues:groupEntries.map(([gv])=>gv),totalRows:groupEntries.reduce((sum,[,rows])=>sum+rows.length,0),sortedDataCount:sortedData.length,groupByColumn,allGroupedRowIds,allSortedRowIds:sortedData.map(r=>r.entity_id||r.id)},timestamp:Date.now(),sessionId:'debug-session',runId:'run5',hypothesisId:'B'})}).catch(()=>{});
+            // #endregion
+            
+            return groupEntries.map(([groupValue, groupRows]) => {
+                // #region agent log
+                if (groupValue === Object.keys(groupedData)[0]) { // Log first group
+                    fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ConfigurableListTemplate.tsx:1150',message:'Rendering first group',data:{groupValue,groupRowsCount:groupRows.length,firstRowEntityId:groupRows[0]?.entity_id,firstRowId:groupRows[0]?.id,allRowEntityIds:groupRows.map(r=>r.entity_id||r.id)},timestamp:Date.now(),sessionId:'debug-session',runId:'run5',hypothesisId:'C'})}).catch(()=>{});
+                }
+                // #endregion
+                
+                return (
+                <React.Fragment key={`group-${groupValue}-${groupByColumn}-${sortCriteria.map(s => `${s.column}-${s.order}`).join('-')}`}>
                     <tr className="bg-gray-100 font-medium">
                         <td
                             colSpan={
@@ -1162,6 +1179,7 @@ export default function ConfigurableListTemplate({
                         const actualIndex = sortedData.findIndex(r => {
                             // Try to match by ID first, then by reference
                             if (r.id && row.id && r.id === row.id) return true;
+                            if (r.entity_id && row.entity_id && r.entity_id === row.entity_id) return true;
                             if (r === row) return true;
                             // Fallback: compare all keys
                             return JSON.stringify(r) === JSON.stringify(row);
@@ -1169,10 +1187,18 @@ export default function ConfigurableListTemplate({
                         const rowIndex = actualIndex >= 0 ? actualIndex : groupRowIdx;
                         // Use a stable unique key based on row.id or entity_id
                         // CRITICAL: Use entity_id or id, NOT idx, so React can track rows across sort changes
-                        // Also include a sort signature to ensure React sees this as a new render when sorting changes
+                        // Include groupValue and groupByColumn in key to ensure uniqueness when grouping
                         const sortSignature = sortCriteria.map(s => `${s.column}-${s.order}`).join('|');
                         const rowKey = row.entity_id || row.id || `${groupValue}-${groupRowIdx}-${JSON.stringify(row).substring(0, 50)}`;
-                        const stableRowKey = `${rowKey}-${sortSignature}`;
+                        // Include group info in key to prevent duplicate rendering
+                        const stableRowKey = `${rowKey}-group-${groupValue}-${groupByColumn}-${sortSignature}`;
+                        
+                        // #region agent log
+                        if (groupValue === Object.keys(groupedData)[0] && groupRowIdx < 2) { // Log first 2 rows of first group
+                            fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ConfigurableListTemplate.tsx:1175',message:'Rendering grouped row',data:{groupValue,groupRowIdx,rowKey,stableRowKey,rowEntityId:row.entity_id,rowId:row.id,actualIndex,rowIndex},timestamp:Date.now(),sessionId:'debug-session',runId:'run4',hypothesisId:'C'})}).catch(()=>{});
+                        }
+                        // #endregion
+                        
                         return (
                         <tr
                             key={stableRowKey}
@@ -1338,9 +1364,14 @@ export default function ConfigurableListTemplate({
                         </tr>
                     )})}
                 </React.Fragment>
-            ));
+                );
+            });
         }
 
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ConfigurableListTemplate.tsx:1371',message:'Rendering non-grouped data',data:{sortedDataCount:sortedData.length,groupByColumn,hasGroupedData:!!groupedData,allRowIds:sortedData.map(r=>r.entity_id||r.id)},timestamp:Date.now(),sessionId:'debug-session',runId:'run5',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
+        
         return sortedData.map((row, idx) => {
             // Use a stable unique key based on row.id or entity_id
             // This ensures React properly re-renders when sort order changes
@@ -1349,7 +1380,14 @@ export default function ConfigurableListTemplate({
             const sortSignature = sortCriteria.map(s => `${s.column}-${s.order}`).join('|');
             const rowKey = row.entity_id || row.id || `row-${idx}-${JSON.stringify(row).substring(0, 50)}`;
             // Include sort signature in key to force React to re-render when sort changes
-            const stableRowKey = `${rowKey}-${sortSignature}`;
+            // Also include "ungrouped" to ensure key is different from grouped keys
+            const stableRowKey = `${rowKey}-ungrouped-${sortSignature}`;
+            
+            // #region agent log
+            if (idx < 2) { // Log first 2 rows
+                fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ConfigurableListTemplate.tsx:1383',message:'Rendering non-grouped row',data:{idx,rowKey,stableRowKey,rowEntityId:row.entity_id,rowId:row.id,groupByColumn},timestamp:Date.now(),sessionId:'debug-session',runId:'run5',hypothesisId:'E'})}).catch(()=>{});
+            }
+            // #endregion
             
             return (
             <tr
@@ -1986,7 +2024,7 @@ export default function ConfigurableListTemplate({
                                 </thead>
                             )}
 
-                            <tbody key={`tbody-${sortCriteria.map(s => `${s.column}-${s.order}`).join('-')}-${sortedData.length}-${sortedData[0]?.entity_id || sortedData[0]?.id || 'empty'}`}>
+                            <tbody key={`tbody-${groupByColumn ? `grouped-${groupByColumn}` : 'ungrouped'}-${sortCriteria.map(s => `${s.column}-${s.order}`).join('-')}-${sortedData.length}-${sortedData[0]?.entity_id || sortedData[0]?.id || 'empty'}`}>
                                 {renderTableRows()}
                             </tbody>
                             <TableFooter
