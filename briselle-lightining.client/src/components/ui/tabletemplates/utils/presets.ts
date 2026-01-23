@@ -1,5 +1,6 @@
 import { TablePreset } from '../action-components/Action_Preset';
 import { TableConfig } from '../ConfigurableListTemplate';
+import { DEFAULT_ACTION_PANEL_ORDER } from './actionPanelOrder';
 
 /**
  * Single source of truth for all table presets
@@ -32,6 +33,8 @@ export const DEFAULT_PRESETS: TablePreset[] = [
                 "enableColumnResize": true,
                 "enableColumnReorder": true,
                 "enableRowReorder": true,
+                "enableRowResize": true,
+                "enableColumnHover": true,
                 "enableWrapClipOption": true,
                 "enableWrapText": true,
                 "enableTableTotals": true,
@@ -181,7 +184,19 @@ export const DEFAULT_PRESETS: TablePreset[] = [
                 "enableShare": true,
                 "shareButtonType": "icon",
                 "shareButtonAlign": "right",
-              
+                "shareLinkActive": false,
+                "shareLinkUrl": "",
+                "shareActionPanelViewAllowed": false,
+                "shareRestrictCopy": false,
+                "shareShowAllFieldsExpanded": false,
+                "shareRestrictByPasswordOrDomain": false,
+                "shareRestrictEmail": "",
+
+                // ==============================
+                // ACTION PANEL ORDER (sync with Display Settings & UI)
+                // ==============================
+                "actionPanelButtonOrder": DEFAULT_ACTION_PANEL_ORDER,
+
                 // ==============================
                 // VIEW & SETTINGS
                 // ==============================
@@ -199,12 +214,52 @@ export const DEFAULT_PRESETS: TablePreset[] = [
                 "freezePaneAlign": "right",
                 "enableFreezePaneRowHeader": true,
                 "enablefreezePaneColumnIndex": true,
+                "enableTableLayoutSetup": true,
+                "tableLayoutSetupButtonType": "icon",
+                "tableLayoutSetupButtonAlign": "right",
+                "enableSettings": true,
                 "freezePaneColumnIndexNo": 1,
               
                 // ==============================
                 // UX ENHANCEMENTS
                 // ==============================
-                "enableTooltips": true
+                "enableTooltips": true,
+
+                "enableInlineEdit": [
+                    "dobj_name_display",
+                    "dobj_description"
+                    ],
+                "enableBulkActions": true,
+                "editActionButtonType": "icon",
+                "editActionButtonAlign": "right",
+                "chartActionButtonType": "icon",
+                "chartActionButtonAlign": "right",
+                "printActionButtonType": "icon",
+                "printActionButtonAlign": "right",
+                "ownerActionButtonType": "icon",
+                "ownerActionButtonAlign": "right",
+                "pageSize": 25,
+                "pageSizeOptions": [
+                    10,
+                    25,
+                    50,
+                    100
+                ],
+                "rowActionsPosition": "right",
+                "showRowActionsOnHover": false,
+                "enabledRowActions": [
+                    "view",
+                    "edit",
+                    "copy",
+                    "delete"
+                ],
+                "actionStyle": "icons",
+                "actionStyleFlow": "expand",
+                "bulkActionStyle": "icons",
+                "enableEditAction": true,
+                "enableChartAction": true,
+                "enablePrintAction": true,
+                "enableOwnerAction": true
               }
               
         }

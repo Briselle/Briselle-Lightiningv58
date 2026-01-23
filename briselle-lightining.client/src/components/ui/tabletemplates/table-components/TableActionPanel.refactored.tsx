@@ -7,6 +7,7 @@ import Action_ColumnVisibility from '../action-components/Action_ColumnVisibilit
 import Action_FreezePane from '../action-components/Action_FreezePane';
 import Action_Refresh from '../action-components/Action_Refresh';
 import Action_Export from '../action-components/Action_Export';
+import type { ExportFormat } from '../action-components/Action_Export';
 import Action_Import from '../action-components/Action_Import';
 import Action_Print from '../action-components/Action_Print';
 import Action_ChangeOwner from '../action-components/Action_ChangeOwner';
@@ -14,9 +15,11 @@ import Action_Chart from '../action-components/Action_Chart';
 import Action_Share from '../action-components/Action_Share';
 import Action_Preset, { TablePreset } from '../action-components/Action_Preset';
 import Action_TableView from '../action-components/Action_TableView';
+import Action_TableLayoutSetup from '../action-components/Action_TableLayoutSetup';
 import Action_Settings from '../action-components/Action_Settings';
 import { SortCriteria } from '../action-components/Action_Sort';
 import { FilterCriteria } from '../action-components/Action_Filter';
+import { getButtonOrder, BUTTON_DEFINITIONS } from '../utils/actionPanelOrder';
 
 interface TableActionPanelProps {
     enableTablePanel: boolean;
@@ -79,13 +82,13 @@ interface TableActionPanelProps {
     enableExport: boolean;
     exportButtonType: 'icon' | 'button';
     exportButtonAlign: 'left' | 'right';
-    onExportClick: () => void;
+    onExportClick: (format: ExportFormat) => void;
     
     // Import
     enableImport: boolean;
     importButtonType: 'icon' | 'button';
     importButtonAlign: 'left' | 'right';
-    onImportClick: () => void;
+    onImportClick: (format: 'csv' | 'excel' | 'connector') => void;
     
     // Print
     enablePrint: boolean;
@@ -120,11 +123,16 @@ interface TableActionPanelProps {
     onPresetClick: () => void;
     onPresetApply: (preset: TablePreset) => void;
     
-    // Table View
-    tableViewButtonType: 'icon' | 'button';
-    tableViewButtonAlign: 'left' | 'right';
-    currentTableView: 'default' | 'compact' | 'comfortable' | 'spacious';
-    onTableViewChange: (view: 'default' | 'compact' | 'comfortable' | 'spacious') => void;
+    // Table View (legacy, kept for backward compat)
+    tableViewButtonType?: 'icon' | 'button';
+    tableViewButtonAlign?: 'left' | 'right';
+    currentTableView?: 'default' | 'compact' | 'comfortable' | 'spacious';
+    onTableViewChange?: (view: 'default' | 'compact' | 'comfortable' | 'spacious') => void;
+    
+    // Table Layout Setup (replaces Table View in panel)
+    enableTableLayoutSetup?: boolean;
+    tableLayoutSetupButtonType?: 'icon' | 'button';
+    tableLayoutSetupButtonAlign?: 'left' | 'right';
     
     // Settings
     settingsButtonType: 'icon' | 'button';
@@ -142,233 +150,75 @@ const TableActionPanel: React.FC<TableActionPanelProps> = (props) => {
         enableTablePanel,
         tablePanelBackground,
         tablePanelBackgroundColor,
+        config,
     } = props;
 
     if (!enableTablePanel) return null;
 
-    // Organize buttons by alignment
+    const order = getButtonOrder(config ?? {});
+
     const leftButtons: React.ReactNode[] = [];
     const rightButtons: React.ReactNode[] = [];
 
-    // Helper to add button to appropriate side
     const addButton = (component: React.ReactNode | null, align: 'left' | 'right') => {
         if (!component) return;
-        if (align === 'left') {
-            leftButtons.push(component);
-        } else {
-            rightButtons.push(component);
-        }
+        if (align === 'left') leftButtons.push(component);
+        else rightButtons.push(component);
     };
 
-    // Search
-    addButton(
-        <Action_Search
-            key="search"
-            enableSearch={props.enableSearch}
-            searchButtonType={props.searchButtonType}
-            searchButtonAlign={props.searchButtonAlign}
-            searchTerm={props.searchTerm}
-            onSearchChange={props.onSearchChange}
-        />,
-        props.searchButtonAlign
-    );
+    const align = (key: string): 'left' | 'right' =>
+        (config?.[BUTTON_DEFINITIONS[key]?.alignKey ?? ''] as 'left' | 'right') || 'right';
 
-    // Sort
-    addButton(
-        <Action_Sort
-            key="sort"
-            enableSort={props.enableSort}
-            sortButtonType={props.sortButtonType}
-            sortButtonAlign={props.sortButtonAlign}
-            fieldMappings={props.fieldMappings}
-            sortCriteria={props.sortCriteria}
-            onSortCriteriaChange={props.onSortCriteriaChange}
-        />,
-        props.sortButtonAlign
-    );
+    const buttons: Record<string, React.ReactNode> = {
+        search: <Action_Search key="search" enableSearch={props.enableSearch} searchButtonType={props.searchButtonType} searchButtonAlign={props.searchButtonAlign} searchTerm={props.searchTerm} onSearchChange={props.onSearchChange} />,
+        sort: <Action_Sort key="sort" enableSort={props.enableSort} sortButtonType={props.sortButtonType} sortButtonAlign={props.sortButtonAlign} fieldMappings={props.fieldMappings} sortCriteria={props.sortCriteria} onSortCriteriaChange={props.onSortCriteriaChange} />,
+        filter: <Action_Filter key="filter" enableFilter={props.enableFilter} filterButtonType={props.filterButtonType} filterButtonAlign={props.filterButtonAlign} fieldMappings={props.fieldMappings} filterCriteria={props.filterCriteria} onFilterCriteriaChange={props.onFilterCriteriaChange} />,
+        group: <Action_Group key="group" enableGroup={props.enableGroup} groupButtonType={props.groupButtonType} groupButtonAlign={props.groupButtonAlign} fieldMappings={props.fieldMappings} groupByColumn={props.groupByColumn} onGroupByColumnChange={props.onGroupByColumnChange} />,
+        columnVisibility: <Action_ColumnVisibility key="columnVisibility" enableColumnVisibility={props.enableColumnVisibility} columnVisibilityButtonType={props.columnVisibilityButtonType} columnVisibilityButtonAlign={props.columnVisibilityButtonAlign} fieldMappings={props.fieldMappings} allColumns={props.allColumns} activeColumns={props.activeColumns} visibleColumns={props.visibleColumns} onActiveColumnsChange={props.onActiveColumnsChange} onVisibleColumnsChange={props.onVisibleColumnsChange} />,
+        freezePane: <Action_FreezePane key="freezePane" enableFreezePane={props.enableFreezePane} freezePaneType={props.freezePaneType} freezePaneAlign={props.freezePaneAlign} enableFreezePaneRowHeader={props.enableFreezePaneRowHeader} enablefreezePaneColumnIndex={props.enablefreezePaneColumnIndex} freezePaneColumnIndexNo={props.freezePaneColumnIndexNo} onConfigChange={props.onConfigChange} config={props.config} />,
+        refresh: <Action_Refresh key="refresh" enableRefresh={props.enableRefresh} refreshButtonType={props.refreshButtonType} refreshButtonAlign={props.refreshButtonAlign} onRefreshClick={props.onRefreshClick} />,
+        export: <Action_Export key="export" enableExport={props.enableExport} exportButtonType={props.exportButtonType} exportButtonAlign={props.exportButtonAlign} onExportClick={props.onExportClick} />,
+        import: <Action_Import key="import" enableImport={props.enableImport} importButtonType={props.importButtonType} importButtonAlign={props.importButtonAlign} onImportClick={props.onImportClick} />,
+        print: <Action_Print key="print" enablePrint={props.enablePrint} printButtonType={props.printButtonType} printButtonAlign={props.printButtonAlign} onPrintClick={props.onPrintClick} />,
+        changeOwner: <Action_ChangeOwner key="changeOwner" enableChangeOwner={props.enableChangeOwner} changeOwnerButtonType={props.changeOwnerButtonType} changeOwnerButtonAlign={props.changeOwnerButtonAlign} onChangeOwnerClick={props.onChangeOwnerClick} />,
+        chart: <Action_Chart key="chart" enableChart={props.enableChart} chartButtonType={props.chartButtonType} chartButtonAlign={props.chartButtonAlign} onChartClick={props.onChartClick} />,
+        share: (
+            <Action_Share
+                key="share"
+                enableShare={props.enableShare}
+                shareButtonType={props.shareButtonType}
+                shareButtonAlign={props.shareButtonAlign}
+                onShareClick={props.onShareClick}
+                shareLinkActive={config?.shareLinkActive}
+                shareLinkUrl={config?.shareLinkUrl}
+                shareActionPanelViewAllowed={config?.shareActionPanelViewAllowed ?? false}
+                shareRestrictCopy={config?.shareRestrictCopy ?? false}
+                shareShowAllFieldsExpanded={config?.shareShowAllFieldsExpanded ?? false}
+                shareRestrictByPasswordOrDomain={config?.shareRestrictByPasswordOrDomain ?? false}
+                shareRestrictEmail={config?.shareRestrictEmail ?? ''}
+                config={config}
+                onConfigChange={props.onConfigChange}
+            />
+        ),
+        preset: <Action_Preset key="preset" enablePresetSelector={props.enablePresetSelector} presetButtonType={props.presetButtonType} presetButtonAlign={props.presetButtonAlign} presets={props.presets} activePresetId={props.activePresetId} onPresetClick={props.onPresetClick} onPresetApply={props.onPresetApply} />,
+        tableView: <Action_TableView key="tableView" tableViewButtonType={props.tableViewButtonType ?? 'icon'} tableViewButtonAlign={props.tableViewButtonAlign ?? 'right'} currentTableView={props.currentTableView ?? 'default'} onTableViewChange={props.onTableViewChange ?? (() => {})} />,
+        tableLayoutSetup: (
+            <Action_TableLayoutSetup
+                key="tableLayoutSetup"
+                enableTableLayoutSetup={props.enableTableLayoutSetup ?? true}
+                tableLayoutSetupButtonType={props.tableLayoutSetupButtonType ?? config?.tableLayoutSetupButtonType ?? 'icon'}
+                tableLayoutSetupButtonAlign={props.tableLayoutSetupButtonAlign ?? config?.tableLayoutSetupButtonAlign ?? 'right'}
+                config={config ?? {}}
+                onConfigChange={props.onConfigChange}
+            />
+        ),
+        settings: <Action_Settings key="settings" settingsButtonType={props.settingsButtonType} settingsButtonAlign={props.settingsButtonAlign} onSettingsClick={props.onSettingsClick} />,
+    };
 
-    // Filter
-    addButton(
-        <Action_Filter
-            key="filter"
-            enableFilter={props.enableFilter}
-            filterButtonType={props.filterButtonType}
-            filterButtonAlign={props.filterButtonAlign}
-            fieldMappings={props.fieldMappings}
-            filterCriteria={props.filterCriteria}
-            onFilterCriteriaChange={props.onFilterCriteriaChange}
-        />,
-        props.filterButtonAlign
-    );
-
-    // Group
-    addButton(
-        <Action_Group
-            key="group"
-            enableGroup={props.enableGroup}
-            groupButtonType={props.groupButtonType}
-            groupButtonAlign={props.groupButtonAlign}
-            fieldMappings={props.fieldMappings}
-            groupByColumn={props.groupByColumn}
-            onGroupByColumnChange={props.onGroupByColumnChange}
-        />,
-        props.groupButtonAlign
-    );
-
-    // Column Visibility
-    addButton(
-        <Action_ColumnVisibility
-            key="columnVisibility"
-            enableColumnVisibility={props.enableColumnVisibility}
-            columnVisibilityButtonType={props.columnVisibilityButtonType}
-            columnVisibilityButtonAlign={props.columnVisibilityButtonAlign}
-            fieldMappings={props.fieldMappings}
-            allColumns={props.allColumns}
-            activeColumns={props.activeColumns}
-            visibleColumns={props.visibleColumns}
-            onActiveColumnsChange={props.onActiveColumnsChange}
-            onVisibleColumnsChange={props.onVisibleColumnsChange}
-        />,
-        props.columnVisibilityButtonAlign
-    );
-
-    // Freeze Pane
-    addButton(
-        <Action_FreezePane
-            key="freezePane"
-            enableFreezePane={props.enableFreezePane}
-            freezePaneType={props.freezePaneType}
-            freezePaneAlign={props.freezePaneAlign}
-            enableFreezePaneRowHeader={props.enableFreezePaneRowHeader}
-            enablefreezePaneColumnIndex={props.enablefreezePaneColumnIndex}
-            freezePaneColumnIndexNo={props.freezePaneColumnIndexNo}
-            onConfigChange={props.onConfigChange}
-            config={props.config}
-        />,
-        props.freezePaneAlign
-    );
-
-    // Refresh
-    addButton(
-        <Action_Refresh
-            key="refresh"
-            enableRefresh={props.enableRefresh}
-            refreshButtonType={props.refreshButtonType}
-            refreshButtonAlign={props.refreshButtonAlign}
-            onRefreshClick={props.onRefreshClick}
-        />,
-        props.refreshButtonAlign
-    );
-
-    // Export
-    addButton(
-        <Action_Export
-            key="export"
-            enableExport={props.enableExport}
-            exportButtonType={props.exportButtonType}
-            exportButtonAlign={props.exportButtonAlign}
-            onExportClick={props.onExportClick}
-        />,
-        props.exportButtonAlign
-    );
-
-    // Import
-    addButton(
-        <Action_Import
-            key="import"
-            enableImport={props.enableImport}
-            importButtonType={props.importButtonType}
-            importButtonAlign={props.importButtonAlign}
-            onImportClick={props.onImportClick}
-        />,
-        props.importButtonAlign
-    );
-
-    // Print
-    addButton(
-        <Action_Print
-            key="print"
-            enablePrint={props.enablePrint}
-            printButtonType={props.printButtonType}
-            printButtonAlign={props.printButtonAlign}
-            onPrintClick={props.onPrintClick}
-        />,
-        props.printButtonAlign
-    );
-
-    // Change Owner
-    addButton(
-        <Action_ChangeOwner
-            key="changeOwner"
-            enableChangeOwner={props.enableChangeOwner}
-            changeOwnerButtonType={props.changeOwnerButtonType}
-            changeOwnerButtonAlign={props.changeOwnerButtonAlign}
-            onChangeOwnerClick={props.onChangeOwnerClick}
-        />,
-        props.changeOwnerButtonAlign
-    );
-
-    // Chart
-    addButton(
-        <Action_Chart
-            key="chart"
-            enableChart={props.enableChart}
-            chartButtonType={props.chartButtonType}
-            chartButtonAlign={props.chartButtonAlign}
-            onChartClick={props.onChartClick}
-        />,
-        props.chartButtonAlign
-    );
-
-    // Share
-    addButton(
-        <Action_Share
-            key="share"
-            enableShare={props.enableShare}
-            shareButtonType={props.shareButtonType}
-            shareButtonAlign={props.shareButtonAlign}
-            onShareClick={props.onShareClick}
-        />,
-        props.shareButtonAlign
-    );
-
-    // Preset
-    addButton(
-        <Action_Preset
-            key="preset"
-            enablePresetSelector={props.enablePresetSelector}
-            presetButtonType={props.presetButtonType}
-            presetButtonAlign={props.presetButtonAlign}
-            presets={props.presets}
-            activePresetId={props.activePresetId}
-            onPresetClick={props.onPresetClick}
-            onPresetApply={props.onPresetApply}
-        />,
-        props.presetButtonAlign
-    );
-
-    // Table View
-    addButton(
-        <Action_TableView
-            key="tableView"
-            tableViewButtonType={props.tableViewButtonType}
-            tableViewButtonAlign={props.tableViewButtonAlign}
-            currentTableView={props.currentTableView}
-            onTableViewChange={props.onTableViewChange}
-        />,
-        props.tableViewButtonAlign
-    );
-
-    // Settings
-    addButton(
-        <Action_Settings
-            key="settings"
-            settingsButtonType={props.settingsButtonType}
-            settingsButtonAlign={props.settingsButtonAlign}
-            onSettingsClick={props.onSettingsClick}
-        />,
-        props.settingsButtonAlign
-    );
+    order.forEach((key) => {
+        const comp = buttons[key];
+        if (comp) addButton(comp, align(key));
+    });
 
     return (
         <div

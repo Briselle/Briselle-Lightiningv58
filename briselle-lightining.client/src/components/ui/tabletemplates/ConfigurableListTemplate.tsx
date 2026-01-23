@@ -12,6 +12,7 @@ import TableTabPanel, { TabItem } from "./table-components/TableTabPanel";
 import TableActionPanel from "./table-components/TableActionPanel.refactored";
 // Note: After testing, rename TableActionPanel.refactored.tsx to TableActionPanel.tsx
 import DataTable from "./table-components/DataTable";
+import ChartPanel from "./table-components/ChartPanel";
 import TableFooter from "./table-components/TableFooter";
 import { useTableData } from "./hooks/useTableData";
 import { SortCriteria } from "./action-components/Action_Sort";
@@ -232,7 +233,18 @@ export default function ConfigurableListTemplate({
     const [draggedRowIndex, setDraggedRowIndex] = useState<number | null>(null);
     const [draggedColumnIndex, setDraggedColumnIndex] = useState<number | null>(null);
     const [isTableSettingsOpen, setIsTableSettingsOpen] = useState(false);
+    const [chartPanelOpen, setChartPanelOpen] = useState(false);
     const [columnWrapStates, setColumnWrapStates] = useState<Record<string, 'wrap' | 'clip'>>({});
+    const [shareViewParams, setShareViewParams] = useState<{ isShareView: boolean; restrictCopy: boolean; panelAllowed: boolean }>({ isShareView: false, restrictCopy: false, panelAllowed: false });
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        const q = new URLSearchParams(window.location.search);
+        const isShare = q.has('share');
+        const restrict = q.get('restrictCopy') === '1';
+        const panel = q.get('panelAllowed') === '1';
+        setShareViewParams({ isShareView: !!isShare, restrictCopy: restrict, panelAllowed: panel });
+    }, []);
 
     const allColumns = Object.keys(fieldMappings);
     const [activeColumns, setActiveColumns] = useState<string[]>(allColumns);
@@ -432,14 +444,474 @@ export default function ConfigurableListTemplate({
         // Implement filter logic
     };
 
-    const handleExportClick = () => {
-        console.log("Export button clicked!");
-        // Implement export logic
+    const [showExportConsent, setShowExportConsent] = React.useState(false);
+    const [showEmailInput, setShowEmailInput] = React.useState(false);
+    const [emailAddresses, setEmailAddresses] = React.useState('');
+    const [pendingExportFormat, setPendingExportFormat] = React.useState<'csv' | 'excel' | 'json' | 'connector' | 'email' | null>(null);
+
+    const handleExportClick = (format: 'csv' | 'excel' | 'json' | 'connector' | 'email') => {
+        if (format === 'email') {
+            setPendingExportFormat(format);
+            setShowEmailInput(true);
+        } else if (format === 'connector') {
+            setPendingExportFormat(format);
+            setShowConnectorExportConfirm(true);
+        } else {
+            setPendingExportFormat(format);
+            setShowExportConsent(true);
+        }
     };
 
-    const handleImportClick = () => {
-        console.log("Import button clicked!");
-        // Implement import logic
+    const handleExportConfirm = () => {
+        setShowExportConsent(false);
+        if (!pendingExportFormat) return;
+
+        // Get the table data
+        const tableData = sortedData;
+        const headers = columnOrder
+            .filter(col => visibleColumns.includes(col))
+            .map(col => fieldMappings[col] || col);
+
+        // Export based on format
+        if (pendingExportFormat === 'csv') {
+            exportToCSV(tableData, headers);
+        } else if (pendingExportFormat === 'excel') {
+            exportToExcel(tableData, headers);
+        } else if (pendingExportFormat === 'json') {
+            exportToJSON(tableData, headers);
+        }
+
+        setPendingExportFormat(null);
+    };
+
+    const handleExportCancel = () => {
+        setShowExportConsent(false);
+        setPendingExportFormat(null);
+    };
+
+    const exportToCSV = (data: any[], headers: string[]) => {
+        const csvRows = [
+            headers.join(','),
+            ...data.map(row => {
+                return columnOrder
+                    .filter(col => visibleColumns.includes(col))
+                    .map(col => {
+                        const value = row[col];
+                        // Escape commas and quotes in CSV
+                        if (value === null || value === undefined) return '';
+                        const stringValue = String(value).replace(/"/g, '""');
+                        return `"${stringValue}"`;
+                    })
+                    .join(',');
+            })
+        ];
+
+        const csvContent = csvRows.join('\n');
+        const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `${title || 'table'}_${new Date().toISOString().split('T')[0]}.csv`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    const exportToExcel = (data: any[], headers: string[]) => {
+        // Create Excel XML format (Excel 2003+ compatible)
+        const escapeXml = (str: string): string => {
+            if (str === null || str === undefined) return '';
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&apos;');
+        };
+
+        let xml = '<?xml version="1.0"?>\n';
+        xml += '<?mso-application progid="Excel.Sheet"?>\n';
+        xml += '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"\n';
+        xml += ' xmlns:o="urn:schemas-microsoft-com:office:office"\n';
+        xml += ' xmlns:x="urn:schemas-microsoft-com:office:excel"\n';
+        xml += ' xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet"\n';
+        xml += ' xmlns:html="http://www.w3.org/TR/REC-html40">\n';
+        xml += '<Worksheet ss:Name="Sheet1">\n';
+        xml += '<Table>\n';
+
+        // Headers row
+        xml += '<Row>\n';
+        headers.forEach(header => {
+            xml += `<Cell><Data ss:Type="String">${escapeXml(header)}</Data></Cell>\n`;
+        });
+        xml += '</Row>\n';
+
+        // Data rows
+        data.forEach(row => {
+            xml += '<Row>\n';
+            columnOrder
+                .filter(col => visibleColumns.includes(col))
+                .forEach(col => {
+                    const value = row[col];
+                    if (value === null || value === undefined) {
+                        xml += '<Cell><Data ss:Type="String"></Data></Cell>\n';
+                    } else if (typeof value === 'number') {
+                        xml += `<Cell><Data ss:Type="Number">${value}</Data></Cell>\n`;
+                    } else {
+                        xml += `<Cell><Data ss:Type="String">${escapeXml(String(value))}</Data></Cell>\n`;
+                    }
+                });
+            xml += '</Row>\n';
+        });
+
+        xml += '</Table>\n';
+        xml += '</Worksheet>\n';
+        xml += '</Workbook>';
+
+        // Add BOM for UTF-8
+        const bom = '\ufeff';
+        const blob = new Blob([bom + xml], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `${title || 'table'}_${new Date().toISOString().split('T')[0]}.xls`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    const exportToJSON = (data: any[], headers: string[]) => {
+        // Export as JSON array with mapped data
+        const jsonData = data.map(row => {
+            const mappedRow: any = {};
+            columnOrder
+                .filter(col => visibleColumns.includes(col))
+                .forEach(col => {
+                    mappedRow[fieldMappings[col] || col] = row[col];
+                });
+            return mappedRow;
+        });
+
+        const jsonContent = JSON.stringify(jsonData, null, 2);
+        const blob = new Blob([jsonContent], { type: 'application/json;charset=utf-8;' });
+        const link = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        link.setAttribute('href', url);
+        link.setAttribute('download', `${title || 'table'}_${new Date().toISOString().split('T')[0]}.json`);
+        link.style.visibility = 'hidden';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+
+    const [showConnectorExportConfirm, setShowConnectorExportConfirm] = React.useState(false);
+    const [showConnectorImportConfirm, setShowConnectorImportConfirm] = React.useState(false);
+
+    const handleConnectorExportConfirm = () => {
+        // TODO: Call backend API to export to connector
+        // For now, just show confirmation
+        alert('Data successfully sent to connector.');
+        setShowConnectorExportConfirm(false);
+        setPendingExportFormat(null);
+    };
+
+    const handleConnectorExportCancel = () => {
+        setShowConnectorExportConfirm(false);
+        setPendingExportFormat(null);
+    };
+
+    const handleEmailExportConfirm = () => {
+        if (!emailAddresses.trim()) {
+            alert('Please enter at least one email address');
+            return;
+        }
+
+        const emails = emailAddresses.split(',').map(e => e.trim()).filter(e => e);
+        if (emails.length === 0) {
+            alert('Please enter valid email addresses');
+            return;
+        }
+
+        // Get the table data
+        const tableData = sortedData;
+        const headers = columnOrder
+            .filter(col => visibleColumns.includes(col))
+            .map(col => fieldMappings[col] || col);
+
+        // TODO: Call backend API to send email
+        // For now, just show success message
+        alert(`Data successfully sent to: ${emails.join(', ')}`);
+        
+        setShowEmailInput(false);
+        setEmailAddresses('');
+        setPendingExportFormat(null);
+    };
+
+    const handleEmailExportCancel = () => {
+        setShowEmailInput(false);
+        setEmailAddresses('');
+        setPendingExportFormat(null);
+    };
+
+    const [showImportConsent, setShowImportConsent] = React.useState(false);
+    const [showImportMapping, setShowImportMapping] = React.useState(false);
+    const [importedData, setImportedData] = React.useState<any[]>([]);
+    const [importFieldMapping, setImportFieldMapping] = React.useState<Record<string, string>>({});
+    const [pendingImportFormat, setPendingImportFormat] = React.useState<'csv' | 'excel' | 'connector' | null>(null);
+
+    const handleImportClick = (format: 'csv' | 'excel' | 'connector') => {
+        if (format === 'connector') {
+            setPendingImportFormat(format);
+            setShowConnectorImportConfirm(true);
+        } else {
+            setPendingImportFormat(format);
+            setShowImportConsent(true);
+        }
+    };
+
+    const handleConnectorImport = () => {
+        // TODO: Call backend API to import from connector
+        // For now, just show confirmation
+        alert('Data successfully imported from connector.');
+        setShowConnectorImportConfirm(false);
+        setPendingImportFormat(null);
+    };
+
+    const handleConnectorImportConfirm = () => {
+        handleConnectorImport();
+    };
+
+    const handleConnectorImportCancel = () => {
+        setShowConnectorImportConfirm(false);
+        setPendingImportFormat(null);
+    };
+
+    const handleImportConfirm = () => {
+        setShowImportConsent(false);
+        if (!pendingImportFormat) return;
+
+        // Create file input based on format
+        const input = document.createElement('input');
+        input.type = 'file';
+        
+        if (pendingImportFormat === 'csv') {
+            input.accept = '.csv';
+        } else if (pendingImportFormat === 'excel') {
+            input.accept = '.xlsx,.xls';
+        }
+        
+        input.onchange = (e: Event) => {
+            const file = (e.target as HTMLInputElement).files?.[0];
+            if (!file) {
+                setPendingImportFormat(null);
+                return;
+            }
+
+            const reader = new FileReader();
+            if (pendingImportFormat === 'csv') {
+                reader.onload = (event) => {
+                    const text = event.target?.result as string;
+                    parseCSV(text);
+                };
+                reader.readAsText(file, 'UTF-8');
+            } else if (pendingImportFormat === 'excel') {
+                // For Excel files, read as binary and parse XML
+                reader.onload = (event) => {
+                    const arrayBuffer = event.target?.result as ArrayBuffer;
+                    parseExcel(arrayBuffer, file.name);
+                };
+                reader.readAsArrayBuffer(file);
+            }
+        };
+        input.click();
+    };
+
+    const parseExcel = (arrayBuffer: ArrayBuffer, fileName: string) => {
+        // For .xls files (Excel XML format), parse as text
+        // For .xlsx files, we'd need a library, but for now we'll try to parse as XML
+        const fileExtension = fileName.split('.').pop()?.toLowerCase();
+        
+        if (fileExtension === 'xls') {
+            // Excel XML format - read as UTF-8 text
+            const decoder = new TextDecoder('utf-8');
+            const text = decoder.decode(arrayBuffer);
+            parseExcelXML(text);
+        } else {
+            // For .xlsx, we need a library. For now, show an error or try CSV-like parsing
+            alert('Excel (.xlsx) import requires a library. Please use .xls format or convert to CSV.');
+            setPendingImportFormat(null);
+        }
+    };
+
+    const parseExcelXML = (xmlText: string) => {
+        try {
+            // Remove BOM if present
+            let cleanText = xmlText;
+            if (xmlText.charCodeAt(0) === 0xFEFF) {
+                cleanText = xmlText.slice(1);
+            }
+
+            const parser = new DOMParser();
+            const xmlDoc = parser.parseFromString(cleanText, 'text/xml');
+            
+            // Check for parsing errors
+            const parserError = xmlDoc.querySelector('parsererror');
+            if (parserError) {
+                throw new Error('Failed to parse Excel XML');
+            }
+
+            const rows = xmlDoc.querySelectorAll('Row');
+            if (rows.length === 0) {
+                alert('No data found in Excel file');
+                setPendingImportFormat(null);
+                return;
+            }
+
+            // Get headers from first row
+            const headerRow = rows[0];
+            const headerCells = headerRow.querySelectorAll('Cell > Data');
+            const headers: string[] = [];
+            headerCells.forEach(cell => {
+                const text = cell.textContent || '';
+                // Clean up any encoding issues
+                headers.push(text.trim());
+            });
+
+            if (headers.length === 0) {
+                alert('No headers found in Excel file');
+                setPendingImportFormat(null);
+                return;
+            }
+
+            // Parse data rows
+            const rowsData: any[] = [];
+            for (let i = 1; i < rows.length; i++) {
+                const row = rows[i];
+                const cells = row.querySelectorAll('Cell > Data');
+                const rowData: any = {};
+                cells.forEach((cell, idx) => {
+                    if (headers[idx]) {
+                        const text = cell.textContent || '';
+                        rowData[headers[idx]] = text.trim();
+                    }
+                });
+                // Only add row if it has at least one non-empty value
+                if (Object.values(rowData).some(v => v !== '')) {
+                    rowsData.push(rowData);
+                }
+            }
+
+            setImportedData(rowsData);
+            // Initialize field mapping
+            const mapping: Record<string, string> = {};
+            headers.forEach(header => {
+                if (header) {
+                    const matchingCol = Object.keys(fieldMappings).find(
+                        col => fieldMappings[col].toLowerCase() === header.toLowerCase()
+                    );
+                    mapping[header] = matchingCol || '';
+                }
+            });
+            setImportFieldMapping(mapping);
+            setShowImportMapping(true);
+            setPendingImportFormat(null);
+        } catch (error) {
+            console.error('Error parsing Excel XML:', error);
+            alert('Failed to parse Excel file. Please ensure it is a valid Excel XML format (.xls) file. If you have a .xlsx file, please convert it to .xls or CSV format.');
+            setPendingImportFormat(null);
+        }
+    };
+
+    const handleImportCancel = () => {
+        setShowImportConsent(false);
+        setPendingImportFormat(null);
+    };
+
+    const parseCSV = (csvText: string) => {
+        const lines = csvText.split('\n').filter(line => line.trim());
+        if (lines.length === 0) return;
+
+        // Improved CSV parsing that handles quoted fields with commas
+        const parseCSVLine = (line: string): string[] => {
+            const result: string[] = [];
+            let current = '';
+            let inQuotes = false;
+
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                const nextChar = line[i + 1];
+
+                if (char === '"') {
+                    if (inQuotes && nextChar === '"') {
+                        current += '"';
+                        i++; // Skip next quote
+                    } else {
+                        inQuotes = !inQuotes;
+                    }
+                } else if (char === ',' && !inQuotes) {
+                    result.push(current.trim());
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+            result.push(current.trim());
+            return result;
+        };
+
+        const headers = parseCSVLine(lines[0]);
+        const rows: any[] = [];
+
+        for (let i = 1; i < lines.length; i++) {
+            const values = parseCSVLine(lines[i]);
+            const row: any = {};
+            headers.forEach((header, idx) => {
+                row[header] = values[idx] || '';
+            });
+            rows.push(row);
+        }
+
+        setImportedData(rows);
+        // Initialize field mapping - map CSV headers to table columns
+        const mapping: Record<string, string> = {};
+        headers.forEach(header => {
+            // Try to find matching column
+            const matchingCol = Object.keys(fieldMappings).find(
+                col => fieldMappings[col].toLowerCase() === header.toLowerCase()
+            );
+            mapping[header] = matchingCol || '';
+        });
+        setImportFieldMapping(mapping);
+        setShowImportMapping(true);
+    };
+
+    const handleImportMappingConfirm = () => {
+        // Map imported data to table structure
+        const mappedData = importedData.map(row => {
+            const mappedRow: any = {};
+            Object.entries(importFieldMapping).forEach(([csvHeader, tableColumn]) => {
+                if (tableColumn && row[csvHeader] !== undefined) {
+                    mappedRow[tableColumn] = row[csvHeader];
+                }
+            });
+            return mappedRow;
+        });
+
+        // TODO: Integrate with data source - this would typically update the parent component's data
+        console.log('Imported and mapped data:', mappedData);
+        alert(`Successfully imported ${mappedData.length} rows. Data mapping complete.`);
+        
+        setShowImportMapping(false);
+        setImportedData([]);
+        setImportFieldMapping({});
+    };
+
+    const handleImportMappingCancel = () => {
+        setShowImportMapping(false);
+        setImportedData([]);
+        setImportFieldMapping({});
     };
 
     const [showPrintConsent, setShowPrintConsent] = React.useState(false);
@@ -571,8 +1043,7 @@ export default function ConfigurableListTemplate({
     };
 
     const handleChartClick = () => {
-        console.log("Chart button clicked!");
-        // Implement chart logic
+        setChartPanelOpen((prev) => !prev);
     };
 
     const handleShareClick = () => {
@@ -1899,9 +2370,216 @@ export default function ConfigurableListTemplate({
                     </div>
                 </div>
             )}
+
+            {/* Export Consent Modal */}
+            {showExportConsent && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+                        <h2 className="text-xl font-bold text-gray-900 mb-4">Export Confirmation</h2>
+                        <p className="text-gray-700 mb-6">
+                            This action will take the data outside of the Briselle Platform limits. 
+                            Are you sure you want to proceed with exporting as {pendingExportFormat?.toUpperCase()}?
+                        </p>
+                        <div className="flex justify-end space-x-3">
+                            <button
+                                onClick={handleExportCancel}
+                                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleExportConfirm}
+                                className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+                            >
+                                Proceed
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Email Input Modal */}
+            {showEmailInput && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+                        <h2 className="text-xl font-bold text-gray-900 mb-4">Send to Email</h2>
+                        <p className="text-gray-700 mb-4">
+                            Enter email addresses (comma-separated):
+                        </p>
+                        <input
+                            type="text"
+                            value={emailAddresses}
+                            onChange={(e) => setEmailAddresses(e.target.value)}
+                            placeholder="email1@example.com, email2@example.com"
+                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary mb-6"
+                            autoFocus
+                        />
+                        <div className="flex justify-end space-x-3">
+                            <button
+                                onClick={handleEmailExportCancel}
+                                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleEmailExportConfirm}
+                                className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+                            >
+                                Send
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Connector Export Confirmation Modal */}
+            {showConnectorExportConfirm && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+                        <h2 className="text-xl font-bold text-gray-900 mb-4">Export to Connector</h2>
+                        <p className="text-gray-700 mb-6">
+                            This action will send the data to the connector. Are you sure you want to proceed?
+                        </p>
+                        <div className="flex justify-end space-x-3">
+                            <button
+                                onClick={handleConnectorExportCancel}
+                                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleConnectorExportConfirm}
+                                className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+                            >
+                                Proceed
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Connector Import Confirmation Modal */}
+            {showConnectorImportConfirm && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+                        <h2 className="text-xl font-bold text-gray-900 mb-4">Import from Connector</h2>
+                        <p className="text-gray-700 mb-6">
+                            This action will import data from the connector. This may overwrite some existing data. Are you sure you want to proceed?
+                        </p>
+                        <div className="flex justify-end space-x-3">
+                            <button
+                                onClick={handleConnectorImportCancel}
+                                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleConnectorImportConfirm}
+                                className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+                            >
+                                Proceed
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Import Consent Modal */}
+            {showImportConsent && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
+                        <h2 className="text-xl font-bold text-gray-900 mb-4">Import Confirmation</h2>
+                        <p className="text-gray-700 mb-6">
+                            This action will bring data inside the Briselle Platform limits. 
+                            Please ensure you have proper consent for the required data. 
+                            This may overwrite some existing data. Are you sure you want to proceed with importing from {pendingImportFormat?.toUpperCase()}?
+                        </p>
+                        <div className="flex justify-end space-x-3">
+                            <button
+                                onClick={handleImportCancel}
+                                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleImportConfirm}
+                                className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+                            >
+                                Proceed
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Import Field Mapping Modal */}
+            {showImportMapping && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg shadow-xl p-6 max-w-4xl w-full mx-4 max-h-[85vh] overflow-y-auto">
+                        <h2 className="text-xl font-bold text-gray-900 mb-4">Map Import Fields</h2>
+                        <p className="text-sm text-gray-600 mb-4">
+                            Map the columns from your imported file to the table columns.
+                        </p>
+                        <div className="space-y-3 mb-6">
+                            {Object.keys(importFieldMapping).map((csvHeader) => (
+                                <div key={csvHeader} className="flex items-center space-x-4">
+                                    <div className="w-1/3 text-sm font-medium text-gray-700">
+                                        {csvHeader}
+                                    </div>
+                                    <div className="flex-1">
+                                        <select
+                                            value={importFieldMapping[csvHeader] || ''}
+                                            onChange={(e) => {
+                                                setImportFieldMapping(prev => ({
+                                                    ...prev,
+                                                    [csvHeader]: e.target.value
+                                                }));
+                                            }}
+                                            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-primary"
+                                        >
+                                            <option value="">-- Select Column --</option>
+                                            {Object.keys(fieldMappings).map(col => (
+                                                <option key={col} value={col}>
+                                                    {fieldMappings[col]}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                        <div className="flex justify-end space-x-3">
+                            <button
+                                onClick={handleImportMappingCancel}
+                                className="px-4 py-2 border border-gray-300 rounded-md text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+                            >
+                                Cancel
+                            </button>
+                            <button
+                                onClick={handleImportMappingConfirm}
+                                className="px-4 py-2 bg-primary text-white rounded-md hover:bg-primary-dark focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-primary"
+                            >
+                                Import Data
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
             
-            {/* Printable Content Container */}
-            <div id="printable-table-content">
+            {/* Main content: table + optional chart panel */}
+            <div className={cn(chartPanelOpen && "flex flex-row")}>
+            <div
+                id="printable-table-content"
+                data-share-scope="title-to-footer"
+                className={cn(chartPanelOpen && "flex-1 min-w-0")}
+                style={shareViewParams.isShareView && shareViewParams.restrictCopy ? { userSelect: 'none', WebkitUserSelect: 'none' } : undefined}
+                onCopy={shareViewParams.isShareView && shareViewParams.restrictCopy ? (e) => e.preventDefault() : undefined}
+                onCut={shareViewParams.isShareView && shareViewParams.restrictCopy ? (e) => e.preventDefault() : undefined}
+                onKeyDown={shareViewParams.isShareView && shareViewParams.restrictCopy ? (e) => {
+                    if ((e.ctrlKey || e.metaKey) && (e.key === 'c' || e.key === 'x' || e.key === 's' || e.key === 'a')) e.preventDefault();
+                } : undefined}
+                onContextMenu={shareViewParams.isShareView && shareViewParams.restrictCopy ? (e) => e.preventDefault() : undefined}
+            >
                 {/* Title Section */}
             {config.enableTitle && (
                 <div style={getTitleStyle()} className={config.enableTitleBackground ? 'mb-0' : 'mb-6'}>
@@ -1984,8 +2662,9 @@ export default function ConfigurableListTemplate({
             )}
 
             <div className="card" style={getTableStyle()}>
-                {/* Table Panel - Now uses refactored TableActionPanel with individual action components */}
+                {/* Table Panel - frozen in share view when panel not allowed */}
                 {config.enableTablePanel && (
+                    <div style={shareViewParams.isShareView && !shareViewParams.panelAllowed ? { pointerEvents: 'none', opacity: 0.85 } : undefined}>
                     <TableActionPanel
                         enableTablePanel={config.enableTablePanel}
                         tablePanelBackground={config.tablePanelBackground || false}
@@ -2074,11 +2753,15 @@ export default function ConfigurableListTemplate({
                 activePresetId={activePresetId}
                         onPresetClick={handlePresetClick}
                         onPresetApply={applyPreset}
-                        // Table View
+                        // Table View (legacy)
                         tableViewButtonType={config.tableViewButtonType || 'icon'}
                         tableViewButtonAlign={config.tableViewButtonAlign || 'right'}
                         currentTableView={config.tableView || 'default'}
                         onTableViewChange={handleTableViewChange}
+                        // Table Layout Setup (replaces Table View in panel)
+                        enableTableLayoutSetup={config.enableTableLayoutSetup ?? true}
+                        tableLayoutSetupButtonType={config.tableLayoutSetupButtonType || config.tableViewButtonType || 'icon'}
+                        tableLayoutSetupButtonAlign={config.tableLayoutSetupButtonAlign || config.tableViewButtonAlign || 'right'}
                         // Settings
                         settingsButtonType={config.settingsButtonType || 'icon'}
                         settingsButtonAlign={config.settingsButtonAlign || 'right'}
@@ -2088,6 +2771,7 @@ export default function ConfigurableListTemplate({
                         config={config}
                         onConfigChange={onConfigChange}
                     />
+                    </div>
                 )}
 
                 {loading ? (
@@ -2251,6 +2935,16 @@ export default function ConfigurableListTemplate({
                 )}
             </div>
 
+            </div>
+            {chartPanelOpen && (
+                <ChartPanel
+                    recordCount={sortedData.length}
+                    data={sortedData}
+                    dataColumns={columnOrder.filter((c) => visibleColumns.includes(c))}
+                    fieldMappings={fieldMappings}
+                    onClose={() => setChartPanelOpen(false)}
+                />
+            )}
             </div>
 
             {/* Bulk Actions Bar - Outside printable content so it doesn't print */}

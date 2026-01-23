@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { Save, Trash2, Edit, Eye, FileJson } from 'lucide-react';
 import { TablePreset } from '../../action-components/Action_Preset';
 import { TableConfig } from '../../ConfigurableListTemplate';
+import { getDefaultPreset } from '../utils/presets';
 
 interface PresetSettingsSectionProps {
     selectedPreset: string;
@@ -170,12 +171,23 @@ const PresetSettingsSection: React.FC<PresetSettingsSectionProps> = ({
             }
         }
         
+        // Get default preset structure to ensure all parameters are included
+        const defaultPreset = getDefaultPreset();
+        
+        // Merge current config on top of default preset config structure
+        // This ensures all parameters from default preset are included,
+        // with current config values overriding where they exist
+        const completeConfig: TableConfig = {
+            ...defaultPreset.config,
+            ...currentConfig
+        };
+        
         const newPresetId = `custom-${Date.now()}`;
         const newPreset: TablePreset = {
             id: newPresetId,
             presetId: newPresetId,
             name: trimmedName,
-            config: { ...currentConfig },
+            config: completeConfig,
             isDefault: false
         };
         
