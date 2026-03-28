@@ -215,8 +215,22 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
 
                         {/* Active columns in view */}
                         <div className="mb-3">
-                            <div className="text-xs font-medium text-gray-700 mb-2">
-                                Active columns in view
+                            <div className="flex items-center justify-between mb-2">
+                                <span className="text-xs font-medium text-gray-700">
+                                    Active columns in view
+                                </span>
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onActiveColumnsChange(activeColumns);
+                                        onVisibleColumnsChange(visibleColumns);
+                                        setShowColumnDropdown(false);
+                                    }}
+                                    className="text-xs px-2 py-1 bg-primary text-white rounded hover:opacity-90"
+                                >
+                                    Apply
+                                </button>
                             </div>
 
                             <div className="max-h-40 overflow-y-auto space-y-1">

@@ -171,7 +171,7 @@ function TableBodyOptionsSection({
                         {config.tableBackground && (
                             <div className="flex items-center gap-2 flex-wrap">
                                 <span className="text-sm text-gray-600">Background Color</span>
-                                <input type="color" value={config.tableBackgroundColor || '#ffffff'} onChange={(e) => onChange('tableBackgroundColor', e.target.value)} className="w-8 h-8 rounded border border-gray-300" />
+                                <input type="color" value={config.tableBackgroundColor || '#ffffff'} onChange={(e) => onChange('tableBackgroundColor', e.target.value)} className="w-8 h-8 rounded border border-gray-300 cursor-pointer" />
                                 <button type="button" onClick={() => onChange('tableBackgroundColor', '#ffffff')} className="text-xs px-2 py-1 bg-gray-200 rounded hover:bg-gray-300">Clear</button>
                             </div>
                         )}
@@ -279,6 +279,8 @@ interface DisplaySettingsSectionProps {
     modalHeaderFontSize: number;
     modalContentFontSize: number;
     onChange: (key: string, value: any) => void;
+    /** When provided, Configure button in Tab Panel section will switch modal to this tab */
+    onNavigateToTab?: (tabId: string) => void;
 }
 
 const DisplaySettingsSection: React.FC<DisplaySettingsSectionProps> = ({
@@ -286,7 +288,12 @@ const DisplaySettingsSection: React.FC<DisplaySettingsSectionProps> = ({
     modalHeaderFontSize,
     modalContentFontSize,
     onChange,
+    onNavigateToTab,
 }) => {
+    const [displaySectionOpen, setDisplaySectionOpen] = useState({ titlePanel: true, tabPanel: true, tablePanel: true, tablePanelEnablement: true, tablePanelActions: true, bodyAndFooter: true, tableBody: true, tableFooter: true });
+    const toggleDisplaySection = (k: 'titlePanel' | 'tabPanel' | 'tablePanel' | 'tablePanelEnablement' | 'tablePanelActions' | 'bodyAndFooter' | 'tableBody' | 'tableFooter') => () =>
+        setDisplaySectionOpen((s) => ({ ...s, [k]: !s[k] }));
+
     const orderKeys = useMemo(() => getButtonOrder(config), [config.actionPanelButtonOrder]);
     const buttonOrder = useMemo(
         () => orderKeys.map((key) => ({ key, ...BUTTON_DEFINITIONS[key]! })).filter((b) => b.typeKey),
@@ -318,379 +325,244 @@ const DisplaySettingsSection: React.FC<DisplaySettingsSectionProps> = ({
                 <h3 className="font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200" style={{ fontSize: `${modalHeaderFontSize}px` }}>Display Settings</h3>
             </div>
 
-            {/* Title Panel Options - Section #1 */}
-            <div className="bg-gray-50 p-4 rounded-lg">
-                <h4 className="font-semibold text-gray-800 mb-3" style={{ fontSize: `${modalHeaderFontSize}px` }}>Title Panel Options</h4>
-                <div className="space-y-3">
-                    <label className="flex items-center space-x-2">
-                        <input 
-                            type="checkbox" 
-                            checked={config.enableTitle} 
-                            onChange={(e) => onChange('enableTitle', e.target.checked)} 
-                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="font-medium">Enable Title Panel</span>
-                    </label>
-                    
-                    {config.enableTitle && (
-                        <div className="ml-6 space-y-3 border-l-2 border-blue-200 pl-4">
-                            <label className="flex items-center space-x-2">
-                                <input 
-                                    type="checkbox" 
-                                    checked={config.enableNewButton} 
-                                    onChange={(e) => onChange('enableNewButton', e.target.checked)} 
-                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                />
-                                <span>Enable "+New" Button</span>
-                            </label>
-                            
-                            {config.enableNewButton && (
-                                <div className="ml-6">
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">Button Type</label>
-                                    <select 
-                                        className="input" 
-                                        value={config.newButtonType || 'button'} 
-                                        onChange={(e) => onChange('newButtonType', e.target.value)}
-                                    >
-                                        <option value="icon">Icon Only (+)</option>
-                                        <option value="button">Button (+ Object)</option>
-                                    </select>
-                                </div>
+            {/* Title Panel Options - Section #1: Toggle + Collapsible like Table Body Options */}
+            <div className="space-y-2">
+                <CollapsibleSection id="titlePanel" title="Title Panel Options" open={displaySectionOpen.titlePanel} onToggle={toggleDisplaySection('titlePanel')} fontSize={modalHeaderFontSize}>
+                    {/* Table-like grid: column 1 = label, column 2 = control/content, column 3 = toggle */}
+                    <div className="grid gap-0 border border-gray-200 rounded-lg overflow-hidden" style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) auto' }}>
+                        {/* Row 1 */}
+                        <div className="text-sm text-gray-700 px-3 py-2 border-b border-gray-100 flex items-center">Enable Title Panel</div>
+                        <div className="px-3 py-2 border-b border-gray-100 flex items-center min-w-0">
+                            {config.enableTitle && (
+                                <label className="flex items-center gap-2 text-sm text-gray-700">
+                                    <span>Title-Table Spacing (px)</span>
+                                    <input type="number" value={config.titleTableSpacing} onChange={(e) => onChange('titleTableSpacing', Number(e.target.value))} className="input w-16 h-8 text-sm text-center" min={0} max={50} />
+                                </label>
                             )}
-                            
-                            {/* Row 1: Records, Sort, Filter */}
-                            <div className="grid grid-cols-3 gap-4">
-                                <label className="flex items-center space-x-2">
-                                    <input 
-                                        type="checkbox" 
-                                        checked={config.enableRecordCount} 
-                                        onChange={(e) => onChange('enableRecordCount', e.target.checked)} 
-                                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                    />
-                                    <span>Show Records</span>
-                                </label>
-                                
-                                <label className="flex items-center space-x-2">
-                                    <input 
-                                        type="checkbox" 
-                                        checked={config.enableSortInfo} 
-                                        onChange={(e) => onChange('enableSortInfo', e.target.checked)} 
-                                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                    />
-                                    <span>Show Sort</span>
-                                </label>
-                                
-                                <label className="flex items-center space-x-2">
-                                    <input 
-                                        type="checkbox" 
-                                        checked={config.enableFilterInfo} 
-                                        onChange={(e) => onChange('enableFilterInfo', e.target.checked)} 
-                                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                    />
-                                    <span>Show Filter</span>
-                                </label>
-                            </div>
-                            
-                            {/* Row 2: Last Updated */}
-                            <label className="flex items-center space-x-2">
-                                <input 
-                                    type="checkbox" 
-                                    checked={config.enableLastUpdated} 
-                                    onChange={(e) => onChange('enableLastUpdated', e.target.checked)} 
-                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                />
-                                <span>Last Updated Timestamp</span>
-                            </label>
-                            
-                            <label className="flex items-center space-x-2">
-                                <input 
-                                    type="checkbox" 
-                                    checked={config.enableTitleBackground} 
-                                    onChange={(e) => onChange('enableTitleBackground', e.target.checked)} 
-                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                />
-                                <span>Title Background</span>
-                            </label>
-                            
-                            {config.enableTitleBackground && (
-                                <div className="flex items-center space-x-2">
-                                    <input 
-                                        type="color" 
-                                        value={config.titleBackgroundColor} 
-                                        onChange={(e) => onChange('titleBackgroundColor', e.target.value)} 
-                                        className="w-8 h-8 rounded border border-gray-300"
-                                    />
-                                    <button 
-                                        onClick={() => onChange('titleBackgroundColor', '#ffffff')}
-                                        className="text-xs px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
-                                    >
-                                        Clear
-                                    </button>
+                        </div>
+                        <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-end">
+                            <Toggle checked={!!config.enableTitle} onChange={(v) => onChange('enableTitle', v)} />
+                        </div>
+                        {config.enableTitle && (
+                            <>
+                                {/* Row 2 */}
+                                <div className="text-sm text-gray-700 px-3 py-2 border-b border-gray-100 flex items-center">Enable &quot;+New&quot; Button</div>
+                                <div className="px-3 py-2 border-b border-gray-100 flex items-center min-w-0">
+                                    {config.enableNewButton && (
+                                        <select className="input text-sm w-40" value={config.newButtonType || 'icon'} onChange={(e) => onChange('newButtonType', e.target.value)}>
+                                            <option value="icon">Icon Only (+)</option>
+                                            <option value="button">Button (+ Object)</option>
+                                        </select>
+                                    )}
                                 </div>
-                            )}
-                            
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Title-Table Spacing (px)</label>
-                                <input 
-                                    type="number" 
-                                    value={config.titleTableSpacing} 
-                                    onChange={(e) => onChange('titleTableSpacing', Number(e.target.value))} 
-                                    className="input w-20" 
-                                    min="0"
-                                    max="50"
-                                />
-                            </div>
-                        </div>
-                    )}
-                </div>
-            </div>
-
-            {/* Tab Panel Configuration - Section #2.5 */}
-            {config.enableTabs && (
-                <div className="bg-gray-50 p-4 rounded-lg">
-                    <h4 className="text-md font-semibold text-gray-800 mb-3">Tab Panel Configuration</h4>
-                    <div className="space-y-3">
-                        <div>
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Tab Panel Spacing (px)</label>
-                            <input 
-                                type="number" 
-                                value={config.tabPanelSpacing || 0} 
-                                onChange={(e) => onChange('tabPanelSpacing', Number(e.target.value))} 
-                                className="input w-20" 
-                                min="0"
-                                max="50"
-                            />
-                        </div>
-                        
-                        <label className="flex items-center space-x-2">
-                            <input 
-                                type="checkbox" 
-                                checked={config.tabPanelBackground} 
-                                onChange={(e) => onChange('tabPanelBackground', e.target.checked)} 
-                                className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                            />
-                            <span>Tab Panel Background</span>
-                        </label>
-                        
-                        {config.tabPanelBackground && (
-                            <div className="flex items-center space-x-2">
-                                <input 
-                                    type="color" 
-                                    value={config.tabPanelBackgroundColor || '#ffffff'} 
-                                    onChange={(e) => onChange('tabPanelBackgroundColor', e.target.value)} 
-                                    className="w-8 h-8 rounded border border-gray-300"
-                                />
-                                <button 
-                                    onClick={() => onChange('tabPanelBackgroundColor', '#ffffff')}
-                                    className="text-xs px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
-                                >
-                                    Clear
-                                </button>
-                            </div>
+                                <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-end">
+                                    <Toggle checked={!!config.enableNewButton} onChange={(v) => onChange('enableNewButton', v)} />
+                                </div>
+                                {/* Row 3 */}
+                                <div className="text-sm text-gray-700 px-3 py-2 border-b border-gray-100 flex items-center">Enable Title Background</div>
+                                <div className="px-3 py-2 border-b border-gray-100 flex items-center min-w-0">
+                                    {config.enableTitleBackground && (
+                                        <div className="flex items-center gap-2">
+                                            <input type="color" value={config.titleBackgroundColor || '#ffffff'} onChange={(e) => onChange('titleBackgroundColor', e.target.value)} className="w-8 h-8 rounded border border-gray-300 cursor-pointer" />
+                                            <button type="button" onClick={() => onChange('titleBackgroundColor', '#ffffff')} className="text-xs px-2 py-1 bg-gray-200 rounded hover:bg-gray-300">Clear</button>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-end">
+                                    <Toggle checked={!!config.enableTitleBackground} onChange={(v) => onChange('enableTitleBackground', v)} />
+                                </div>
+                                {/* Row 4: four cells in content area, then one toggle column cell spanning or we make it 4+1 columns - use 2 rows for row 4 so we have 4 label+toggle pairs */}
+                                <div className="col-span-3 grid gap-0 border-b border-gray-100" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
+                                    <div className="px-3 py-2 flex items-center justify-between gap-2 border-r border-gray-100">
+                                        <span className="text-sm text-gray-700">Show Records</span>
+                                        <Toggle checked={!!config.enableRecordCount} onChange={(v) => onChange('enableRecordCount', v)} />
+                                    </div>
+                                    <div className="px-3 py-2 flex items-center justify-between gap-2 border-r border-gray-100">
+                                        <span className="text-sm text-gray-700">Show Sort</span>
+                                        <Toggle checked={!!config.enableSortInfo} onChange={(v) => onChange('enableSortInfo', v)} />
+                                    </div>
+                                    <div className="px-3 py-2 flex items-center justify-between gap-2 border-r border-gray-100">
+                                        <span className="text-sm text-gray-700">Show Filter</span>
+                                        <Toggle checked={!!config.enableFilterInfo} onChange={(v) => onChange('enableFilterInfo', v)} />
+                                    </div>
+                                    <div className="px-3 py-2 flex items-center justify-between gap-2">
+                                        <span className="text-sm text-gray-700">Last Updated</span>
+                                        <Toggle checked={!!config.enableLastUpdated} onChange={(v) => onChange('enableLastUpdated', v)} />
+                                    </div>
+                                </div>
+                            </>
                         )}
                     </div>
-                </div>
-            )}
-
-            {/* Enable Tabs Control */}
-            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                <label className="flex items-center space-x-2">
-                    <input 
-                        type="checkbox" 
-                        checked={config.enableTabs} 
-                        onChange={(e) => onChange('enableTabs', e.target.checked)} 
-                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    <span className="font-medium text-blue-800">Enable Tabs</span>
-                </label>
-                <p className="text-sm text-blue-700 mt-2">
-                    Enabling tabs will add a "Tabs" menu to the settings and show tab panel configuration options.
-                </p>
+                </CollapsibleSection>
             </div>
 
-            {/* Table Panel Configuration - Section #2 */}
-            <div className="bg-gray-50 p-4 rounded-lg">
-                <h4 className="text-md font-semibold text-gray-800 mb-3">Table Panel Configuration</h4>
-                <div className="space-y-3">
-                    <label className="flex items-center space-x-2">
-                        <input 
-                            type="checkbox" 
-                            checked={config.enableTablePanel} 
-                            onChange={(e) => onChange('enableTablePanel', e.target.checked)} 
-                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="font-medium">Enable Table Panel</span>
-                    </label>
-                    
-                    {config.enableTablePanel && (
-                        <div className="ml-6 space-y-3 border-l-2 border-blue-200 pl-4">
-                            <label className="flex items-center space-x-2">
-                                <input 
-                                    type="checkbox" 
-                                    checked={config.tablePanelBackground} 
-                                    onChange={(e) => onChange('tablePanelBackground', e.target.checked)} 
-                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                />
-                                <span>Table Panel Background</span>
+            {/* Tab Panel Options - Collapsible, same structure as Title Panel */}
+            <div className="space-y-2">
+                <CollapsibleSection id="tabPanel" title="Tab Panel Options" open={displaySectionOpen.tabPanel} onToggle={toggleDisplaySection('tabPanel')} fontSize={modalHeaderFontSize}>
+                    <div className="grid gap-0 border border-gray-200 rounded-lg overflow-hidden" style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) auto' }}>
+                        {/* Row 1: Enable Tab Panel | Tab Panel Spacing (px) | Toggle */}
+                        <div className="text-sm text-gray-700 px-3 py-2 border-b border-gray-100 flex items-center">Enable Tab Panel</div>
+                        <div className="px-3 py-2 border-b border-gray-100 flex items-center min-w-0">
+                            <label className="flex items-center gap-2 text-sm text-gray-700">
+                                <span>Tab Panel Spacing (px)</span>
+                                <input type="number" value={config.tabPanelSpacing ?? 0} onChange={(e) => onChange('tabPanelSpacing', Number(e.target.value))} className="input w-16 h-8 text-sm text-center" min={0} max={50} />
                             </label>
-                            
-                            {config.tablePanelBackground && (
-                                <div className="flex items-center space-x-2">
-                                    <input 
-                                        type="color" 
-                                        value={config.tablePanelBackgroundColor || '#ffffff'} 
-                                        onChange={(e) => onChange('tablePanelBackgroundColor', e.target.value)} 
-                                        className="w-8 h-8 rounded border border-gray-300"
-                                    />
-                                    <button 
-                                        onClick={() => onChange('tablePanelBackgroundColor', '#ffffff')}
-                                        className="text-xs px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
-                                    >
-                                        Clear
-                                    </button>
-                                </div>
+                        </div>
+                        <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-end">
+                            <Toggle checked={!!config.enableTabs} onChange={(v) => onChange('enableTabs', v)} />
+                        </div>
+                        {/* Row 2: Configure → button navigates to Tab Configuration tab */}
+                        <div className="text-sm text-gray-700 px-3 py-2 flex items-center">Configure</div>
+                        <div className="px-3 py-2 flex items-center min-w-0">
+                            {onNavigateToTab ? (
+                                <button type="button" onClick={() => onNavigateToTab('tabs')} className="btn btn-secondary text-sm">
+                                    Open Tab Configuration
+                                </button>
+                            ) : (
+                                <span className="text-sm text-gray-500">Open Table Settings → Tabs to configure.</span>
                             )}
-                            
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Table Panel Spacing (px)</label>
-                                <input 
-                                    type="number" 
-                                    value={config.tablePanelSpacing || 0} 
-                                    onChange={(e) => onChange('tablePanelSpacing', Number(e.target.value))} 
-                                    className="input w-20" 
-                                    min="0"
-                                    max="50"
-                                />
-                            </div>
-                            <label className="flex items-center space-x-2">
-                                <input 
-                                    type="checkbox" 
-                                    checked={config.enableTooltips ?? false} 
-                                    onChange={(e) => onChange('enableTooltips', e.target.checked)} 
-                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                />
-                                <span>Tooltips</span>
-                            </label>
                         </div>
-                    )}
-                </div>
-            </div>
-
-            {/* Button Display Types & Alignment - Section #3 */}
-            <div className="bg-gray-50 p-4 rounded-lg">
-                <h4 className="text-md font-semibold text-gray-800 mb-3">Button Display Types & Alignment</h4>
-                <div className="space-y-2">
-                    <div className="grid grid-cols-5 gap-2 text-xs font-medium text-gray-500 uppercase tracking-wider border-b border-gray-300 pb-2">
-                        <span>Enable</span>
-                        <span>Feature</span>
-                        <span>Type</span>
-                        <span>Align</span>
-                        <span>Order</span>
+                        <div className="px-3 py-2" />
                     </div>
-                    {buttonOrder.map((button, index) => {
-                        const isEnabled = config[button.enableKey as keyof typeof config] as boolean;
-                        const frozenEnableOnly = !!(button as { frozenEnableOnly?: boolean }).frozenEnableOnly;
-                        const enableChecked = frozenEnableOnly ? true : isEnabled;
-                        const enableDisabled = !!button.disabled;
-                        const typeAlignDisabled = frozenEnableOnly ? false : !isEnabled;
-                        
-                        return (
-                            <div 
-                                key={button.key} 
-                                className="grid grid-cols-5 gap-2 items-center py-2 border-b border-gray-100 last:border-b-0 bg-white rounded px-2 border border-gray-200"
-                                draggable
-                                onDragStart={(e) => handleDragStart(e, index)}
-                                onDragOver={handleDragOver}
-                                onDrop={(e) => handleDrop(e, index)}
-                            >
-                                <div className="flex justify-center">
-                                    <input
-                                        type="checkbox"
-                                        checked={enableChecked}
-                                        disabled={enableDisabled}
-                                        onChange={(e) => !frozenEnableOnly && onChange(button.enableKey, e.target.checked)}
-                                        className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50"
-                                    />
-                                </div>
-                                <span className="text-sm font-medium text-gray-700">{button.label}</span>
-                                <select 
-                                    className="input text-sm border border-gray-300 rounded" 
-                                    value={config[button.typeKey as keyof typeof config] as string} 
-                                    onChange={(e) => onChange(button.typeKey, e.target.value)}
-                                    disabled={typeAlignDisabled}
-                                >
-                                    <option value="icon">Icon</option>
-                                    <option value="button">Button</option>
-                                </select>
-                                <select 
-                                    className="input text-sm border border-gray-300 rounded" 
-                                    value={config[button.alignKey as keyof typeof config] as string} 
-                                    onChange={(e) => onChange(button.alignKey, e.target.value)}
-                                    disabled={typeAlignDisabled}
-                                >
-                                    <option value="left">Left</option>
-                                    <option value="right">Right</option>
-                                </select>
-                                <div className="flex justify-center">
-                                    <button
-                                        className="p-1 text-gray-400 hover:text-gray-600 cursor-move disabled:cursor-not-allowed disabled:opacity-50"
-                                        title="Drag to reorder"
-                                        disabled={typeAlignDisabled || frozenEnableOnly}
-                                    >
-                                        <GripVertical size={16} />
-                                    </button>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
+                </CollapsibleSection>
             </div>
 
-            {/* Table Body Options - Section #4 */}
-            <TableBodyOptionsSection config={config} onChange={onChange} modalHeaderFontSize={modalHeaderFontSize} />
+            {/* Table Panel Options - Parent collapsible with two sub accordions: Enablement + Actions */}
+            <div className="space-y-2">
+                <CollapsibleSection
+                    id="tablePanel"
+                    title="Table Panel Options"
+                    open={displaySectionOpen.tablePanel}
+                    onToggle={toggleDisplaySection('tablePanel')}
+                    fontSize={modalHeaderFontSize}
+                >
+                    <div className="space-y-4">
+                        {/* Sub 1: Table Panel Enablement - toggles for panel, background, tooltips */}
+                        <CollapsibleSection id="tablePanelEnablement" title="Table Panel Enablement" open={displaySectionOpen.tablePanelEnablement} onToggle={toggleDisplaySection('tablePanelEnablement')} fontSize={modalHeaderFontSize}>
+                            <div className="grid gap-0 border border-gray-200 rounded-lg overflow-hidden" style={{ gridTemplateColumns: 'minmax(0, 1.2fr) minmax(0, 1.8fr) auto' }}>
+                                <div className="text-sm text-gray-700 px-3 py-2 border-b border-gray-100 flex items-center">Enable Table Panel</div>
+                                <div className="px-3 py-2 border-b border-gray-100 flex items-center min-w-0">
+                                    {config.enableTablePanel && (
+                                        <label className="flex items-center gap-2 text-sm text-gray-700">
+                                            <span>Table Panel Spacing (px)</span>
+                                            <input type="number" value={config.tablePanelSpacing ?? 0} onChange={(e) => onChange('tablePanelSpacing', Number(e.target.value))} className="input w-16 h-8 text-sm text-center" min={0} max={50} />
+                                        </label>
+                                    )}
+                                </div>
+                                <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-end">
+                                    <Toggle checked={!!config.enableTablePanel} onChange={(v) => onChange('enableTablePanel', v)} />
+                                </div>
+                                <div className="text-sm text-gray-700 px-3 py-2 border-b border-gray-100 flex items-center">Table Panel Background</div>
+                                <div className="px-3 py-2 border-b border-gray-100 flex items-center min-w-0">
+                                    {config.enableTablePanel && config.tablePanelBackground && (
+                                        <div className="flex items-center gap-2 flex-wrap">
+                                            <span className="text-sm text-gray-600">Color</span>
+                                            <input type="color" value={config.tablePanelBackgroundColor || '#ffffff'} onChange={(e) => onChange('tablePanelBackgroundColor', e.target.value)} className="w-8 h-8 rounded border border-gray-300 cursor-pointer" />
+                                            <button type="button" onClick={() => onChange('tablePanelBackgroundColor', '#ffffff')} className="text-xs px-2 py-1 bg-gray-200 rounded hover:bg-gray-300">Clear</button>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-end">
+                                    <Toggle checked={!!config.tablePanelBackground} onChange={(v) => onChange('tablePanelBackground', v)} />
+                                </div>
+                                <div className="text-sm text-gray-700 px-3 py-2 flex items-center">Tooltips</div>
+                                <div className="px-3 py-2 flex items-center min-w-0" />
+                                <div className="px-3 py-2 flex items-center justify-end">
+                                    <Toggle checked={!!config.enableTooltips} onChange={(v) => onChange('enableTooltips', v)} />
+                                </div>
+                            </div>
+                        </CollapsibleSection>
 
-            {/* Table Footer Options - Section #5 */}
-            <div className="bg-gray-50 p-4 rounded-lg">
-                <h4 className="font-semibold text-gray-800 mb-3" style={{ fontSize: `${modalHeaderFontSize}px` }}>Table Footer Options</h4>
-                <div className="space-y-3">
-                    <label className="flex items-center space-x-2">
-                        <input 
-                            type="checkbox" 
-                            checked={config.enableFooter} 
-                            onChange={(e) => onChange('enableFooter', e.target.checked)} 
-                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span>Enable Table Footer</span>
-                    </label>
-                    
-                    {config.enableFooter && (
-                        <div className="ml-6 space-y-3 border-l-2 border-blue-200 pl-4">
-                            <label className="flex items-center space-x-2">
-                                <input 
-                                    type="checkbox" 
-                                    checked={config.enablePagination} 
-                                    onChange={(e) => onChange('enablePagination', e.target.checked)} 
-                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                />
-                                <span>Enable Pagination</span>
-                            </label>
-                            
-                            <label className="flex items-center space-x-2">
-                                <input 
-                                    type="checkbox" 
-                                    checked={config.enableTableTotals} 
-                                    onChange={(e) => onChange('enableTableTotals', e.target.checked)} 
-                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                />
-                                <span>Enable Table Totals by Column</span>
-                            </label>
-                            
-                            <p className="text-sm text-gray-600">Page size, page number, and column totals will be visible in the footer</p>
-                        </div>
+                        {/* Sub 2: Table Panel Actions - button display types & alignment */}
+                        <CollapsibleSection id="tablePanelActions" title="Table Panel Actions" open={displaySectionOpen.tablePanelActions} onToggle={toggleDisplaySection('tablePanelActions')} fontSize={modalHeaderFontSize}>
+                            <div className="space-y-2">
+                                <div className="grid grid-cols-5 gap-2 text-xs font-medium text-gray-500 uppercase tracking-wider border-b border-gray-300 pb-2">
+                                    <span>Enable</span>
+                                    <span>Feature</span>
+                                    <span>Type</span>
+                                    <span>Align</span>
+                                    <span>Order</span>
+                                </div>
+                                {buttonOrder.map((button, index) => {
+                                    const isEnabled = config[button.enableKey as keyof typeof config] as boolean;
+                                    const frozenEnableOnly = !!(button as { frozenEnableOnly?: boolean }).frozenEnableOnly;
+                                    const enableChecked = frozenEnableOnly ? true : isEnabled;
+                                    const enableDisabled = !!button.disabled;
+                                    const typeAlignDisabled = frozenEnableOnly ? false : !isEnabled;
+                                    return (
+                                        <div
+                                            key={button.key}
+                                            className="grid grid-cols-5 gap-2 items-center py-2 border-b border-gray-100 last:border-b-0 bg-white rounded px-2 border border-gray-200"
+                                            draggable
+                                            onDragStart={(e) => handleDragStart(e, index)}
+                                            onDragOver={handleDragOver}
+                                            onDrop={(e) => handleDrop(e, index)}
+                                        >
+                                            <div className="flex justify-center">
+                                                <input type="checkbox" checked={enableChecked} disabled={enableDisabled} onChange={(e) => !frozenEnableOnly && onChange(button.enableKey, e.target.checked)} className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 disabled:opacity-50" />
+                                            </div>
+                                            <span className="text-sm font-medium text-gray-700">{button.label}</span>
+                                            <select className="input text-sm border border-gray-300 rounded" value={config[button.typeKey as keyof typeof config] as string} onChange={(e) => onChange(button.typeKey, e.target.value)} disabled={typeAlignDisabled}>
+                                                <option value="icon">Icon</option>
+                                                <option value="button">Button</option>
+                                            </select>
+                                            <select className="input text-sm border border-gray-300 rounded" value={config[button.alignKey as keyof typeof config] as string} onChange={(e) => onChange(button.alignKey, e.target.value)} disabled={typeAlignDisabled}>
+                                                <option value="left">Left</option>
+                                                <option value="right">Right</option>
+                                            </select>
+                                            <div className="flex justify-center">
+                                                <button className="p-1 text-gray-400 hover:text-gray-600 cursor-move disabled:cursor-not-allowed disabled:opacity-50" title="Drag to reorder" disabled={typeAlignDisabled || frozenEnableOnly}>
+                                                    <GripVertical size={16} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </CollapsibleSection>
+                    </div>
+                </CollapsibleSection>
+            </div>
 
-                    )}
+            {/* Table Body & Footer - Super collapsible: Table Body (intact) + Table Footer (sub collapsible with enable toggle) */}
+            <div className="space-y-2">
+                <CollapsibleSection id="bodyAndFooter" title="Table Body & Footer Options" open={displaySectionOpen.bodyAndFooter} onToggle={toggleDisplaySection('bodyAndFooter')} fontSize={modalHeaderFontSize}>
+                    <div className="space-y-4">
+                        {/* Table Body Options - sub collapsible (content intact as-is) */}
+                        <CollapsibleSection id="tableBody" title="Table Body Options" open={displaySectionOpen.tableBody} onToggle={toggleDisplaySection('tableBody')} fontSize={modalHeaderFontSize}>
+                            <TableBodyOptionsSection config={config} onChange={onChange} modalHeaderFontSize={modalHeaderFontSize} />
+                        </CollapsibleSection>
 
-                </div>
+                        {/* Table Footer Options - sub collapsible with enable toggle row like Title/Tab Panel */}
+                        <CollapsibleSection id="tableFooter" title="Table Footer Options" open={displaySectionOpen.tableFooter} onToggle={toggleDisplaySection('tableFooter')} fontSize={modalHeaderFontSize}>
+                            <div className="grid gap-0 border border-gray-200 rounded-lg overflow-hidden" style={{ gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) auto' }}>
+                                {/* Row: Enable Table Footer | (empty) | Toggle */}
+                                <div className="text-sm text-gray-700 px-3 py-2 border-b border-gray-100 flex items-center">Enable Table Footer</div>
+                                <div className="px-3 py-2 border-b border-gray-100 flex items-center min-w-0" />
+                                <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-end">
+                                    <Toggle checked={!!config.enableFooter} onChange={(v) => onChange('enableFooter', v)} />
+                                </div>
+                                {config.enableFooter && (
+                                    <>
+                                        <div className="text-sm text-gray-700 px-3 py-2 border-b border-gray-100 flex items-center">Enable Pagination</div>
+                                        <div className="px-3 py-2 border-b border-gray-100 flex items-center min-w-0" />
+                                        <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-end">
+                                            <Toggle checked={!!config.enablePagination} onChange={(v) => onChange('enablePagination', v)} />
+                                        </div>
+                                        <div className="text-sm text-gray-700 px-3 py-2 border-b border-gray-100 flex items-center">Enable Table Totals by Column</div>
+                                        <div className="px-3 py-2 border-b border-gray-100 flex items-center min-w-0" />
+                                        <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-end">
+                                            <Toggle checked={!!config.enableTableTotals} onChange={(v) => onChange('enableTableTotals', v)} />
+                                        </div>
+                                        <div className="col-span-3 px-3 py-2 text-sm text-gray-600">
+                                            Page size, page number, and column totals will be visible in the footer.
+                                        </div>
+                                    </>
+                                )}
+                            </div>
+                        </CollapsibleSection>
+                    </div>
+                </CollapsibleSection>
             </div>
         </div>
     );

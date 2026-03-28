@@ -627,9 +627,9 @@ const TableActionPanel: React.FC<TableActionPanelProps> = ({
 
     return (
         <div
-            className="px-4 py-2 border-b border-gray-200 flex items-center justify-between bg-white"
+            className="px-4 py-2 border-b border-gray-200 flex items-center justify-between"
             style={{ 
-                backgroundColor: tablePanelBackground ? tablePanelBackgroundColor : '#ffffff',
+                backgroundColor: tablePanelBackground ? tablePanelBackgroundColor : 'transparent',
                 minHeight: '48px'
             }}
         >

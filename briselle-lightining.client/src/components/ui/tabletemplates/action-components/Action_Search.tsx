@@ -8,6 +8,7 @@ interface Action_SearchProps {
     searchButtonAlign: 'left' | 'right';
     searchTerm: string;
     onSearchChange: (value: string) => void;
+    enableTooltips?: boolean;
 }
 
 const Action_Search: React.FC<Action_SearchProps> = ({
@@ -16,6 +17,7 @@ const Action_Search: React.FC<Action_SearchProps> = ({
     searchButtonAlign,
     searchTerm,
     onSearchChange,
+    enableTooltips = false,
 }) => {
     const [showSearchExpanded, setShowSearchExpanded] = useState(false);
     const searchInputRef = useRef<HTMLInputElement>(null);
@@ -66,7 +68,7 @@ const Action_Search: React.FC<Action_SearchProps> = ({
         <div
             ref={searchRef}
             className={cn(
-                "relative flex items-center border border-gray-300 rounded-md h-10 bg-white transition-all duration-300 ease-in-out",
+                "relative flex items-center border border-gray-300 rounded-md h-10 bg-transparent transition-all duration-300 ease-in-out",
                 showSearchExpanded ? 'w-64 border-blue-500' : 'w-10'
             )}
         >
@@ -77,7 +79,7 @@ const Action_Search: React.FC<Action_SearchProps> = ({
                     setTimeout(() => searchInputRef.current?.focus(), 100);
                 }}
                 className="flex items-center justify-center w-10 h-full text-gray-500 hover:text-primary flex-shrink-0 rounded-md"
-                title="Search"
+                title={enableTooltips ? 'Search' : undefined}
             >
                 <Search size={16} />
             </button>

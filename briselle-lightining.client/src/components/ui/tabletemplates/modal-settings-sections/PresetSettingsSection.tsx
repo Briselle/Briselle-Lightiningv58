@@ -1,8 +1,11 @@
 import React, { useState } from 'react';
-import { Save, Trash2, Edit, Eye, FileJson } from 'lucide-react';
+import { Save, Trash2, Edit, Eye, FileJson, GripVertical } from 'lucide-react';
 import { TablePreset } from '../../action-components/Action_Preset';
 import { TableConfig } from '../../ConfigurableListTemplate';
 import { getDefaultPreset } from '../utils/presets';
+import { TAB_ICON_CUSTOM_KEY, TabBarIcon, TabIconPickerSelect } from '../utils/tabBarIcons';
+import type { TableQueryState } from '../utils/tableUserViewStorage';
+import { appendPresetToDB, removePresetFromDB, updateSinglePresetInDB, savePresetOrderToDB, DB_ENTITY_ID, DB_DOBJ_ID } from '../utils/configService';
 
 interface PresetSettingsSectionProps {
     selectedPreset: string;
@@ -15,6 +18,8 @@ interface PresetSettingsSectionProps {
     onPresetsChange?: (presets: TablePreset[]) => void;
     onConfigChange?: (config: TableConfig) => void; // Callback to update config when JSON is edited
     currentConfig?: TableConfig; // Current config to save as new preset
+    /** Embeds as `savedQueryState` on the new preset (preset-level defaults for query UI) */
+    currentTableQueryState?: TableQueryState | null;
     onPresetSelect?: (presetId: string) => void;
     modalHeaderFontSize?: number;
     modalContentFontSize?: number;
@@ -31,6 +36,7 @@ const PresetSettingsSection: React.FC<PresetSettingsSectionProps> = ({
     onPresetsChange,
     onConfigChange,
     currentConfig,
+    currentTableQueryState,
     onPresetSelect,
     modalHeaderFontSize,
     modalContentFontSize,
@@ -40,6 +46,9 @@ const PresetSettingsSection: React.FC<PresetSettingsSectionProps> = ({
     const [editingPreset, setEditingPreset] = useState<TablePreset | null>(null);
     const [editingNameId, setEditingNameId] = useState<string | null>(null);
     const [editingNameValue, setEditingNameValue] = useState<string>('');
+    const [newPresetName, setNewPresetName] = useState('');
+    const [newPresetIconKey, setNewPresetIconKey] = useState('preset');
+    const [newPresetCustomIcon, setNewPresetCustomIcon] = useState('');
 
     const handleEditJson = (preset: TablePreset) => {
         setJsonContent(JSON.stringify(preset.config || {}, null, 2));
@@ -50,45 +59,27 @@ const PresetSettingsSection: React.FC<PresetSettingsSectionProps> = ({
     const handleSaveJson = () => {
         try {
             const parsedConfig = JSON.parse(jsonContent);
-            
             if (!editingPreset) return;
-            
-            // Update the preset with new config
-            const updatedPreset: TablePreset = {
-                ...editingPreset,
-                config: parsedConfig
-            };
-            
-            // Update presets list
-            if (onPresetsChange) {
-                // Keep system presets untouched; update only matching preset
-                const systemIds = new Set(systemPresets.map(p => p.id));
-                const updatedCustom = customPresets.map(p =>
-                    p.id === editingPreset.id ? updatedPreset : p
+            if (editingPreset.id === 'default') {
+                alert(
+                    'The Default preset is protected and cannot be overwritten in the database. Save your changes as a new preset, or use Restore Default (code → database) in Table Settings → Tabs.'
                 );
-                const updatedPresets = [
-                    ...systemPresets,
-                    ...updatedCustom
-                ].filter((p, idx, arr) => arr.findIndex(x => x.id === p.id) === idx);
-                onPresetsChange(updatedPresets);
+                return;
             }
-            
-            // Apply the updated config to the UI immediately
-            if (onConfigChange) {
-                onConfigChange(parsedConfig);
-            }
-            if (onPresetSelect) {
-                onPresetSelect(editingPreset.id);
-            }
-            
-            // If this is a custom preset, save to localStorage
-            if (!editingPreset.isDefault) {
-                const updatedCustomPresets = customPresets.map(p => 
-                    p.id === editingPreset.id ? updatedPreset : p
-                );
-                localStorage.setItem('customTablePresets', JSON.stringify(updatedCustomPresets));
-            }
-            
+
+            const updatedPreset: TablePreset = { ...editingPreset, config: parsedConfig };
+
+            const updated = allPresets.map((p) => (p.id === editingPreset.id ? updatedPreset : p));
+            onPresetsChange?.(updated);
+
+            if (onConfigChange) onConfigChange(parsedConfig);
+            if (onPresetSelect) onPresetSelect(editingPreset.id);
+
+            // Push only this preset's config to DB
+            updateSinglePresetInDB(editingPreset.id, { config: parsedConfig }).then(({ error }) => {
+                if (error) alert(error);
+            });
+
             setShowJsonEditor(null);
             setEditingPreset(null);
         } catch (error) {
@@ -109,27 +100,19 @@ const PresetSettingsSection: React.FC<PresetSettingsSectionProps> = ({
             setEditingNameId(null);
             return;
         }
-
-        // Update presets list - system presets can't be renamed in storage, but can be renamed in memory for this session
-        const systemIds = new Set(systemPresets.map(p => p.id));
-        const updateName = (p: TablePreset) => p.id === editingNameId ? { ...p, name: trimmed } : p;
-
-        // For system presets, we update in memory only (they'll reset on refresh)
-        // For custom presets, we persist to localStorage
-        const updatedSystem = systemPresets.map(updateName);
-        const updatedCustom = customPresets.map(updateName);
-        const updatedPresets = [...updatedSystem, ...updatedCustom].filter((p, idx, arr) => arr.findIndex(x => x.id === p.id) === idx);
-
-        // Always update parent to sync name across components
-        if (onPresetsChange) {
-            onPresetsChange(updatedPresets);
+        if (editingNameId === 'default') {
+            alert('The Default preset name is protected.');
+            setEditingNameId(null);
+            return;
         }
 
-        // Persist custom preset rename to localStorage
-        const updatedCustomOnly = updatedCustom.filter(p => !systemIds.has(p.id));
-        if (updatedCustomOnly.length > 0) {
-            localStorage.setItem('customTablePresets', JSON.stringify(updatedCustomOnly));
-        }
+        const updated = allPresets.map((p) => (p.id === editingNameId ? { ...p, name: trimmed } : p));
+        onPresetsChange?.(updated);
+
+        // Push rename to DB
+        updateSinglePresetInDB(editingNameId, { name: trimmed }).then(({ error }) => {
+            if (error) console.warn('[PresetSettings] DB rename failed:', error);
+        });
 
         setEditingNameId(null);
     };
@@ -138,37 +121,44 @@ const PresetSettingsSection: React.FC<PresetSettingsSectionProps> = ({
         setEditingNameId(null);
     };
 
-    const handleSaveCurrentAsPreset = () => {
+    const handleSaveCurrentAsPreset = async () => {
         if (!currentConfig) {
             alert('No current configuration to save');
             return;
         }
-        
-        const presetName = prompt('Enter preset name:');
-        if (!presetName || !presetName.trim()) {
+
+        const trimmedName = newPresetName.trim();
+        if (trimmedName.length <= 3) {
+            alert('Preset name must be more than 3 characters.');
             return;
         }
-        
-        const trimmedName = presetName.trim();
-        
-        // Check for duplicate names
-        const allPresets = [...systemPresets, ...customPresets];
-        if (allPresets.some(p => p.name.toLowerCase() === trimmedName.toLowerCase())) {
-            if (!confirm(`A preset named "${trimmedName}" already exists. Overwrite it?`)) {
+        if (trimmedName.length >= 30) {
+            alert('Preset name must be less than 30 characters.');
+            return;
+        }
+
+        const systemIds = new Set(systemPresets.map((p) => p.id));
+        const duplicate = [...systemPresets, ...customPresets].find(
+            (p) => (p?.name || '').toLowerCase() === trimmedName.toLowerCase()
+        );
+        let customOnly = customPresets.filter((p) => !systemIds.has(p.id));
+
+        if (duplicate) {
+            if (systemIds.has(duplicate.id)) {
+                alert(
+                    `The name "${trimmedName}" is already used by a built-in preset. Please choose a different name.`
+                );
                 return;
             }
-            // Remove existing preset with same name
-            const existingPreset = allPresets.find(p => p.name.toLowerCase() === trimmedName.toLowerCase());
-            if (existingPreset) {
-                const systemIds = new Set(systemPresets.map(p => p.id));
-                const filteredCustom = customPresets.filter(p => p.id !== existingPreset.id && !systemIds.has(p.id));
-                const updatedPresets = [...systemPresets, ...filteredCustom];
-                if (onPresetsChange) {
-                    onPresetsChange(updatedPresets);
-                }
-                const updatedCustomOnly = updatedPresets.filter(p => !systemIds.has(p.id));
-                localStorage.setItem('customTablePresets', JSON.stringify(updatedCustomOnly));
+            if (
+                !confirm(
+                    `A custom preset named "${trimmedName}" already exists. Replace it with your current settings?`
+                )
+            ) {
+                alert('Save cancelled. No changes were made.');
+                return;
             }
+            customOnly = customOnly.filter((p) => p.id !== duplicate.id);
         }
         
         // Get default preset structure to ensure all parameters are included
@@ -177,9 +167,16 @@ const PresetSettingsSection: React.FC<PresetSettingsSectionProps> = ({
         // Merge current config on top of default preset config structure
         // This ensures all parameters from default preset are included,
         // with current config values overriding where they exist
+        const DEFAULT_TAB = { id: 'tab-default', label: 'Default', presetId: 'default', iconKey: 'list' };
+        const mergedTabList = currentConfig?.tabList?.length
+            ? (currentConfig.tabList.some((t: any) => t.presetId === 'default') ? currentConfig.tabList : [DEFAULT_TAB, ...currentConfig.tabList])
+            : [DEFAULT_TAB];
+
         const completeConfig: TableConfig = {
             ...defaultPreset.config,
-            ...currentConfig
+            ...currentConfig,
+            tabList: mergedTabList,
+            ...(currentTableQueryState ? { savedQueryState: currentTableQueryState } : {}),
         };
         
         const newPresetId = `custom-${Date.now()}`;
@@ -188,28 +185,25 @@ const PresetSettingsSection: React.FC<PresetSettingsSectionProps> = ({
             presetId: newPresetId,
             name: trimmedName,
             config: completeConfig,
-            isDefault: false
+            isDefault: false,
+            iconKey: newPresetIconKey,
+            customIcon: newPresetIconKey === TAB_ICON_CUSTOM_KEY ? newPresetCustomIcon.trim() || undefined : undefined,
         };
-        
-        // Build new preset list without duplicates; never duplicate system presets
-        const systemIds = new Set(systemPresets.map(p => p.id));
-        const filteredCustom = customPresets.filter(p => p.id !== newPreset.id && !systemIds.has(p.id));
-        const updatedPresets = [
-            ...systemPresets,
-            ...filteredCustom,
-            newPreset
-        ];
 
-        // Update parent component - this syncs to action panel
-        if (onPresetsChange) {
-            onPresetsChange(updatedPresets);
+        const { success, error: dbError } = await appendPresetToDB(newPreset);
+        if (!success) {
+            console.error('[PresetSettings] DB append failed:', dbError);
+            alert(
+                `Preset was not saved to the database.\n\n${
+                    dbError || 'Unknown error'
+                }\n\nCheck the browser console and ensure platform_config has a row for entity ${DB_ENTITY_ID}, dobj ${DB_DOBJ_ID}, config_type 3.`
+            );
+            return;
         }
-        
-        // Save to localStorage (only custom presets)
-        const updatedCustomPresets = updatedPresets.filter(p => !systemIds.has(p.id));
-        localStorage.setItem('customTablePresets', JSON.stringify(updatedCustomPresets));
-        
-        // Set as active preset and apply config
+
+        const updatedPresets = [...systemPresets, ...customOnly, newPreset];
+        onPresetsChange?.(updatedPresets);
+
         if (onPresetSelect) {
             onPresetSelect(newPreset.id);
         }
@@ -217,10 +211,56 @@ const PresetSettingsSection: React.FC<PresetSettingsSectionProps> = ({
             onConfigChange(newPreset.config);
         }
 
+        setNewPresetName('');
+        setNewPresetIconKey('preset');
+        setNewPresetCustomIcon('');
         alert(`Preset "${trimmedName}" saved successfully!`);
     };
 
     const allPresets = [...systemPresets, ...customPresets];
+
+    const handlePresetDragStart = (e: React.DragEvent, index: number) => {
+        e.dataTransfer.setData('text/plain', index.toString());
+    };
+
+    const handlePresetDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+    };
+
+    const handlePresetDrop = (e: React.DragEvent, dropIndex: number) => {
+        e.preventDefault();
+        const dragIndex = parseInt(e.dataTransfer.getData('text/plain'));
+        if (dragIndex === dropIndex) return;
+        const reordered = [...allPresets];
+        const [dragged] = reordered.splice(dragIndex, 1);
+        reordered.splice(dropIndex, 0, dragged);
+        onPresetsChange?.(reordered);
+
+        // Push reorder to DB
+        savePresetOrderToDB(reordered, selectedPreset || 'default').then(({ error }) => {
+            if (error) console.warn('[PresetSettings] DB reorder failed:', error);
+        });
+    };
+
+    const handlePresetIconUpdate = (preset: TablePreset, iconKey: string, customIcon: string) => {
+        if (preset.id === 'default') {
+            alert('The Default preset icon is protected.');
+            return;
+        }
+        const c = iconKey === TAB_ICON_CUSTOM_KEY ? customIcon.trim() : '';
+        const next: TablePreset = {
+            ...preset,
+            iconKey,
+            customIcon: c || undefined,
+        };
+        const updated = allPresets.map((p) => (p.id === preset.id ? next : p));
+        onPresetsChange?.(updated);
+
+        // Push icon change to DB
+        updateSinglePresetInDB(preset.id, { iconKey, customIcon: c || 'none' }).then(({ error }) => {
+            if (error) console.warn('[PresetSettings] DB icon update failed:', error);
+        });
+    };
 
     return (
         <div className="space-y-6">
@@ -234,9 +274,47 @@ const PresetSettingsSection: React.FC<PresetSettingsSectionProps> = ({
                 <p className="text-sm text-blue-700 mb-3" style={{ fontSize: `${modalContentFontSize || 14}px` }}>
                     Save your current table configuration as a new preset. This will create a new JSON preset that you can edit later.
                 </p>
-                <button onClick={handleSaveCurrentAsPreset} className="btn btn-primary">
-                    <Save size={16} className="mr-2" /> Save Current as New Preset
-                </button>
+                <div className="flex flex-wrap items-center gap-2">
+                    <input
+                        type="text"
+                        value={newPresetName}
+                        onChange={(e) => setNewPresetName(e.target.value)}
+                        maxLength={29}
+                        placeholder="Input Preset Name"
+                        className="input h-9 text-sm min-w-[180px] flex-[1_1_240px]"
+                    />
+                    <div className="flex items-center gap-2 shrink-0">
+                        <TabBarIcon
+                            iconKey={newPresetIconKey}
+                            customIcon={newPresetCustomIcon}
+                            size={18}
+                        />
+                        <TabIconPickerSelect
+                            value={newPresetIconKey}
+                            onChange={setNewPresetIconKey}
+                            showSearch={false}
+                            dense={true}
+                        />
+                        {newPresetIconKey === TAB_ICON_CUSTOM_KEY && (
+                            <input
+                                type="text"
+                                className="input h-9 text-sm w-[100px]"
+                                placeholder="Emoji"
+                                value={newPresetCustomIcon}
+                                onChange={(e) => setNewPresetCustomIcon(e.target.value)}
+                                maxLength={8}
+                            />
+                        )}
+                    </div>
+                    <button
+                        onClick={handleSaveCurrentAsPreset}
+                        className="btn btn-primary shrink-0"
+                        disabled={newPresetName.trim().length === 0 || newPresetName.trim().length >= 30}
+                        title="Save current configuration as new preset"
+                    >
+                        <Save size={16} className="mr-2" /> Save as Preset
+                    </button>
+                </div>
             </div>
 
             {/* Presets Table */}
@@ -248,17 +326,22 @@ const PresetSettingsSection: React.FC<PresetSettingsSectionProps> = ({
                         <table className="w-full border-collapse bg-white rounded-lg overflow-hidden">
                             <thead className="bg-gray-100">
                                 <tr>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">Preset Name</th>
-                                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">Type</th>
-                                    <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">Status</th>
+                                    <th className="px-4 py-3 w-[40%] text-left text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">Preset Name</th>
+                                    <th className="px-4 py-3 w-[14%] text-left text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">Type</th>
+                                    <th className="px-4 py-3 text-left text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">Icon</th>
                                     <th className="px-4 py-3 text-center text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">Actions</th>
+                                    <th className="px-2 py-3 w-[48px] text-center text-xs font-semibold text-gray-700 uppercase border-b border-gray-200">Order</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-200">
-                                        {allPresets.map(preset => (
+                                        {allPresets.map((preset, presetIdx) => (
                                     <tr 
                                         key={preset.id} 
                                         className={`hover:bg-gray-50 ${selectedPreset === preset.id ? 'bg-blue-50' : ''}`}
+                                        draggable
+                                        onDragStart={(e) => handlePresetDragStart(e, presetIdx)}
+                                        onDragOver={handlePresetDragOver}
+                                        onDrop={(e) => handlePresetDrop(e, presetIdx)}
                                     >
                                         <td className="px-4 py-3 text-sm font-medium text-gray-900">
                                             {editingNameId === preset.id ? (
@@ -276,13 +359,14 @@ const PresetSettingsSection: React.FC<PresetSettingsSectionProps> = ({
                                             ) : (
                                                 <span
                                                     onDoubleClick={() => startEditingName(preset)}
-                                                    className="cursor-text"
+                                                    className="cursor-text whitespace-nowrap"
+                                                    title={preset.name}
                                                 >
                                                     {preset.name}
                                                 </span>
                                             )}
                                         </td>
-                                        <td className="px-4 py-3 text-sm text-gray-600">
+                                        <td className="px-4 py-3 text-sm text-gray-600 whitespace-nowrap">
                                             <span className={`px-2 py-1 text-xs rounded ${
                                                 preset.isDefault 
                                                     ? 'bg-gray-100 text-gray-700' 
@@ -291,12 +375,38 @@ const PresetSettingsSection: React.FC<PresetSettingsSectionProps> = ({
                                                 {preset.isDefault ? 'System Defined' : 'Custom'}
                                             </span>
                                         </td>
-                                        <td className="px-4 py-3 text-center">
-                                            {selectedPreset === preset.id ? (
-                                                <span className="px-2 py-1 text-xs bg-green-100 text-green-700 rounded">Active</span>
-                                            ) : (
-                                                <span className="px-2 py-1 text-xs bg-gray-100 text-gray-600 rounded">Inactive</span>
-                                            )}
+                                        <td className="px-4 py-3 text-sm">
+                                            <div className="flex items-center gap-2 min-w-[200px] max-w-[280px]">
+                                                <TabBarIcon
+                                                    iconKey={preset.iconKey || 'preset'}
+                                                    customIcon={preset.customIcon}
+                                                    size={18}
+                                                />
+                                                <TabIconPickerSelect
+                                                    value={preset.iconKey || 'preset'}
+                                                    onChange={(key) =>
+                                                        handlePresetIconUpdate(preset, key, preset.customIcon || '')
+                                                    }
+                                                    showSearch={false}
+                                                    dense={true}
+                                                />
+                                                {(preset.iconKey || 'preset') === TAB_ICON_CUSTOM_KEY && (
+                                                    <input
+                                                        type="text"
+                                                        className="input h-9 text-xs w-[88px]"
+                                                        placeholder="Emoji"
+                                                        value={preset.customIcon || ''}
+                                                        onChange={(e) =>
+                                                            handlePresetIconUpdate(
+                                                                preset,
+                                                                TAB_ICON_CUSTOM_KEY,
+                                                                e.target.value
+                                                            )
+                                                        }
+                                                        maxLength={8}
+                                                    />
+                                                )}
+                                            </div>
                                         </td>
                                         <td className="px-4 py-3 text-center">
                                             <div className="flex items-center justify-center space-x-2">
@@ -314,19 +424,23 @@ const PresetSettingsSection: React.FC<PresetSettingsSectionProps> = ({
                                                 >
                                                     <FileJson size={16} />
                                                 </button>
-                                                {!preset.isDefault && (
-                                                    <button
-                                                        onClick={() => {
-                                                            if (confirm(`Are you sure you want to delete "${preset.name}"?`)) {
-                                                                onDeletePreset(preset.id);
-                                                            }
-                                                        }}
-                                                        className="p-1.5 text-gray-500 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
-                                                        title="Delete preset"
-                                                    >
-                                                        <Trash2 size={16} />
-                                                    </button>
-                                                )}
+                                                <button
+                                                    onClick={() => {
+                                                        if (preset.isDefault) return;
+                                                        if (confirm(`Are you sure you want to delete "${preset.name}"?`)) {
+                                                            onDeletePreset(preset.id);
+                                                        }
+                                                    }}
+                                                    disabled={preset.isDefault}
+                                                    className={`p-1.5 rounded transition-colors ${
+                                                        preset.isDefault
+                                                            ? 'text-gray-300 cursor-not-allowed'
+                                                            : 'text-gray-500 hover:text-red-600 hover:bg-red-50'
+                                                    }`}
+                                                    title={preset.isDefault ? 'System preset cannot be deleted' : 'Delete preset'}
+                                                >
+                                                    <Trash2 size={16} className={preset.isDefault ? 'line-through' : ''} />
+                                                </button>
                                                 <button
                                                     onClick={() => onPresetChange(preset.id)}
                                                     className={`px-3 py-1 text-xs rounded transition-colors ${
@@ -338,6 +452,14 @@ const PresetSettingsSection: React.FC<PresetSettingsSectionProps> = ({
                                                     {selectedPreset === preset.id ? 'Active' : 'Select'}
                                                 </button>
                                             </div>
+                                        </td>
+                                        <td className="px-2 py-3 text-center">
+                                            <button
+                                                className="p-1 text-gray-400 hover:text-gray-600 cursor-move"
+                                                title="Drag to reorder"
+                                            >
+                                                <GripVertical size={16} />
+                                            </button>
                                         </td>
                                     </tr>
                                 ))}

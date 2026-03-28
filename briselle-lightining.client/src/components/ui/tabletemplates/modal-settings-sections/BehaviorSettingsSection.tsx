@@ -1,42 +1,112 @@
 import React, { useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
+import { cn } from '../../../../utils/helpers';
 
 interface BehaviorSettingsSectionProps {
-    config: {
-        enableSort: boolean;
-        enableRowSelection: boolean;
-        enableMassSelection: boolean;
-        enableBulkActions: boolean;
-        bulkActionStyle: 'icons' | 'dropdown';
-        enableInlineEdit: string[];
-    };
+    config: Record<string, any>;
     onChange: (key: string, value: any) => void;
+    modalHeaderFontSize?: number;
+    modalContentFontSize?: number;
+    /** Column keys to display labels (same as table); used for inline edit column list and labels */
+    fieldMappings?: Record<string, string>;
 }
+
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+    return (
+        <button
+            type="button"
+            role="switch"
+            aria-checked={checked}
+            onClick={() => onChange(!checked)}
+            className={cn(
+                'relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1',
+                checked ? 'bg-blue-600' : 'bg-gray-200'
+            )}
+        >
+            <span
+                className={cn(
+                    'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow mt-0.5 transition-transform',
+                    checked ? 'translate-x-4' : 'translate-x-0.5'
+                )}
+            />
+        </button>
+    );
+}
+
+function CollapsibleSection({
+    title,
+    open,
+    onToggle,
+    children,
+    fontSize,
+}: {
+    title: string;
+    open: boolean;
+    onToggle: () => void;
+    children: React.ReactNode;
+    fontSize?: number;
+}) {
+    return (
+        <div className="border border-gray-200 rounded-lg bg-white overflow-hidden">
+            <button
+                type="button"
+                onClick={onToggle}
+                className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition-colors"
+                style={fontSize ? { fontSize: `${fontSize}px` } : undefined}
+            >
+                <span className="font-medium text-gray-800">{title}</span>
+                {open ? <ChevronDown size={18} className="text-gray-500" /> : <ChevronRight size={18} className="text-gray-500" />}
+            </button>
+            {open && <div className="px-4 pb-3 pt-1 border-t border-gray-100">{children}</div>}
+        </div>
+    );
+}
+
+const DEFAULT_INLINE_EDIT_FIELDS = [
+    'dobj_name_display',
+    'dobj_name_system',
+    'dobj_description',
+    'dobj_status',
+    'dobj_updated_at',
+];
 
 const BehaviorSettingsSection: React.FC<BehaviorSettingsSectionProps> = ({
     config,
     onChange,
+    modalHeaderFontSize = 16,
+    modalContentFontSize = 14,
+    fieldMappings,
 }) => {
     const [newInlineEditField, setNewInlineEditField] = useState('');
-    
-    // Mock available fields - in real app, this would come from props or API
-    const availableFields = [
-        'dobj_name_display',
-        'dobj_name_system', 
-        'dobj_description',
-        'dobj_status',
-        'dobj_updated_at'
-    ];
+    const [open, setOpen] = useState<Record<string, boolean>>({
+        selection: true,
+        rowActions: true,
+        editing: true,
+    });
+    const toggle = (k: string) => () => setOpen((s) => ({ ...s, [k]: !s[k] }));
+
+    const enabledRowActions = config.enabledRowActions ?? ['view', 'edit', 'copy', 'delete'];
+    const availableFields = fieldMappings ? Object.keys(fieldMappings) : DEFAULT_INLINE_EDIT_FIELDS;
 
     const handleAddInlineEditField = () => {
-        if (newInlineEditField && !config.enableInlineEdit.includes(newInlineEditField)) {
-            onChange('enableInlineEdit', [...config.enableInlineEdit, newInlineEditField]);
+        const current = config.enableInlineEdit ?? [];
+        if (newInlineEditField && !current.includes(newInlineEditField)) {
+            onChange('enableInlineEdit', [...current, newInlineEditField]);
             setNewInlineEditField('');
         }
     };
 
     const handleRemoveInlineEditField = (field: string) => {
-        onChange('enableInlineEdit', config.enableInlineEdit.filter(f => f !== field));
+        onChange('enableInlineEdit', (config.enableInlineEdit ?? []).filter((f: string) => f !== field));
+    };
+
+    const tableRowClass = 'grid grid-cols-[minmax(160px,1fr)_auto] gap-x-3 py-1.5 items-center';
+
+    /** Display name for inline-edit field: use table label when fieldMappings provided, else strip prefix and title-case */
+    const getFieldDisplayName = (field: string) => {
+        if (fieldMappings?.[field]) return fieldMappings[field];
+        const withoutPrefix = field.replace(/^[a-zA-Z0-9]+_/, '') || field;
+        return withoutPrefix.replace(/_/g, ' ').replace(/\b\w/g, (l) => l.toUpperCase());
     };
 
     return (
@@ -45,85 +115,123 @@ const BehaviorSettingsSection: React.FC<BehaviorSettingsSectionProps> = ({
                 <h3 className="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">Behavior Settings</h3>
             </div>
 
-            {/* Selection - Section #1 */}
-            <div className="bg-gray-50 p-4 rounded-lg">
-                <h4 className="text-md font-semibold text-gray-800 mb-3">Selection</h4>
-                <div className="space-y-3">
-                    <label className="flex items-center space-x-2">
-                        <input 
-                            type="checkbox" 
-                            checked={config.enableRowSelection} 
-                            onChange={(e) => onChange('enableRowSelection', e.target.checked)} 
-                            className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                        />
-                        <span className="font-medium">Enable Row Selection</span>
-                    </label>
-                    
+            {/* Row Selection Controls - table-like rows */}
+            <CollapsibleSection
+                title="Row Selection Controls"
+                open={open.selection ?? false}
+                onToggle={toggle('selection')}
+                fontSize={modalHeaderFontSize}
+            >
+                <div className="flex flex-col gap-y-0.5">
+                    <div className={tableRowClass}>
+                        <span className="text-sm font-medium text-gray-700">Enable Row Selection</span>
+                        <Toggle checked={!!config.enableRowSelection} onChange={(v) => onChange('enableRowSelection', v)} />
+                    </div>
                     {config.enableRowSelection && (
-                        <div className="ml-6 space-y-3 border-l-2 border-blue-200 pl-4">
-                            <label className="flex items-center space-x-2">
-                                <input 
-                                    type="checkbox" 
-                                    checked={config.enableMassSelection} 
-                                    onChange={(e) => onChange('enableMassSelection', e.target.checked)} 
-                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                />
-                                <span>Enable Mass Selection</span>
-                            </label>
-                            
-                            <label className="flex items-center space-x-2">
-                                <input 
-                                    type="checkbox" 
-                                    checked={config.enableBulkActions} 
-                                    onChange={(e) => onChange('enableBulkActions', e.target.checked)} 
-                                    className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                                />
-                                <span>Enable Bulk Actions</span>
-                            </label>
-                            
-                            {config.enableBulkActions && (
-                                <div>
-                                    <label className="block text-sm font-medium text-gray-700 mb-2">Bulk Action Style</label>
-                                    <select 
-                                        className="input" 
-                                        value={config.bulkActionStyle} 
-                                        onChange={(e) => onChange('bulkActionStyle', e.target.value)}
-                                    >
-                                        <option value="icons">Icons</option>
-                                        <option value="dropdown">Buttons</option>
-                                    </select>
-                                </div>
-                            )}
+                        <div className="grid grid-cols-[auto_auto_auto_auto_auto_auto] gap-x-3 py-1.5 items-center">
+                            <span className="text-sm font-medium text-gray-700 whitespace-nowrap">Enable Mass Selection</span>
+                            <Toggle checked={!!config.enableMassSelection} onChange={(v) => onChange('enableMassSelection', v)} />
+                            <span className="text-sm font-medium text-gray-700 whitespace-nowrap">Enable Bulk Actions</span>
+                            <Toggle checked={!!config.enableBulkActions} onChange={(v) => onChange('enableBulkActions', v)} />
+                            <span className="text-sm font-medium text-gray-700 whitespace-nowrap">Bulk Action Style</span>
+                            <select
+                                className="input text-sm w-full max-w-[100px]"
+                                value={config.bulkActionStyle ?? 'icons'}
+                                onChange={(e) => onChange('bulkActionStyle', e.target.value)}
+                            >
+                                <option value="icons">Icons</option>
+                                <option value="buttons">Buttons</option>
+                            </select>
                         </div>
                     )}
                 </div>
-            </div>
+            </CollapsibleSection>
 
-            {/* Editing - Section #2 */}
-            <div className="bg-gray-50 p-4 rounded-lg">
-                <h4 className="text-md font-semibold text-gray-800 mb-3">Editing</h4>
+            {/* Row Actions - table-like rows */}
+            <CollapsibleSection
+                title="Row Actions"
+                open={open.rowActions ?? false}
+                onToggle={toggle('rowActions')}
+                fontSize={modalHeaderFontSize}
+            >
+                <div className="flex flex-col gap-y-0.5">
+                    <div className={tableRowClass}>
+                        <span className="text-sm font-medium text-gray-700">Enable Row Actions</span>
+                        <Toggle checked={!!config.enableRowActions} onChange={(v) => onChange('enableRowActions', v)} />
+                    </div>
+                    {config.enableRowActions && (
+                        <>
+                            <div className="grid grid-cols-[minmax(160px,1fr)_auto_auto_auto_auto] gap-x-3 py-1.5 items-center">
+                                <span className="text-sm font-medium text-gray-700">Enabled action buttons</span>
+                                {['view', 'edit', 'copy', 'delete'].map(action => (
+                                    <div key={action} className="flex items-center gap-1.5">
+                                        <span className="text-xs text-gray-600 capitalize shrink-0">{action}</span>
+                                        <Toggle
+                                            checked={(enabledRowActions as string[]).includes(action)}
+                                            onChange={(on) => {
+                                                const updated = on
+                                                    ? [...(enabledRowActions as string[]), action]
+                                                    : (enabledRowActions as string[]).filter((a: string) => a !== action);
+                                                onChange('enabledRowActions', updated);
+                                            }}
+                                        />
+                                    </div>
+                                ))}
+                            </div>
+                            <div className="grid grid-cols-[minmax(160px,1fr)_auto_minmax(64px,auto)_auto_minmax(48px,auto)_auto] gap-x-3 py-1.5 items-center">
+                                <span className="text-sm font-medium text-gray-700 whitespace-nowrap">Show on hover</span>
+                                <Toggle checked={!!config.showRowActionsOnHover} onChange={(v) => onChange('showRowActionsOnHover', v)} />
+                                <span className="text-sm font-medium text-gray-700">Position</span>
+                                <select
+                                    className="input text-sm w-full max-w-[90px]"
+                                    value={config.rowActionsPosition ?? 'right'}
+                                    onChange={(e) => onChange('rowActionsPosition', e.target.value)}
+                                >
+                                    <option value="left">Left</option>
+                                    <option value="right">Right</option>
+                                </select>
+                                <span className="text-sm font-medium text-gray-700">Style</span>
+                                <select
+                                    className="input text-sm w-full max-w-[90px]"
+                                    value={config.actionStyle === 'dropdown' ? 'menu' : (config.actionStyle ?? 'icons')}
+                                    onChange={(e) => onChange('actionStyle', e.target.value)}
+                                >
+                                    <option value="icons">Icons</option>
+                                    <option value="menu">Menu</option>
+                                </select>
+                            </div>
+                        </>
+                    )}
+                </div>
+            </CollapsibleSection>
+
+            {/* Editing - Collapsible accordion */}
+            <CollapsibleSection
+                title="Editing"
+                open={open.editing ?? false}
+                onToggle={toggle('editing')}
+                fontSize={modalHeaderFontSize}
+            >
                 <div className="space-y-4">
                     <div>
                         <label className="block text-sm font-medium text-gray-700 mb-2">Configure Inline Edit Columns</label>
-                        
-                        {/* Add Field Section */}
                         <div className="flex space-x-2 mb-3">
-                            <select 
-                                className="input flex-grow" 
-                                value={newInlineEditField} 
+                            <select
+                                className="input flex-grow"
+                                value={newInlineEditField}
                                 onChange={(e) => setNewInlineEditField(e.target.value)}
                             >
                                 <option value="">Select field for inline editing</option>
                                 {availableFields
-                                    .filter(field => !config.enableInlineEdit.includes(field))
+                                    .filter(field => !(config.enableInlineEdit ?? []).includes(field))
                                     .map(field => (
                                         <option key={field} value={field}>
-                                            {field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                            {getFieldDisplayName(field)}
                                         </option>
                                     ))
                                 }
                             </select>
-                            <button 
+                            <button
                                 onClick={handleAddInlineEditField}
                                 disabled={!newInlineEditField}
                                 className="btn btn-primary px-3"
@@ -132,9 +240,7 @@ const BehaviorSettingsSection: React.FC<BehaviorSettingsSectionProps> = ({
                                 <Plus size={16} />
                             </button>
                         </div>
-                        
-                        {/* Selected Fields Table */}
-                        {config.enableInlineEdit.length > 0 && (
+                        {(config.enableInlineEdit ?? []).length > 0 && (
                             <div className="border border-gray-200 rounded-lg overflow-hidden">
                                 <table className="w-full">
                                     <thead className="bg-gray-100">
@@ -144,10 +250,10 @@ const BehaviorSettingsSection: React.FC<BehaviorSettingsSectionProps> = ({
                                         </tr>
                                     </thead>
                                     <tbody>
-                                        {config.enableInlineEdit.map((field, index) => (
+                                        {(config.enableInlineEdit ?? []).map((field: string, index: number) => (
                                             <tr key={field} className={index % 2 === 0 ? 'bg-white' : 'bg-gray-50'}>
                                                 <td className="px-3 py-2 text-sm text-gray-900">
-                                                    {field.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                                    {getFieldDisplayName(field)}
                                                 </td>
                                                 <td className="px-3 py-2">
                                                     <button
@@ -164,26 +270,14 @@ const BehaviorSettingsSection: React.FC<BehaviorSettingsSectionProps> = ({
                                 </table>
                             </div>
                         )}
-                        
-                        {config.enableInlineEdit.length === 0 && (
+                        {(config.enableInlineEdit ?? []).length === 0 && (
                             <div className="text-center py-4 text-gray-500 text-sm border border-gray-200 rounded-lg bg-gray-50">
                                 No fields selected for inline editing
                             </div>
                         )}
                     </div>
                 </div>
-            </div>
-
-            {/* Checkbox View and Behavior */}
-            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                <h4 className="text-md font-semibold text-blue-800 mb-2">Checkbox View and Behavior</h4>
-                <div className="text-sm text-blue-700 space-y-2">
-                    <p>• When more than 1 row is loaded and only one row is selected, the header checkbox shows indeterminate state (-)</p>
-                    <p>• When all rows are selected, the header checkbox shows checked state (✓)</p>
-                    <p>• When Mass Selection is enabled, the header checkbox becomes active</p>
-                    <p>• When Mass Selection is disabled, the header checkbox appears in inactive mode</p>
-                </div>
-            </div>
+            </CollapsibleSection>
         </div>
     );
 };

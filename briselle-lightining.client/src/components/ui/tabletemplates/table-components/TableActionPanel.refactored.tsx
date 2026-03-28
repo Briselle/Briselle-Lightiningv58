@@ -25,7 +25,8 @@ interface TableActionPanelProps {
     enableTablePanel: boolean;
     tablePanelBackground: boolean;
     tablePanelBackgroundColor: string;
-    
+    enableTooltips?: boolean;
+
     // Search
     enableSearch: boolean;
     searchButtonType: 'icon' | 'button';
@@ -150,6 +151,7 @@ const TableActionPanel: React.FC<TableActionPanelProps> = (props) => {
         enableTablePanel,
         tablePanelBackground,
         tablePanelBackgroundColor,
+        enableTooltips = false,
         config,
     } = props;
 
@@ -170,7 +172,7 @@ const TableActionPanel: React.FC<TableActionPanelProps> = (props) => {
         (config?.[BUTTON_DEFINITIONS[key]?.alignKey ?? ''] as 'left' | 'right') || 'right';
 
     const buttons: Record<string, React.ReactNode> = {
-        search: <Action_Search key="search" enableSearch={props.enableSearch} searchButtonType={props.searchButtonType} searchButtonAlign={props.searchButtonAlign} searchTerm={props.searchTerm} onSearchChange={props.onSearchChange} />,
+        search: <Action_Search key="search" enableSearch={props.enableSearch} searchButtonType={props.searchButtonType} searchButtonAlign={props.searchButtonAlign} searchTerm={props.searchTerm} onSearchChange={props.onSearchChange} enableTooltips={enableTooltips} />,
         sort: <Action_Sort key="sort" enableSort={props.enableSort} sortButtonType={props.sortButtonType} sortButtonAlign={props.sortButtonAlign} fieldMappings={props.fieldMappings} sortCriteria={props.sortCriteria} onSortCriteriaChange={props.onSortCriteriaChange} />,
         filter: <Action_Filter key="filter" enableFilter={props.enableFilter} filterButtonType={props.filterButtonType} filterButtonAlign={props.filterButtonAlign} fieldMappings={props.fieldMappings} filterCriteria={props.filterCriteria} onFilterCriteriaChange={props.onFilterCriteriaChange} />,
         group: <Action_Group key="group" enableGroup={props.enableGroup} groupButtonType={props.groupButtonType} groupButtonAlign={props.groupButtonAlign} fieldMappings={props.fieldMappings} groupByColumn={props.groupByColumn} onGroupByColumnChange={props.onGroupByColumnChange} />,
@@ -216,23 +218,29 @@ const TableActionPanel: React.FC<TableActionPanelProps> = (props) => {
     };
 
     order.forEach((key) => {
+        const def = BUTTON_DEFINITIONS[key];
+        const enableKey = def?.enableKey;
+        const isEnabled = !enableKey || def?.disabled || def?.frozenEnableOnly || !!config?.[enableKey];
+        if (!isEnabled) return;
         const comp = buttons[key];
-        if (comp) addButton(comp, align(key));
+        if (!comp) return;
+        const label = def?.label;
+        const wrapped = enableTooltips && label ? <span key={`tt-${key}`} title={label} className="inline-flex">{comp}</span> : comp;
+        addButton(wrapped, align(key));
     });
 
     return (
         <div
-            className="px-4 py-2 border-b border-gray-200 flex items-center justify-between bg-white"
+            className="px-4 py-2 border-b border-gray-200 flex items-center justify-between min-h-[48px]"
             style={{
-                backgroundColor: tablePanelBackground ? tablePanelBackgroundColor : '#ffffff',
-                minHeight: '48px'
+                backgroundColor: tablePanelBackground ? tablePanelBackgroundColor : 'transparent',
             }}
         >
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center gap-2">
                 {leftButtons}
             </div>
 
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center gap-2">
                 {rightButtons}
             </div>
         </div>

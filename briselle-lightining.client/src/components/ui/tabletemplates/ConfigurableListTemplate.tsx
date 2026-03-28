@@ -1,14 +1,21 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from "react";
 
 import {
     Plus, AlertTriangle, ExternalLink, Settings, Edit, Trash2,
-    ChevronRight, GripVertical, X, Copy,
+    ChevronRight, ChevronDown, GripVertical, X, Copy, Bookmark, Star,
 } from 'lucide-react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { cn } from '../../../utils/helpers';
 import TableSettingsModal from "./TableSettingsModal";
 import TableTitlePanel from "./table-components/TableTitlePanel";
-import TableTabPanel, { TabItem } from "./table-components/TableTabPanel";
+import TableTabPanel, {
+    TabItem,
+    TabBarPlacement,
+    TabMenuStyle,
+    TabVisualStyle,
+    TABLE_TAB_URL_PARAM,
+} from "./table-components/TableTabPanel";
+import { TAB_ICON_CUSTOM_KEY } from "./utils/tabBarIcons";
 import TableActionPanel from "./table-components/TableActionPanel.refactored";
 // Note: After testing, rename TableActionPanel.refactored.tsx to TableActionPanel.tsx
 import DataTable from "./table-components/DataTable";
@@ -20,6 +27,20 @@ import { FilterCriteria } from "./action-components/Action_Filter";
 import { TablePreset } from "./action-components/Action_Preset";
 import { loadTableConfig, loadTablePresets } from "./utils/loadTableConfig";
 import { DEFAULT_PRESETS, getDefaultPreset, loadCustomPresetsFromStorage, saveCustomPresetsToStorage } from "./utils/presets";
+import { fetchPresetsFromDB, persistActiveContextToDB } from "./utils/configService";
+import { mergePresetWithPreservedTabState, mergeObjectTabBarIntoConfig } from "./utils/mergePresetConfig";
+import { injectCanonicalDefaultTab } from "./utils/canonicalObjectLoaderDefaults";
+import { normalizeTabMenuStyle, resolveTabShowUnderline, sanitizeTabListPresetIds } from "./utils/tabBarNormalize";
+import { useAuthStore } from "../../../stores/authStore";
+import {
+    computeTemplateId,
+    loadTableQueryState,
+    saveTableQueryState,
+    sanitizeTableQueryState,
+    stripSavedQueryStateFromConfig,
+    readSavedQueryStateFromPresetConfig,
+    type TableQueryState,
+} from "./utils/tableUserViewStorage";
 
 
 export interface TableConfig {
@@ -148,7 +169,7 @@ export interface TableConfig {
     pageSizeOptions?: number[];
 
     // Theme and Styling
-    theme?: 'default' | 'professional' | 'modern' | 'minimal';
+    theme?: 'default' | 'professional' | 'modern' | 'minimal' | 'executive' | 'corporate' | 'finance' | 'tech' | 'classic' | 'neutral';
     tableView?: 'default' | 'compact' | 'comfortable' | 'spacious';
 
     // Action Settings
@@ -188,11 +209,30 @@ export interface TableConfig {
     tabCustomHover: boolean;
     tabHoverColor: string;
     tabPanelBackground: string;
+    /** When false, tab strip uses default white background (ignores tabPanelBackground). */
+    tabUseCustomPanelBackground?: boolean;
     tabList: TabItem[];
+    /** Tab strip between title & toolbar, or vertical rail left of the table (below toolbar) */
+    tabBarPlacement?: TabBarPlacement;
+    /** Extra space above the tab strip (when horizontal placement) */
+    tabPanelMarginTop?: number;
+    /** Icon-only, icon + label, or label-only */
+    tabMenuStyle?: TabMenuStyle;
+    /** Visual chrome for tab buttons (legacy: underline, rounded) */
+    tabStyle?: string;
+    /** Accent underline / side line on the active tab (all shapes) */
+    tabShowUnderline?: boolean;
+    /** Icon size in px (14–28); when unset, derived from tab height */
+    tabIconSize?: number;
+    /** Gap between tabs in px */
+    tabGap?: number;
 
     // Column Management
     visibleColumns?: string[];
     columnOrder?: string[];
+
+    /** Preset JSON only: default query (filter/sort/group/columns). Stripped when merging into live page config. */
+    savedQueryState?: TableQueryState;
 }
 
 // Types are now imported from action components
@@ -203,6 +243,7 @@ interface Props {
     fieldMappings: Record<string, string>;
     config: TableConfig;
     loading?: boolean;
+    error?: string | null;
     onConfigChange: (newConfig: TableConfig) => void;
     baseUrl?: string;
     onRefresh?: () => void;
@@ -214,12 +255,18 @@ export default function ConfigurableListTemplate({
     fieldMappings,
     config,
     loading,
+    error,
     onConfigChange,
     baseUrl = '/data',
     onRefresh
 }: Props) {
     // Initialize selectedRows as a proper Set to fix the .has() error
-    
+
+    const configRef = useRef(config);
+    configRef.current = config;
+    const onConfigChangeRef = useRef(onConfigChange);
+    onConfigChangeRef.current = onConfigChange;
+
     // State management
     const [sortCriteria, setSortCriteria] = useState<SortCriteria[]>([]);
     const [filterCriteria, setFilterCriteria] = useState<FilterCriteria[]>([]);
@@ -228,10 +275,13 @@ export default function ConfigurableListTemplate({
     const [groupByColumn, setGroupByColumn] = useState<string | null>(null);
     const [presets, setPresets] = useState<TablePreset[]>([]);
     const [activePresetId, setActivePresetId] = useState<string>('default');
+    const location = useLocation();
+    const [, setSearchParams] = useSearchParams();
     const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
     const [checkboxColumnWidth, setCheckboxColumnWidth] = useState<number | null>(null);
     const [draggedRowIndex, setDraggedRowIndex] = useState<number | null>(null);
     const [draggedColumnIndex, setDraggedColumnIndex] = useState<number | null>(null);
+    const [rowOrder, setRowOrder] = useState<number[] | null>(null);
     const [isTableSettingsOpen, setIsTableSettingsOpen] = useState(false);
     const [chartPanelOpen, setChartPanelOpen] = useState(false);
     const [columnWrapStates, setColumnWrapStates] = useState<Record<string, 'wrap' | 'clip'>>({});
@@ -250,10 +300,19 @@ export default function ConfigurableListTemplate({
     const [activeColumns, setActiveColumns] = useState<string[]>(allColumns);
     const [visibleColumns, setVisibleColumns] = useState<string[]>(allColumns);
     const [columnOrder, setColumnOrder] = useState<string[]>(Object.keys(fieldMappings));
+
+    const fieldMappingsRef = useRef(fieldMappings);
+    fieldMappingsRef.current = fieldMappings;
+
+    const tableUserId = useAuthStore((s) => s.user?.id ?? 'local');
+    const templateId = useMemo(() => computeTemplateId(fieldMappings), [fieldMappings]);
     
     const resizeRefs = useRef<Record<string, HTMLDivElement | null>>({});
     const checkboxColumnRef = useRef<HTMLTableCellElement | null>(null);
     const headerCellRefs = useRef<Record<string, HTMLTableCellElement | null>>({});
+    const dropdownRef = useRef<HTMLDivElement>(null);
+    const [showPresetDropdown, setShowPresetDropdown] = useState(false);
+    const [openRowActionsMenuId, setOpenRowActionsMenuId] = useState<string | null>(null);
 
     // Measure and initialize column widths from actual rendered table
     useEffect(() => {
@@ -307,7 +366,13 @@ export default function ConfigurableListTemplate({
         groupByColumn
     );
 
-    
+    const displayRows = rowOrder ? rowOrder.map(i => sortedData[i]) : sortedData;
+    const displayIndices = rowOrder ? rowOrder : sortedData.map((_, i) => i);
+
+    const sortSignature = sortCriteria.map(s => `${s.column}-${s.order}`).join(',');
+    useEffect(() => {
+        setRowOrder(null);
+    }, [sortedData.length, sortSignature]);
 
     //// ---------- Presets ----------
     //const applyPreset = (preset: TablePreset) => {
@@ -402,32 +467,105 @@ export default function ConfigurableListTemplate({
 
 
 
-    // Load presets from single source of truth - only on mount
+    // Load presets: DB active preset → DB default → code Default failover
     useEffect(() => {
-        // Load system presets from presets.ts
-        const systemPresets = DEFAULT_PRESETS;
-        
-        // Load custom presets from localStorage
-        const customPresets = loadCustomPresetsFromStorage();
-        
-        // Combine system and custom presets
-        const allPresets = [...systemPresets, ...customPresets];
-        setPresets(allPresets);
-        
-        // Apply default preset on first load if config is empty or not initialized
-        const hasConfig = Object.keys(config).length > 0;
-        if (!hasConfig) {
-            const defaultPreset = getDefaultPreset();
-            setActivePresetId(defaultPreset.id);
-            onConfigChange(defaultPreset.config);
-        } else {
-            // If config exists, attempt to keep current active preset (fallback to default)
-            const def = getDefaultPreset();
-            if (!activePresetId || activePresetId === 'default') {
-                setActivePresetId(def.id);
+        let cancelled = false;
+
+        const loadPresets = async () => {
+            let overrides: Record<string, { iconKey?: string; customIcon?: string }> = {};
+            try {
+                overrides = JSON.parse(localStorage.getItem('presetIconOverrides') || '{}');
+            } catch {
+                overrides = {};
             }
-        }
+
+            const DB_ENTITY_ID = 1000000000;
+            const DB_DOBJ_ID = 1000000001;
+            const {
+                presets: dbPresets,
+                activePresetId: dbActiveId,
+                activeTabId: dbTabId,
+                objectTabBar,
+                error: dbError,
+            } = await fetchPresetsFromDB(DB_ENTITY_ID, DB_DOBJ_ID);
+
+            if (cancelled) return;
+
+            const CODE_DEFAULT = DEFAULT_PRESETS[0];
+            let systemPresets: TablePreset[];
+            let resolvedActiveId: string;
+
+            if (!dbError && dbPresets.length > 0) {
+                systemPresets = dbPresets;
+                resolvedActiveId = dbActiveId || 'default';
+                console.log(`[Presets] Loaded ${dbPresets.length} preset(s) from database, active: ${resolvedActiveId}`);
+            } else {
+                systemPresets = [CODE_DEFAULT];
+                resolvedActiveId = 'default';
+                if (dbError) {
+                    console.warn(`[Presets] Database fetch failed, using code Default failover. Error: ${dbError}`);
+                    alert('Could not load presets from server. Showing default preset only. Other presets will be available when the connection is restored.');
+                }
+            }
+
+            // Apply icon overrides from localStorage
+            const mergedSystem = systemPresets.map((p) => ({
+                ...p,
+                ...(overrides[p.id] || {}),
+            }));
+
+            // Load user's custom presets from localStorage
+            const customPresets = loadCustomPresetsFromStorage();
+            const systemIds = new Set(mergedSystem.map((p) => p.id));
+            const uniqueCustom = customPresets.filter((p) => !systemIds.has(p.id));
+
+            const allPresets = [...mergedSystem, ...uniqueCustom];
+            setPresets(allPresets);
+
+            // Apply active preset from DB, then default, then first
+            const activePreset = allPresets.find((p) => p.id === resolvedActiveId)
+                || allPresets.find((p) => p.isDefault)
+                || allPresets[0];
+
+            if (activePreset) {
+                setActivePresetId(activePreset.id);
+                const base = stripSavedQueryStateFromConfig(activePreset.config as Record<string, unknown>);
+                const merged = mergeObjectTabBarIntoConfig(base as TableConfig, objectTabBar);
+                const withCanonicalTabs: TableConfig = {
+                    ...merged,
+                    tabList: injectCanonicalDefaultTab<TabItem>(merged.tabList),
+                };
+                onConfigChange(withCanonicalTabs);
+
+                setSearchParams((sp) => {
+                    const next = new URLSearchParams(sp);
+                    if (!sp.get('preset')) {
+                        next.set('preset', resolvedActiveId);
+                    }
+                    const tabs = withCanonicalTabs.tabList ?? [];
+                    if (!sp.get(TABLE_TAB_URL_PARAM) && dbTabId && tabs.some((t: TabItem) => t.id === dbTabId)) {
+                        next.set(TABLE_TAB_URL_PARAM, dbTabId);
+                    }
+                    return next;
+                });
+            }
+        };
+
+        loadPresets();
+        return () => { cancelled = true; };
     }, []); // Only run on mount - presets are updated via setPresets from onPresetsChange
+
+    // Close preset dropdown when clicking outside (used when table panel is disabled and dropdown is in title bar)
+    useEffect(() => {
+        if (!showPresetDropdown) return;
+        const handleClick = (e: MouseEvent) => {
+            if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+                setShowPresetDropdown(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClick);
+        return () => document.removeEventListener('mousedown', handleClick);
+    }, [showPresetDropdown]);
 
     // Ctrl+F search activation is now handled by Action_Search component
     // No need for this handler here since search is managed by individual action components
@@ -1078,15 +1216,11 @@ export default function ConfigurableListTemplate({
         }));
     }, []);
 
-    // Removed setDefaultPresets - now using single source from utils/presets.ts
-    // This function is kept for backward compatibility but should not be used
+    // Presets are loaded from database on mount. This legacy function resets to code Default only.
     const setDefaultPresets = () => {
-        // Use presets from single source
-        const systemPresets = DEFAULT_PRESETS;
+        const codeDefault = DEFAULT_PRESETS[0];
         const customPresets = loadCustomPresetsFromStorage();
-        const allPresets = [...systemPresets, ...customPresets];
-        setPresets(allPresets);
-        localStorage.setItem('tablePresets', JSON.stringify(allPresets));
+        setPresets([codeDefault, ...customPresets]);
     };
     
     // OLD CODE - REMOVED - Now using presets.ts as single source
@@ -1154,6 +1288,13 @@ export default function ConfigurableListTemplate({
                     tabHoverColor: "",
                     tabPanelBackground: "",
                     tabList: [],
+                    tabBarPlacement: "between-title-and-panel",
+                    tabPanelMarginTop: 0,
+                    tabMenuStyle: "icon",
+                    tabStyle: "standard",
+                    tabShowUnderline: true,
+                    tabIconSize: 0,
+                    tabGap: 8,
                 },
                 isDefault: true,
                 presetId: "default"
@@ -1494,9 +1635,13 @@ export default function ConfigurableListTemplate({
     const handleRowDrop = (e: React.DragEvent, dropIndex: number) => {
         if (!config.enableRowReorder || draggedRowIndex === null) return;
         e.preventDefault();
-
-        // Here you would implement the actual row reordering logic
-        // For now, we'll just reset the drag state
+        setRowOrder(prev => {
+            const order = prev ?? sortedData.map((_, i) => i);
+            const next = [...order];
+            const [removed] = next.splice(draggedRowIndex, 1);
+            next.splice(dropIndex, 0, removed);
+            return next;
+        });
         setDraggedRowIndex(null);
     };
 
@@ -1517,38 +1662,27 @@ export default function ConfigurableListTemplate({
     const handleColumnDrop = (e: React.DragEvent, dropIndex: number) => {
         if (!config.enableColumnReorder || draggedColumnIndex === null) return;
         e.preventDefault();
-
-        const [draggedColumn, setDraggedColumn] = useState<string | null>(null);
-
-        const handleColumnDrop = (targetKey: string) => {
-            if (!draggedColumn || draggedColumn === targetKey) return;
-
-            setActiveColumns(prev => {
-                const from = prev.indexOf(draggedColumn);
-                const to = prev.indexOf(targetKey);
-                if (from === -1 || to === -1) return prev;
-
-                const next = [...prev];
-                next.splice(from, 1);
-                next.splice(to, 0, draggedColumn);
-                return next;
-            });
-
-            setVisibleColumns(prev => {
-                if (!prev.includes(draggedColumn)) return prev;
-                const from = prev.indexOf(draggedColumn);
-                const to = prev.indexOf(targetKey);
-                if (from === -1 || to === -1) return prev;
-
-                const next = [...prev];
-                next.splice(from, 1);
-                next.splice(to, 0, draggedColumn);
-                return next;
-            });
-
-            setDraggedColumn(null);
-        };
-
+        const orderedColumns = columnOrder.filter(col => visibleColumns.includes(col));
+        const fromIdx = draggedColumnIndex;
+        const toIdx = dropIndex;
+        if (fromIdx < 0 || fromIdx >= orderedColumns.length || toIdx < 0 || toIdx >= orderedColumns.length || fromIdx === toIdx) {
+            setDraggedColumnIndex(null);
+            return;
+        }
+        const draggedKey = orderedColumns[fromIdx];
+        const nextOrder = [...orderedColumns];
+        nextOrder.splice(fromIdx, 1);
+        nextOrder.splice(toIdx, 0, draggedKey);
+        setColumnOrder(prev => {
+            const other = prev.filter(c => !visibleColumns.includes(c));
+            return [...nextOrder, ...other];
+        });
+        setActiveColumns(prev => {
+            const inOrder = prev.filter(c => visibleColumns.includes(c));
+            if (inOrder.length !== orderedColumns.length) return prev;
+            const next = [...nextOrder, ...prev.filter(c => !visibleColumns.includes(c))];
+            return next;
+        });
         setDraggedColumnIndex(null);
     };
 
@@ -1672,66 +1806,137 @@ export default function ConfigurableListTemplate({
         setVisibleColumns(preferred);
     };
 
-    // Apply preset handler
-    const applyPreset = (preset: TablePreset) => {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({
-                location:'ConfigurableListTemplate.tsx:applyPreset',
-                message:'Applying preset to table config',
-                data:{
-                    presetId:preset.id,
-                    presetName:preset.name,
-                    presetConfigKeys:Object.keys(preset.config||{}),
-                    currentConfigKeys:Object.keys(config||{}).length
-                },
-                timestamp:Date.now(),
-                sessionId:'debug-session',
-                runId:'run1',
-                hypothesisId:'D'
-            })
-        }).catch(()=>{});
-        // #endregion
+    // Apply preset handler — merge so preset.config does not wipe tabList / tab UI (was clearing saved tabs)
+    // Use onConfigChangeRef so this callback stays stable (unstable parent onConfigChange was retriggering URL sync every render).
+    const applyPreset = useCallback((preset: TablePreset, explicitTableTabId?: string | null) => {
         setActivePresetId(preset.id);
-        onConfigChange(preset.config);
-    };
+        const prev = configRef.current;
+        const presetLayout = stripSavedQueryStateFromConfig((preset.config || {}) as Record<string, unknown>);
+        const mergedForTabs = mergePresetWithPreservedTabState(prev, presetLayout as typeof prev);
+        onConfigChangeRef.current(mergedForTabs);
 
+        const tabs = mergedForTabs.tabList ?? [];
+        let tabId: string | null = explicitTableTabId ?? null;
+        if (tabId && !tabs.some((t) => t.id === tabId)) {
+            tabId = null;
+        }
+        if (!tabId && mergedForTabs.enableTabs && tabs.length > 0) {
+            const match =
+                tabs.find((t) => t.presetId === preset.id) ||
+                tabs.find((t) => t.presetId === preset.presetId);
+            tabId = match?.id ?? tabs[0]?.id ?? null;
+        }
+
+        void persistActiveContextToDB(preset.id, tabId);
+
+        setSearchParams((prevParams) => {
+            const next = new URLSearchParams(prevParams);
+            next.set('preset', preset.id);
+            if (tabId) next.set(TABLE_TAB_URL_PARAM, tabId);
+            else next.delete(TABLE_TAB_URL_PARAM);
+            return next;
+        });
+    }, [setSearchParams]);
+
+    /** Per-user + per-template + per-preset query state: hydrate before paint when preset/template/user changes */
+    useLayoutEffect(() => {
+        if (!presets.length) return;
+        const p = presets.find((pr) => pr.id === activePresetId || pr.presetId === activePresetId);
+        if (!p) return;
+
+        const keys = Object.keys(fieldMappingsRef.current);
+        if (!keys.length) return;
+
+        const fromUser = loadTableQueryState(tableUserId, templateId, p.id);
+        const fromPreset = readSavedQueryStateFromPresetConfig(p.config);
+        const source: 'user' | 'preset' | 'default' = fromUser ? 'user' : fromPreset ? 'preset' : 'default';
+        const mergedPartial = (fromUser || fromPreset || {}) as Partial<TableQueryState>;
+        const sanitized = sanitizeTableQueryState(mergedPartial, keys);
+
+        setSearchTerm(sanitized.searchTerm);
+        setSortCriteria(sanitized.sortCriteria);
+        setFilterCriteria(sanitized.filterCriteria);
+        setGroupByColumn(sanitized.groupByColumn);
+        setActiveColumns(sanitized.activeColumns);
+        setVisibleColumns(sanitized.visibleColumns);
+        setColumnOrder(sanitized.columnOrder);
+    }, [activePresetId, templateId, tableUserId, presets.length]);
+
+    /** Debounced persist of current query state (local JSON via localStorage) */
     useEffect(() => {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({
-                location:'ConfigurableListTemplate.tsx:configEffect',
-                message:'Config prop changed',
-                data:{
-                    configKeys:Object.keys(config||{}).length,
-                    sample:{
-                        searchButtonType: config.searchButtonType,
-                        sortButtonType: config.sortButtonType,
-                        filterButtonType: config.filterButtonType,
-                        exportButtonType: config.exportButtonType,
-                        importButtonType: config.importButtonType,
-                        theme: config.theme,
-                        tableView: config.tableView
-                    }
-                },
-                timestamp:Date.now(),
-                sessionId:'debug-session',
-                runId:'run1',
-                hypothesisId:'E'
-            })
-        }).catch(()=>{});
-        // #endregion
-    }, [config]);
+        const handle = window.setTimeout(() => {
+            if (!presets.length) return;
+            const p = presets.find((pr) => pr.id === activePresetId || pr.presetId === activePresetId);
+            if (!p) return;
+            const keys = Object.keys(fieldMappingsRef.current);
+            if (!keys.length) return;
+            const state: TableQueryState = {
+                searchTerm,
+                sortCriteria,
+                filterCriteria,
+                groupByColumn,
+                activeColumns,
+                visibleColumns,
+                columnOrder,
+            };
+            const sanitized = sanitizeTableQueryState(state, keys);
+            saveTableQueryState(tableUserId, templateId, p.id, sanitized);
+        }, 500);
+        return () => window.clearTimeout(handle);
+    }, [
+        searchTerm,
+        sortCriteria,
+        filterCriteria,
+        groupByColumn,
+        activeColumns,
+        visibleColumns,
+        columnOrder,
+        tableUserId,
+        templateId,
+        activePresetId,
+        presets.length,
+    ]);
 
+    /** Tab click: activate preset + sync ?preset= & ?tableTab= (disambiguates duplicate preset links) */
+    const handleTabPresetSelect = useCallback(
+        (presetId: string, tabId: string) => {
+            const p = presets.find((pr) => pr.id === presetId || pr.presetId === presetId);
+            if (p) {
+                applyPreset(p, tabId);
+            } else {
+                setSearchParams((prev) => {
+                    const next = new URLSearchParams(prev);
+                    next.set('preset', presetId);
+                    next.set(TABLE_TAB_URL_PARAM, tabId);
+                    return next;
+                });
+            }
+        },
+        [presets, applyPreset, setSearchParams]
+    );
 
+    const applyPresetRef = useRef(applyPreset);
+    applyPresetRef.current = applyPreset;
 
-  
+    // Deep link / refresh: apply preset from URL (do not depend on applyPreset identity — avoids effect running every parent render)
+    useEffect(() => {
+        if (presets.length === 0) return;
+        const params = new URLSearchParams(location.search);
+        const presetId = params.get('preset');
+        if (!presetId) return;
+        const p = presets.find((pr) => pr.id === presetId || pr.presetId === presetId);
+        if (p) applyPresetRef.current(p, params.get(TABLE_TAB_URL_PARAM));
+    }, [location.search, presets]);
 
-
+    // If a preset is removed from the master list, retarget tabs to the default (or first) preset
+    useEffect(() => {
+        if (presets.length === 0) return;
+        const prev = configRef.current;
+        if (!prev.enableTabs || !prev.tabList?.length) return;
+        const sanitized = sanitizeTabListPresetIds(prev.tabList, presets);
+        if (!sanitized || sanitized === prev.tabList) return;
+        onConfigChangeRef.current({ ...prev, tabList: sanitized });
+    }, [presets]);
 
     // All button rendering is now handled by TableActionPanel component
     // The component uses individual action components from action-components folder
@@ -1892,18 +2097,16 @@ export default function ConfigurableListTemplate({
                                             <GripVertical size={14} className="text-gray-400" />
                                         </div>
                                     )}
-                                    <div className="flex items-center justify-center">
+                                    <div className="flex items-center justify-center gap-2">
                                         {config.enableRowSelection && config.enableRowNumber ? (
-                                            <div className="relative">
+                                            <>
                                                 <input
                                                     type="checkbox"
                                                     checked={selectedRows.includes(rowIndex)}
                                                     onChange={() => toggleRowSelection(rowIndex)}
                                                 />
-                                                <span className="absolute inset-0 flex items-center justify-center text-xs text-gray-500 pointer-events-none">
-                                                    {rowIndex + 1}
-                                                </span>
-                                            </div>
+                                                <span className="text-xs text-gray-500 tabular-nums">{rowIndex + 1}</span>
+                                            </>
                                         ) : config.enableRowSelection ? (
                                             <input
                                                 type="checkbox"
@@ -1918,6 +2121,31 @@ export default function ConfigurableListTemplate({
                                 );
                             })()}
 
+                            {config.enableRowActions && config.rowActionsPosition === 'left' && (() => {
+                                const enabledActions = config.enabledRowActions ?? ['view', 'edit', 'copy', 'delete'];
+                                const actionStyleIsMenu = config.actionStyle === 'menu' || config.actionStyle === 'dropdown';
+                                const menuId = `row-actions-left-${row.id ?? rowKey}`;
+                                const isMenuOpen = openRowActionsMenuId === menuId;
+                                return (
+                                    <td className={cn("px-4 py-2 text-sm text-gray-700", !config.enableRowDivider ? '!border-b-0' : '', config.enableColumnDivider ? 'border-r border-gray-200' : '')}>
+                                        <div className={cn("flex space-x-2", config.showRowActionsOnHover ? 'opacity-0 group-hover:opacity-100 transition-opacity' : '')}>
+                                            {actionStyleIsMenu ? (
+                                                <div className="relative">
+                                                    <button type="button" onClick={() => setOpenRowActionsMenuId(isMenuOpen ? null : menuId)} className="p-1.5 border border-gray-300 rounded hover:bg-gray-50 flex items-center gap-1 text-sm">Actions <ChevronDown size={14} /></button>
+                                                    {isMenuOpen && (<><div className="fixed inset-0 z-10" onClick={() => setOpenRowActionsMenuId(null)} /><div className="absolute left-0 top-full mt-1 py-1 bg-white border border-gray-200 rounded shadow-lg z-20 min-w-[120px]">
+                                                        {enabledActions.includes('view') && <Link to={`${baseUrl}/${row.id}`} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-100" onClick={() => setOpenRowActionsMenuId(null)}><ExternalLink size={14} /> View</Link>}
+                                                        {enabledActions.includes('edit') && <Link to={`${baseUrl}/${row.id}/edit`} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-100" onClick={() => setOpenRowActionsMenuId(null)}><Edit size={14} /> Edit</Link>}
+                                                        {enabledActions.includes('copy') && <button type="button" className="flex items-center gap-2 w-full px-3 py-1.5 text-sm hover:bg-gray-100 text-left" onClick={() => setOpenRowActionsMenuId(null)}><Copy size={14} /> Copy</button>}
+                                                        {enabledActions.includes('delete') && <button type="button" className="flex items-center gap-2 w-full px-3 py-1.5 text-sm hover:bg-gray-100 text-red-600 text-left" onClick={() => setOpenRowActionsMenuId(null)}><Trash2 size={14} /> Delete</button>}
+                                                    </div></>)}
+                                                </div>
+                                            ) : (
+                                                <>{enabledActions.includes('view') && <Link to={`${baseUrl}/${row.id}`} className="p-1 text-gray-500 hover:text-primary" title="View"><ExternalLink size={16} /></Link>}{enabledActions.includes('edit') && <Link to={`${baseUrl}/${row.id}/edit`} className="p-1 text-gray-500 hover:text-primary" title="Edit"><Edit size={16} /></Link>}{enabledActions.includes('copy') && <button type="button" className="p-1 text-gray-500 hover:text-primary" title="Copy"><Copy size={16} /></button>}{enabledActions.includes('delete') && <button type="button" className="p-1 text-gray-500 hover:text-red-600" title="Delete"><Trash2 size={16} /></button>}</>
+                                            )}
+                                        </div>
+                                    </td>
+                                );
+                            })()}
                             {columnOrder
                                 .filter(col => visibleColumns.includes(col))
                                 .map((col, colIndex, arr) => {
@@ -1951,8 +2179,9 @@ export default function ConfigurableListTemplate({
                                                 boxShadow: shouldShowBorder ? '2px 0 4px rgba(0, 0, 0, 0.1)' : 'none'
                                             } : {})
                                         }}
+                                        title={config.enableTooltips === true ? cellValue : undefined}
                                     >
-                                        <span className={colIndex === 0 ? 'font-medium' : ''}>
+                                        <span className={colIndex === 0 ? 'font-medium' : ''} title={config.enableTooltips === true ? cellValue : undefined}>
                                             {config.enableInlineEdit?.includes(col) ? (
                                                 <input
                                                     type="text"
@@ -1972,46 +2201,71 @@ export default function ConfigurableListTemplate({
                                     );
                                 })}
 
-                            {config.enableRowActions && (
-                                <td className={cn(
-                                    "px-4 py-2 text-sm text-gray-700",
-                                    !config.enableRowDivider ? '!border-b-0' : '',
-                                    config.enableColumnDivider ? 'border-l border-gray-200' : ''
-                                )}>
-                                    <div className={cn(
-                                        "flex space-x-2",
-                                        config.showRowActionsOnHover ? 'opacity-0 group-hover:opacity-100 transition-opacity' : ''
+                            {config.enableRowActions && config.rowActionsPosition !== 'left' && (() => {
+                                const enabledActions = config.enabledRowActions ?? ['view', 'edit', 'copy', 'delete'];
+                                const actionStyleIsMenu = config.actionStyle === 'menu' || config.actionStyle === 'dropdown';
+                                const menuId = `row-actions-${row.id ?? rowKey}`;
+                                const isMenuOpen = openRowActionsMenuId === menuId;
+                                const actionsCell = (
+                                    <td className={cn(
+                                        "px-4 py-2 text-sm text-gray-700",
+                                        !config.enableRowDivider ? '!border-b-0' : '',
+                                        config.enableColumnDivider ? 'border-l border-gray-200' : ''
                                     )}>
-                                        <Link
-                                            to={`${baseUrl}/${row.id}/config`}
-                                            className="p-1 text-gray-500 hover:text-primary"
-                                            title="Configure"
-                                        >
-                                            <Settings size={16} />
-                                        </Link>
-                                        <Link
-                                            to={`${baseUrl}/${row.id}`}
-                                            className="p-1 text-gray-500 hover:text-primary"
-                                            title="View Record"
-                                        >
-                                            <ExternalLink size={16} />
-                                        </Link>
-                                        <Link
-                                            to={`${baseUrl}/${row.id}/edit`}
-                                            className="p-1 text-gray-500 hover:text-primary transition-colors"
-                                            title="Edit Record"
-                                        >
-                                            <Edit size={16} />
-                                        </Link>
-                                        <button
-                                            className="p-1 text-gray-500 hover:text-red-600 transition-colors"
-                                            title="Delete Record"
-                                        >
-                                            <Trash2 size={16} />
-                                        </button>
-                                    </div>
-                                </td>
-                            )}
+                                        <div className={cn(
+                                            "flex space-x-2",
+                                            config.showRowActionsOnHover ? 'opacity-0 group-hover:opacity-100 transition-opacity' : ''
+                                        )}>
+                                            {actionStyleIsMenu ? (
+                                                <div className="relative">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setOpenRowActionsMenuId(isMenuOpen ? null : menuId)}
+                                                        className="p-1.5 border border-gray-300 rounded hover:bg-gray-50 flex items-center gap-1 text-sm"
+                                                    >
+                                                        Actions <ChevronDown size={14} />
+                                                    </button>
+                                                    {isMenuOpen && (
+                                                        <>
+                                                            <div className="fixed inset-0 z-10" onClick={() => setOpenRowActionsMenuId(null)} />
+                                                            <div className="absolute right-0 top-full mt-1 py-1 bg-white border border-gray-200 rounded shadow-lg z-20 min-w-[120px]">
+                                                                {enabledActions.includes('view') && (
+                                                                    <Link to={`${baseUrl}/${row.id}`} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-100" onClick={() => setOpenRowActionsMenuId(null)}><ExternalLink size={14} /> View</Link>
+                                                                )}
+                                                                {enabledActions.includes('edit') && (
+                                                                    <Link to={`${baseUrl}/${row.id}/edit`} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-100" onClick={() => setOpenRowActionsMenuId(null)}><Edit size={14} /> Edit</Link>
+                                                                )}
+                                                                {enabledActions.includes('copy') && (
+                                                                    <button type="button" className="flex items-center gap-2 w-full px-3 py-1.5 text-sm hover:bg-gray-100 text-left" onClick={() => setOpenRowActionsMenuId(null)}><Copy size={14} /> Copy</button>
+                                                                )}
+                                                                {enabledActions.includes('delete') && (
+                                                                    <button type="button" className="flex items-center gap-2 w-full px-3 py-1.5 text-sm hover:bg-gray-100 text-red-600 text-left" onClick={() => setOpenRowActionsMenuId(null)}><Trash2 size={14} /> Delete</button>
+                                                                )}
+                                                            </div>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    {enabledActions.includes('view') && (
+                                                        <Link to={`${baseUrl}/${row.id}`} className="p-1 text-gray-500 hover:text-primary" title="View"><ExternalLink size={16} /></Link>
+                                                    )}
+                                                    {enabledActions.includes('edit') && (
+                                                        <Link to={`${baseUrl}/${row.id}/edit`} className="p-1 text-gray-500 hover:text-primary" title="Edit"><Edit size={16} /></Link>
+                                                    )}
+                                                    {enabledActions.includes('copy') && (
+                                                        <button type="button" className="p-1 text-gray-500 hover:text-primary" title="Copy"><Copy size={16} /></button>
+                                                    )}
+                                                    {enabledActions.includes('delete') && (
+                                                        <button type="button" className="p-1 text-gray-500 hover:text-red-600" title="Delete"><Trash2 size={16} /></button>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
+                                    </td>
+                                );
+                                return actionsCell;
+                            })()}
                         </tr>
                     )})}
                 </React.Fragment>
@@ -2019,20 +2273,16 @@ export default function ConfigurableListTemplate({
             });
         }
 
-        return sortedData.map((row, idx) => {
-            // Use a stable unique key based on row.id or entity_id
-            // This ensures React properly re-renders when sort order changes
-            // CRITICAL: Use entity_id or id, NOT idx, so React can track rows across sort changes
-            // Also include a sort signature to ensure React sees this as a new render when sorting changes
+        return displayRows.map((row, idx) => {
+            const actualIndex = displayIndices[idx];
             const sortSignature = sortCriteria.map(s => `${s.column}-${s.order}`).join('|');
-            const rowKey = row.entity_id || row.id || `row-${idx}-${JSON.stringify(row).substring(0, 50)}`;
-            // Include sort signature in key to force React to re-render when sort changes
-            // Also include "ungrouped" to ensure key is different from grouped keys
+            const rowKey = row.entity_id || row.id || `row-${actualIndex}-${JSON.stringify(row).substring(0, 50)}`;
             const stableRowKey = `${rowKey}-ungrouped-${sortSignature}`;
+            const rowPositionKey = `${stableRowKey}-pos${idx}`;
             
             return (
             <tr
-                key={stableRowKey}
+                key={rowPositionKey}
                 className={cn(
                     config.enableRowHoverHighlight ? 'hover:bg-gray-100 transition-colors group' : 'group',
                     config.enableStripedRows && idx % 2 === 1 && 'bg-gray-50',
@@ -2072,32 +2322,55 @@ export default function ConfigurableListTemplate({
                                 <GripVertical size={14} className="text-gray-400" />
                             </div>
                         )}
-                        <div className="flex items-center justify-center">
+                        <div className="flex items-center justify-center gap-2">
                             {config.enableRowSelection && config.enableRowNumber ? (
-                                <div className="relative">
+                                <>
                                     <input
                                         type="checkbox"
-                                        checked={selectedRows.includes(idx)}
-                                        onChange={() => toggleRowSelection(idx)}
+                                        checked={selectedRows.includes(actualIndex)}
+                                        onChange={() => toggleRowSelection(actualIndex)}
                                     />
-                                    <span className="absolute inset-0 flex items-center justify-center text-xs text-gray-500 pointer-events-none">
-                                        {idx + 1}
-                                    </span>
-                                </div>
+                                    <span className="text-xs text-gray-500 tabular-nums">{idx + 1}</span>
+                                </>
                             ) : config.enableRowSelection ? (
                                 <input
                                     type="checkbox"
-                                    checked={selectedRows.includes(idx)}
-                                    onChange={() => toggleRowSelection(idx)}
+                                    checked={selectedRows.includes(actualIndex)}
+                                    onChange={() => toggleRowSelection(actualIndex)}
                                 />
                             ) : config.enableRowNumber ? (
-                                <span className="text-xs text-gray-500">{idx + 1}</span>
+                                <span className="text-xs text-gray-500 tabular-nums">{idx + 1}</span>
                             ) : null}
                         </div>
                     </td>
                     );
                 })()}
 
+                            {config.enableRowActions && config.rowActionsPosition === 'left' && (() => {
+                                const enabledActions = config.enabledRowActions ?? ['view', 'edit', 'copy', 'delete'];
+                                const actionStyleIsMenu = config.actionStyle === 'menu' || config.actionStyle === 'dropdown';
+                                const menuId = `row-actions-left-${row.id ?? rowPositionKey}`;
+                                const isMenuOpen = openRowActionsMenuId === menuId;
+                                return (
+                                    <td className={cn("px-4 py-2 text-sm text-gray-700", !config.enableRowDivider ? '!border-b-0' : '', config.enableColumnDivider ? 'border-r border-gray-200' : '')}>
+                                        <div className={cn("flex space-x-2", config.showRowActionsOnHover ? 'opacity-0 group-hover:opacity-100 transition-opacity' : '')}>
+                                            {actionStyleIsMenu ? (
+                                                <div className="relative">
+                                                    <button type="button" onClick={() => setOpenRowActionsMenuId(isMenuOpen ? null : menuId)} className="p-1.5 border border-gray-300 rounded hover:bg-gray-50 flex items-center gap-1 text-sm">Actions <ChevronDown size={14} /></button>
+                                                    {isMenuOpen && (<><div className="fixed inset-0 z-10" onClick={() => setOpenRowActionsMenuId(null)} /><div className="absolute left-0 top-full mt-1 py-1 bg-white border border-gray-200 rounded shadow-lg z-20 min-w-[120px]">
+                                                        {enabledActions.includes('view') && <Link to={`${baseUrl}/${row.id}`} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-100" onClick={() => setOpenRowActionsMenuId(null)}><ExternalLink size={14} /> View</Link>}
+                                                        {enabledActions.includes('edit') && <Link to={`${baseUrl}/${row.id}/edit`} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-100" onClick={() => setOpenRowActionsMenuId(null)}><Edit size={14} /> Edit</Link>}
+                                                        {enabledActions.includes('copy') && <button type="button" className="flex items-center gap-2 w-full px-3 py-1.5 text-sm hover:bg-gray-100 text-left" onClick={() => setOpenRowActionsMenuId(null)}><Copy size={14} /> Copy</button>}
+                                                        {enabledActions.includes('delete') && <button type="button" className="flex items-center gap-2 w-full px-3 py-1.5 text-sm hover:bg-gray-100 text-red-600 text-left" onClick={() => setOpenRowActionsMenuId(null)}><Trash2 size={14} /> Delete</button>}
+                                                    </div></>)}
+                                                </div>
+                                            ) : (
+                                                <>{enabledActions.includes('view') && <Link to={`${baseUrl}/${row.id}`} className="p-1 text-gray-500 hover:text-primary" title="View"><ExternalLink size={16} /></Link>}{enabledActions.includes('edit') && <Link to={`${baseUrl}/${row.id}/edit`} className="p-1 text-gray-500 hover:text-primary" title="Edit"><Edit size={16} /></Link>}{enabledActions.includes('copy') && <button type="button" className="p-1 text-gray-500 hover:text-primary" title="Copy"><Copy size={16} /></button>}{enabledActions.includes('delete') && <button type="button" className="p-1 text-gray-500 hover:text-red-600" title="Delete"><Trash2 size={16} /></button>}</>
+                                            )}
+                                        </div>
+                                    </td>
+                                );
+                            })()}
                             {columnOrder
                                 .filter(col => visibleColumns.includes(col))
                                 .map((col, colIndex, arr) => {
@@ -2107,10 +2380,11 @@ export default function ConfigurableListTemplate({
                                     const rowBg = config.enableStripedRows && idx % 2 === 1 ? 'rgb(249 250 251)' : 'white';
                                     const leftOffset = isFrozen ? getFreezeLeftOffset(colIndex) : 0;
                                     const cellValue = row[col]?.toString() || '-';
+                                    const cellKey = `${rowPositionKey}-${col}-${(cellValue || '').slice(0, 30)}`;
                                     
                                     return (
                                     <td
-                                        key={`${stableRowKey}-${col}`}
+                                        key={cellKey}
                                         className={cn(
                                             "px-4 py-2 text-sm text-gray-700",
                                             config.enableColumnDivider && colIndex < arr.length - 1 ? 'border-r border-gray-200' : '',
@@ -2131,8 +2405,9 @@ export default function ConfigurableListTemplate({
                                                 boxShadow: shouldShowBorder ? '2px 0 4px rgba(0, 0, 0, 0.1)' : 'none'
                                             } : {})
                                         }}
+                                        title={config.enableTooltips === true ? cellValue : undefined}
                                     >
-                                        <span className={colIndex === 0 ? 'font-medium' : ''}>
+                                        <span className={colIndex === 0 ? 'font-medium' : ''} title={config.enableTooltips === true ? cellValue : undefined}>
                                             {config.enableInlineEdit?.includes(col) ? (
                                                 <input
                                                     type="text"
@@ -2152,46 +2427,70 @@ export default function ConfigurableListTemplate({
                                     );
                                 })}
 
-                            {config.enableRowActions && (
-                    <td className={cn(
-                        "px-4 py-2 text-sm text-gray-700",
-                        !config.enableRowDivider ? '!border-b-0' : '',
-                        config.enableColumnDivider ? 'border-l border-gray-200' : ''
-                    )}>
-                        <div className={cn(
-                            "flex space-x-2",
-                            config.showRowActionsOnHover ? 'opacity-0 group-hover:opacity-100 transition-opacity' : ''
-                        )}>
-                            <Link
-                                to={`${baseUrl}/${row.id}/config`}
-                                className="p-1 text-gray-500 hover:text-primary"
-                                title="Configure"
-                            >
-                                <Settings size={16} />
-                            </Link>
-                            <Link
-                                to={`${baseUrl}/${row.id}`}
-                                className="p-1 text-gray-500 hover:text-primary"
-                                title="View Record"
-                            >
-                                <ExternalLink size={16} />
-                            </Link>
-                            <Link
-                                to={`${baseUrl}/${row.id}/edit`}
-                                className="p-1 text-gray-500 hover:text-primary transition-colors"
-                                title="Edit Record"
-                            >
-                                <Edit size={16} />
-                            </Link>
-                            <button
-                                className="p-1 text-gray-500 hover:text-red-600 transition-colors"
-                                title="Delete Record"
-                            >
-                                <Trash2 size={16} />
-                            </button>
-                        </div>
-                    </td>
-                )}
+                            {config.enableRowActions && config.rowActionsPosition !== 'left' && (() => {
+                                const enabledActions = config.enabledRowActions ?? ['view', 'edit', 'copy', 'delete'];
+                                const actionStyleIsMenu = config.actionStyle === 'menu' || config.actionStyle === 'dropdown';
+                                const menuId = `row-actions-${row.id ?? rowPositionKey}`;
+                                const isMenuOpen = openRowActionsMenuId === menuId;
+                                return (
+                                    <td className={cn(
+                                        "px-4 py-2 text-sm text-gray-700",
+                                        !config.enableRowDivider ? '!border-b-0' : '',
+                                        config.enableColumnDivider ? 'border-l border-gray-200' : ''
+                                    )}>
+                                        <div className={cn(
+                                            "flex space-x-2",
+                                            config.showRowActionsOnHover ? 'opacity-0 group-hover:opacity-100 transition-opacity' : ''
+                                        )}>
+                                            {actionStyleIsMenu ? (
+                                                <div className="relative">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setOpenRowActionsMenuId(isMenuOpen ? null : menuId)}
+                                                        className="p-1.5 border border-gray-300 rounded hover:bg-gray-50 flex items-center gap-1 text-sm"
+                                                    >
+                                                        Actions <ChevronDown size={14} />
+                                                    </button>
+                                                    {isMenuOpen && (
+                                                        <>
+                                                            <div className="fixed inset-0 z-10" onClick={() => setOpenRowActionsMenuId(null)} />
+                                                            <div className="absolute right-0 top-full mt-1 py-1 bg-white border border-gray-200 rounded shadow-lg z-20 min-w-[120px]">
+                                                                {enabledActions.includes('view') && (
+                                                                    <Link to={`${baseUrl}/${row.id}`} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-100" onClick={() => setOpenRowActionsMenuId(null)}><ExternalLink size={14} /> View</Link>
+                                                                )}
+                                                                {enabledActions.includes('edit') && (
+                                                                    <Link to={`${baseUrl}/${row.id}/edit`} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-100" onClick={() => setOpenRowActionsMenuId(null)}><Edit size={14} /> Edit</Link>
+                                                                )}
+                                                                {enabledActions.includes('copy') && (
+                                                                    <button type="button" className="flex items-center gap-2 w-full px-3 py-1.5 text-sm hover:bg-gray-100 text-left" onClick={() => setOpenRowActionsMenuId(null)}><Copy size={14} /> Copy</button>
+                                                                )}
+                                                                {enabledActions.includes('delete') && (
+                                                                    <button type="button" className="flex items-center gap-2 w-full px-3 py-1.5 text-sm hover:bg-gray-100 text-red-600 text-left" onClick={() => setOpenRowActionsMenuId(null)}><Trash2 size={14} /> Delete</button>
+                                                                )}
+                                                            </div>
+                                                        </>
+                                                    )}
+                                                </div>
+                                            ) : (
+                                                <>
+                                                    {enabledActions.includes('view') && (
+                                                        <Link to={`${baseUrl}/${row.id}`} className="p-1 text-gray-500 hover:text-primary" title="View"><ExternalLink size={16} /></Link>
+                                                    )}
+                                                    {enabledActions.includes('edit') && (
+                                                        <Link to={`${baseUrl}/${row.id}/edit`} className="p-1 text-gray-500 hover:text-primary" title="Edit"><Edit size={16} /></Link>
+                                                    )}
+                                                    {enabledActions.includes('copy') && (
+                                                        <button type="button" className="p-1 text-gray-500 hover:text-primary" title="Copy"><Copy size={16} /></button>
+                                                    )}
+                                                    {enabledActions.includes('delete') && (
+                                                        <button type="button" className="p-1 text-gray-500 hover:text-red-600" title="Delete"><Trash2 size={16} /></button>
+                                                    )}
+                                                </>
+                                            )}
+                                        </div>
+                                    </td>
+                                );
+                            })()}
             </tr>
             );
         });
@@ -2321,7 +2620,13 @@ export default function ConfigurableListTemplate({
             default: '',
             professional: 'theme-professional',
             modern: 'theme-modern',
-            minimal: 'theme-minimal'
+            minimal: 'theme-minimal',
+            executive: 'theme-executive',
+            corporate: 'theme-corporate',
+            finance: 'theme-finance',
+            tech: 'theme-tech',
+            classic: 'theme-classic',
+            neutral: 'theme-neutral',
         };
 
         const viewClasses: Record<string, string> = {
@@ -2340,7 +2645,110 @@ export default function ConfigurableListTemplate({
         ${config.enableFreezePaneRowHeader ? 'freeze-header' : ''}
     `;
     }
-    
+
+    /** Invalid saved values (e.g. confused with tabOrientation) hid both tab strips */
+    const tabBarPlacement: TabBarPlacement =
+        config.tabBarPlacement === 'left-of-table' ? 'left-of-table' : 'between-title-and-panel';
+    const tabMenuStyle: TabMenuStyle = normalizeTabMenuStyle(config.tabMenuStyle);
+    const tabShowUnderline = resolveTabShowUnderline(config.tabShowUnderline, config.tabStyle);
+
+    const effectiveTabList: TabItem[] = useMemo(() => {
+        const raw = config.tabList ?? [];
+        if (!config.enableTabs) return raw;
+        if (raw.length > 0) {
+            return raw.map((t) => {
+                const emoji = t.customIcon?.trim();
+                let iconKey = t.iconKey || 'list';
+                if (emoji && iconKey !== TAB_ICON_CUSTOM_KEY) {
+                    iconKey = TAB_ICON_CUSTOM_KEY;
+                }
+                return {
+                    ...t,
+                    iconKey,
+                    customIcon: iconKey === TAB_ICON_CUSTOM_KEY ? emoji || undefined : undefined,
+                };
+            });
+        }
+        return [
+            {
+                id: 'tab-default-ui',
+                label: 'Default',
+                presetId: 'default',
+                iconKey: 'list',
+            },
+        ];
+    }, [config.enableTabs, config.tabList]);
+
+    const showTabBar = !!config.enableTabs && effectiveTabList.length > 0;
+    const tabLabelW =
+        typeof config.tabLabelWidth === 'number' && config.tabLabelWidth > 0 ? config.tabLabelWidth : 120;
+
+    const tabIconSize =
+        typeof config.tabIconSize === 'number' &&
+        config.tabIconSize >= 12 &&
+        config.tabIconSize <= 32
+            ? config.tabIconSize
+            : undefined;
+    const tabGap = typeof config.tabGap === 'number' && config.tabGap >= 0 ? config.tabGap : 8;
+
+    const tabBarPanelProps = {
+        enableTabs: !!config.enableTabs,
+        tabList: effectiveTabList,
+        tabHeight: config.tabHeight ?? 'small',
+        tabAlignment: config.tabAlignment ?? 'left',
+        tabLabelWidth: tabLabelW,
+        tabPanelBackground:
+            config.tabUseCustomPanelBackground === false
+                ? 'transparent'
+                : config.tabPanelBackground || '#ffffff',
+        tabBarPlacement,
+        tabMenuStyle,
+        tabStyle: (config.tabStyle ?? 'standard') as TabVisualStyle,
+        tabShowUnderline,
+        tabIconSize: tabIconSize,
+        tabGap,
+        tabCustomSelection: !!config.tabCustomSelection,
+        tabSelectionColor: config.tabSelectionColor || '#2563eb',
+        tabCustomHover: !!config.tabCustomHover,
+        tabHoverColor: config.tabHoverColor || '#e5e7eb',
+        onSelectPreset: handleTabPresetSelect,
+    };
+
+    const tabStripBetween =
+        showTabBar && tabBarPlacement === 'between-title-and-panel' ? (
+            <div
+                className="w-full min-w-0 overflow-x-hidden"
+                style={{
+                    marginTop: config.tabPanelMarginTop ?? 0,
+                    marginBottom: config.tabPanelSpacing ?? 0,
+                }}
+            >
+                <TableTabPanel {...tabBarPanelProps} />
+            </div>
+        ) : null;
+
+    const tabStripLeft =
+        showTabBar && tabBarPlacement === 'left-of-table' ? (
+            <div
+                className="shrink-0 self-stretch"
+                style={{ marginRight: config.tabPanelSpacing ?? 0 }}
+            >
+                <TableTabPanel {...tabBarPanelProps} tabBarPlacement="left-of-table" />
+            </div>
+        ) : null;
+
+    const tableQueryStateForModal = useMemo(
+        (): TableQueryState => ({
+            searchTerm,
+            sortCriteria,
+            filterCriteria,
+            groupByColumn,
+            activeColumns,
+            visibleColumns,
+            columnOrder,
+        }),
+        [searchTerm, sortCriteria, filterCriteria, groupByColumn, activeColumns, visibleColumns, columnOrder]
+    );
 
     return (
         <div className="fade-in">
@@ -2608,7 +3016,13 @@ export default function ConfigurableListTemplate({
                         <div className="flex items-center space-x-2">
                             {config.enableNewButton && (
                                 <button className="btn btn-primary">
-                                    <Plus size={16} className="mr-2" /> New {title}
+                                    {config.newButtonType === 'icon' ? (
+                                        <Plus size={16} />
+                                    ) : (
+                                        <>
+                                            <Plus size={16} className="mr-2" /> New {title}
+                                        </>
+                                    )}
                                 </button>
                             )}
                             {/* Settings and Preset when Table Panel is disabled */}
@@ -2661,14 +3075,20 @@ export default function ConfigurableListTemplate({
                 </div>
             )}
 
-            <div className="card" style={getTableStyle()}>
-                {/* Table Panel - frozen in share view when panel not allowed */}
+            {/* Tab strip (underline / icon style): between title & toolbar when configured */}
+            {tabStripBetween}
+
+            {/* Table Panel - outside card so transparent background shows page (same as Title Panel) */}
                 {config.enableTablePanel && (
-                    <div style={shareViewParams.isShareView && !shareViewParams.panelAllowed ? { pointerEvents: 'none', opacity: 0.85 } : undefined}>
+                    <div style={{
+                        ...(shareViewParams.isShareView && !shareViewParams.panelAllowed ? { pointerEvents: 'none' as const, opacity: 0.85 } : {}),
+                        marginBottom: `${config.tablePanelSpacing ?? 0}px`
+                    }}>
                     <TableActionPanel
                         enableTablePanel={config.enableTablePanel}
                         tablePanelBackground={config.tablePanelBackground || false}
                         tablePanelBackgroundColor={config.tablePanelBackgroundColor || '#ffffff'}
+                        enableTooltips={config.enableTooltips === true}
                         // Search
                         enableSearch={config.enableSearch || false}
                         searchButtonType={config.searchButtonType || 'icon'}
@@ -2700,7 +3120,7 @@ export default function ConfigurableListTemplate({
                         allColumns={allColumns}
                         activeColumns={activeColumns}
                         visibleColumns={visibleColumns}
-                        onActiveColumnsChange={setActiveColumns}
+                        onActiveColumnsChange={(next) => { setActiveColumns(next); setColumnOrder(next); }}
                         onVisibleColumnsChange={setVisibleColumns}
                         // Freeze Pane
                         enableFreezePane={config.enableFreezePane || false}
@@ -2774,6 +3194,20 @@ export default function ConfigurableListTemplate({
                     </div>
                 )}
 
+            <div
+                className={cn(
+                    tabStripLeft ? 'flex flex-row items-stretch w-full min-w-0' : 'contents'
+                )}
+            >
+                {tabStripLeft}
+                <div className={cn(tabStripLeft ? 'flex-1 min-w-0' : 'contents')}>
+            <div className="card" style={getTableStyle()}>
+                {error && (
+                    <div className="p-4 mx-4 mt-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-sm flex items-center gap-2">
+                        <AlertTriangle className="shrink-0" size={18} />
+                        <span>{error}</span>
+                    </div>
+                )}
                 {loading ? (
                     <div className="p-6 text-center text-gray-500">Loading...</div>
                 ) : (
@@ -2807,7 +3241,24 @@ export default function ConfigurableListTemplate({
                                                     } : {})
                                                 }}
                                             >
-                                                {config.enableRowSelection && config.enableMassSelection ? (
+                                                {config.enableRowSelection && config.enableRowNumber ? (
+                                                    <span className="flex items-center gap-1">
+                                                        {config.enableMassSelection && (
+                                                            <input
+                                                                type="checkbox"
+                                                                ref={(el) => {
+                                                                    if (el) {
+                                                                        const state = getHeaderCheckboxState();
+                                                                        el.checked = state === 'checked';
+                                                                        el.indeterminate = state === 'indeterminate';
+                                                                    }
+                                                                }}
+                                                                onChange={handleSelectAllRows}
+                                                            />
+                                                        )}
+                                                        <span className="text-xs text-gray-500 tabular-nums">#</span>
+                                                    </span>
+                                                ) : config.enableRowSelection && config.enableMassSelection ? (
                                                     <input
                                                         type="checkbox"
                                                         ref={(el) => {
@@ -2820,12 +3271,17 @@ export default function ConfigurableListTemplate({
                                                         onChange={handleSelectAllRows}
                                                     />
                                                 ) : config.enableRowNumber ? (
-                                                    '#'
+                                                    <span className="text-xs text-gray-500 tabular-nums">#</span>
                                                 ) : null}
                                             </th>
                                             );
                                         })()}
 
+                                        {config.enableRowActions && config.rowActionsPosition === 'left' && (
+                                            <th className={`px-4 py-2 ${config.enableColumnDivider ? 'border-r border-gray-200' : ''}`}>
+                                                Actions
+                                            </th>
+                                        )}
                                         {columnOrder
                                             .filter(col => visibleColumns.includes(col))
                                             .map((col, colIndex, arr) => {
@@ -2877,7 +3333,7 @@ export default function ConfigurableListTemplate({
                                                     onDragOver={(e) => handleColumnDragOver(e, colIndex)}
                                                     onDrop={(e) => handleColumnDrop(e, colIndex)}
                                                 >
-                                                    <div className="flex items-center">
+                                                    <div className="flex items-center" title={config.enableTooltips === true ? (fieldMappings[col] ?? col) : undefined}>
                                                         {config.enableColumnReorder && (
                                                             <div className="cursor-move text-gray-400 hover:text-gray-600 mr-2">
                                                                 <GripVertical size={14} />
@@ -2898,7 +3354,7 @@ export default function ConfigurableListTemplate({
                                                 );
                                             })}
 
-                                        {config.enableRowActions && (
+                                        {config.enableRowActions && config.rowActionsPosition !== 'left' && (
                                             <th className={`px-4 py-2 ${config.enableColumnDivider ? 'border-l border-gray-200' : ''}`}>
                                                 Actions
                                             </th>
@@ -2934,6 +3390,8 @@ export default function ConfigurableListTemplate({
                     </div>
                 )}
             </div>
+                </div>
+            </div>
 
             </div>
             {chartPanelOpen && (
@@ -2955,7 +3413,7 @@ export default function ConfigurableListTemplate({
                             {selectedRows.length} item{selectedRows.length !== 1 ? 's' : ''} selected
                         </span>
                         <div className="flex items-center space-x-2">
-                            {config.bulkActionStyle === 'buttons' ? (
+                            {(config.bulkActionStyle === 'buttons' || config.bulkActionStyle === 'dropdown') ? (
                                 <>
                                     <button className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50">
                                         Edit
@@ -3000,6 +3458,8 @@ export default function ConfigurableListTemplate({
                 onPresetsChange={setPresets}
                 activePresetId={activePresetId}
                 onPresetSelect={setActivePresetId}
+                fieldMappings={fieldMappings}
+                tableQueryState={tableQueryStateForModal}
             />
 
             {/* CSS for sticky freeze border */}

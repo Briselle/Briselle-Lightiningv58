@@ -63,12 +63,12 @@ function Sidebar({ isOpen, currentPath }: SidebarProps) {
       icon: <Settings size={20} />,
       },
       {
-          title: 'Templates',
+          title: 'OLD Templates',
           path: '/templist',
           icon: <Table size={20} />,
       },
       {
-          title: 'Templates (Refactored)',
+          title: 'Master Template',
           path: '/templist2',
           icon: <Table size={20} />,
       },

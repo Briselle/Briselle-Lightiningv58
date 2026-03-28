@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { X, Save, Settings, RotateCcw, AlertTriangle, Monitor, Palette, Move, Eye, PanelBottom, LayoutPanelLeft, Dices, Database, BookmarkCheck, AppWindow, MonitorSpeaker } from 'lucide-react';
 import { TableConfig } from './ConfigurableListTemplate';
-import { TabItem } from './table-components/TableTabPanel';
+import { TabItem, TABLE_TAB_URL_PARAM } from './table-components/TableTabPanel';
 import DisplaySettingsSection from './modal-settings-sections/DisplaySettingsSection';
 import LayoutSettingsSection from './modal-settings-sections/LayoutSettingsSection';
 import BehaviorSettingsSection from './modal-settings-sections/BehaviorSettingsSection';
@@ -12,7 +13,24 @@ import TabSettingsSection from './modal-settings-sections/TabSettingsSection';
 import DeviceSettingsSection from './modal-settings-sections/DeviceSettingsSection';
 
 import { TablePreset } from './action-components/Action_Preset';
-import { DEFAULT_PRESETS } from './utils/presets';
+import { DEFAULT_PRESETS, getDefaultPreset } from './utils/presets';
+import { mergeObjectTabBarIntoConfig } from './utils/mergePresetConfig';
+import { injectCanonicalDefaultTab, CANONICAL_DEFAULT_TAB_ITEM } from './utils/canonicalObjectLoaderDefaults';
+import {
+    canonicalTabStyleForSave,
+    normalizeTabMenuStyle,
+    resolveTabShowUnderline,
+    sanitizeTabListPresetIds,
+} from './utils/tabBarNormalize';
+import { stripSavedQueryStateFromConfig, type TableQueryState } from './utils/tableUserViewStorage';
+import {
+    removePresetFromDB,
+    appendPresetToDB,
+    saveTableSettingsToDB,
+    persistActiveContextToDB,
+    resetDefaultToCodeInDB,
+    extractObjectTabBarFromConfig,
+} from './utils/configService';
 
 export interface TableSettingsModalProps {
     isOpen: boolean;
@@ -23,9 +41,24 @@ export interface TableSettingsModalProps {
     onPresetsChange?: (presets: TablePreset[]) => void;
     activePresetId?: string;
     onPresetSelect?: (presetId: string) => void;
+    /** Column keys to display labels (same as table headers); used for inline edit column list */
+    fieldMappings?: Record<string, string>;
+    /** Current runtime filter/sort/group/columns/search — embedded in new presets as `savedQueryState` */
+    tableQueryState?: TableQueryState | null;
 }
 
-const TableSettingsModal: React.FC<TableSettingsModalProps> = ({ isOpen, onClose, currentConfig, onSave, presets = [], onPresetsChange, activePresetId, onPresetSelect }) => {
+const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
+    isOpen,
+    onClose,
+    currentConfig,
+    onSave,
+    presets = [],
+    onPresetsChange,
+    activePresetId,
+    onPresetSelect,
+    fieldMappings,
+    tableQueryState = null,
+}) => {
     const [activeTab, setActiveTab] = useState('display');
     const [modalConfig, setModalConfig] = useState<TableConfig>(currentConfig);
     const [selectedPreset, setSelectedPreset] = useState('default');
@@ -55,74 +88,112 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({ isOpen, onClose
     const [menuStyle, setMenuStyle] = useState<'icon' | 'button'>('icon');
     const [showModalSettings, setShowModalSettings] = useState(false);
     const [showResetConfirm, setShowResetConfirm] = useState(false);
-    const [defaultConfig, setDefaultConfig] = useState<TableConfig | null>(null);
- 
+    const [, setSearchParams] = useSearchParams();
+    /** Active tab id for table tabs (mirrors URL `tableTab`); saved to DB on Save */
+    const [modalDraftActiveTabId, setModalDraftActiveTabId] = useState<string | null>(null);
+
     const modalRef = useRef<HTMLDivElement>(null);
+    /** When true, modal is open — do not replace modalConfig from parent (would wipe dropdown edits like tabMenuStyle). */
+    const modalSessionOpenRef = useRef(false);
 
+    // Hydrate from parent + localStorage only when the settings modal transitions closed → open.
     useEffect(() => {
-        setModalConfig(currentConfig);
-
-        // Store default config on first load
-        if (!defaultConfig) {
-            setDefaultConfig(currentConfig);
+        if (!isOpen) {
+            modalSessionOpenRef.current = false;
+            return;
         }
+        if (modalSessionOpenRef.current) {
+            return;
+        }
+        modalSessionOpenRef.current = true;
 
-        // Load custom presets from local storage
+        const placement =
+            currentConfig.tabBarPlacement === 'left-of-table' ? 'left-of-table' : 'between-title-and-panel';
+        const tabMenuLoaded = normalizeTabMenuStyle(currentConfig.tabMenuStyle);
+        const tabShowU = resolveTabShowUnderline(currentConfig.tabShowUnderline, currentConfig.tabStyle);
+        let configToSet: TableConfig = {
+            ...currentConfig,
+            tabBarPlacement: placement,
+            tabMenuStyle: tabMenuLoaded,
+            tabShowUnderline: tabShowU,
+            tabStyle: canonicalTabStyleForSave(currentConfig.tabStyle) as TableConfig['tabStyle'],
+        };
+        const defPreset = presets.find((p) => p.isDefault) || presets[0];
+        if (configToSet.enableTabs && (!configToSet.tabList || configToSet.tabList.length === 0)) {
+            configToSet = {
+                ...configToSet,
+                tabList: [
+                    {
+                        ...CANONICAL_DEFAULT_TAB_ITEM,
+                        label: defPreset?.name ?? CANONICAL_DEFAULT_TAB_ITEM.label,
+                        presetId: defPreset?.id ?? 'default',
+                    },
+                ],
+            };
+        }
+        if (configToSet.tabList?.length && presets.length > 0) {
+            const s = sanitizeTabListPresetIds(configToSet.tabList, presets);
+            if (s) {
+                configToSet = { ...configToSet, tabList: s };
+            }
+        }
+        setModalConfig(configToSet);
+
+        const sp = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
+        const tabFromUrl = sp?.get(TABLE_TAB_URL_PARAM) ?? null;
+        const list = configToSet.tabList ?? [];
+        const validUrlTab = tabFromUrl && list.some((t) => t.id === tabFromUrl);
+        setModalDraftActiveTabId(validUrlTab ? tabFromUrl : list[0]?.id ?? null);
+
         const storedCustomPresets = localStorage.getItem('customTablePresets');
         if (storedCustomPresets) {
-            setCustomPresets(JSON.parse(storedCustomPresets));
+            try {
+                setCustomPresets(JSON.parse(storedCustomPresets));
+            } catch {
+                setCustomPresets([]);
+            }
         }
 
-        // Load modal settings
         const storedModalSettings = localStorage.getItem('modalSettings');
         if (storedModalSettings) {
-            const settings = JSON.parse(storedModalSettings);
-            setModalWidth(settings.width || 45);
-            setModalHeight(settings.height || 70);
-            setModalVerticalAlign(settings.modalVerticalAlign || 'center');
-            setModalHorizontalAlign(settings.modalHorizontalAlign || 'center');
-            setModalTransparency(settings.modalTransparency || 100);
-            setModalTitleFontSize(settings.modalTitleFontSize || 18);
-            setModalHeaderFontSize(settings.modalHeaderFontSize || 16);
-            setModalContentFontSize(settings.modalContentFontSize || 14);
-            setModalMenuFontSize(settings.modalMenuFontSize || 14);
-            setModalPaddingTop(settings.modalPaddingTop || 0);
-            setModalPaddingRight(settings.modalPaddingRight || 0);
-            setModalPaddingBottom(settings.modalPaddingBottom || 0);
-            setModalPaddingLeft(settings.modalPaddingLeft || 0);
-            setOverlayColor(settings.overlayColor || '#000000');
-            setModalBackgroundColor(settings.modalBackgroundColor || '#ffffff');
-            setModalHeaderBackgroundColor(settings.modalHeaderBackgroundColor || '#f9fafb');
-            setModalBodyBackgroundColor(settings.modalBodyBackgroundColor || '#ffffff');
-            setModalBodyContentBackgroundColor(settings.modalBodyContentBackgroundColor || '#ffffff');
-            setModalFooterBackgroundColor(settings.modalFooterBackgroundColor || '#f9fafb');
-            setModalMenuBackgroundColor(settings.modalMenuBackgroundColor || '#f9fafb');
-            setMenuDirection(settings.menuDirection || 'horizontal');
-            setMenuStyle(settings.menuStyle || 'icon');
-            setModalOverlayTransparency(settings.overlayTransparency || 60);
+            try {
+                const settings = JSON.parse(storedModalSettings);
+                setModalWidth(settings.width || 45);
+                setModalHeight(settings.height || 70);
+                setModalVerticalAlign(settings.modalVerticalAlign || 'center');
+                setModalHorizontalAlign(settings.modalHorizontalAlign || 'center');
+                setModalTransparency(settings.modalTransparency || 100);
+                setModalTitleFontSize(settings.modalTitleFontSize || 18);
+                setModalHeaderFontSize(settings.modalHeaderFontSize || 16);
+                setModalContentFontSize(settings.modalContentFontSize || 14);
+                setModalMenuFontSize(settings.modalMenuFontSize || 14);
+                setModalPaddingTop(settings.modalPaddingTop || 0);
+                setModalPaddingRight(settings.modalPaddingRight || 0);
+                setModalPaddingBottom(settings.modalPaddingBottom || 0);
+                setModalPaddingLeft(settings.modalPaddingLeft || 0);
+                setOverlayColor(settings.overlayColor || '#000000');
+                setModalBackgroundColor(settings.modalBackgroundColor || '#ffffff');
+                setModalHeaderBackgroundColor(settings.modalHeaderBackgroundColor || '#f9fafb');
+                setModalBodyBackgroundColor(settings.modalBodyBackgroundColor || '#ffffff');
+                setModalBodyContentBackgroundColor(settings.modalBodyContentBackgroundColor || '#ffffff');
+                setModalFooterBackgroundColor(settings.modalFooterBackgroundColor || '#f9fafb');
+                setModalMenuBackgroundColor(settings.modalMenuBackgroundColor || '#f9fafb');
+                setMenuDirection(settings.menuDirection || 'horizontal');
+                setMenuStyle(settings.menuStyle || 'icon');
+                setModalOverlayTransparency(settings.overlayTransparency || 60);
+            } catch {
+                /* ignore corrupt modalSettings */
+            }
         }
+    }, [isOpen, currentConfig, presets]);
 
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({
-                location:'TableSettingsModal.tsx:useEffect',
-                message:'Modal init with current config and presets',
-                data:{
-                    presetCount: presets.length,
-                    currentConfigKeys: Object.keys(currentConfig || {}).length,
-                    defaultConfigCaptured: !!defaultConfig,
-                    activePresetId
-                },
-                timestamp:Date.now(),
-                sessionId:'debug-session',
-                runId:'run1',
-                hypothesisId:'A'
-            })
-        }).catch(()=>{});
-        // #endregion
-    }, [currentConfig, presets, activePresetId]);
+    useEffect(() => {
+        if (!modalDraftActiveTabId) return;
+        const list = modalConfig.tabList ?? [];
+        if (!list.some((t) => t.id === modalDraftActiveTabId)) {
+            setModalDraftActiveTabId(list[0]?.id ?? null);
+        }
+    }, [modalConfig.tabList, modalDraftActiveTabId]);
 
     useEffect(() => {
         if (activePresetId) {
@@ -134,43 +205,111 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({ isOpen, onClose
     }, [activePresetId, presets]);
 
     const handleChange = (key: keyof TableConfig, value: any) => {
-        setModalConfig(prev => ({ ...prev, [key]: value }));
+        setModalConfig(prev => {
+            const next = { ...prev, [key]: value };
+            // When table panel is disabled, auto-enable title panel so Settings/Preset move to title bar
+            if (key === 'enableTablePanel' && value === false) {
+                next.enableTitle = true;
+            }
+            // When tabs are enabled and tab list is empty, add a default preset tab so UI always has one tab
+            if (key === 'enableTabs' && value === true && (!next.tabList || next.tabList.length === 0)) {
+                const def = presets.find((p) => p.isDefault) || presets[0];
+                next.tabList = [
+                    {
+                        ...CANONICAL_DEFAULT_TAB_ITEM,
+                        label: def?.name ?? CANONICAL_DEFAULT_TAB_ITEM.label,
+                        presetId: def?.id ?? 'default',
+                    },
+                ];
+            }
+            return next;
+        });
     };
 
-    const handleSave = () => {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({
-                location:'TableSettingsModal.tsx:handleSave',
-                message:'Saving modal config',
-                data:{
-                    selectedPreset,
-                    modalConfigKeys:Object.keys(modalConfig||{}).length,
-                    sample:{
-                        searchButtonType: modalConfig.searchButtonType,
-                        sortButtonType: modalConfig.sortButtonType,
-                        filterButtonType: modalConfig.filterButtonType,
-                        exportButtonType: modalConfig.exportButtonType,
-                        importButtonType: modalConfig.importButtonType,
-                        theme: modalConfig.theme,
-                        tableView: modalConfig.tableView
-                    }
-                },
-                timestamp:Date.now(),
-                sessionId:'debug-session',
-                runId:'run1',
-                hypothesisId:'B'
-            })
-        }).catch(()=>{});
-        // #endregion
-        onSave(modalConfig);
+    /** Writes built-in Default preset + tab bar from code to platform_config; applies merged config to UI + URL. */
+    const pushCodeDefaultPresetToDatabaseAndUi = async (opts?: { announceSuccess?: boolean }) => {
+        const codeDefault = getDefaultPreset();
+        const { success, error } = await resetDefaultToCodeInDB(codeDefault);
+        const base = stripSavedQueryStateFromConfig(codeDefault.config as Record<string, unknown>) as TableConfig;
+        const tabBar = extractObjectTabBarFromConfig(codeDefault.config as Record<string, unknown>);
+        const merged = mergeObjectTabBarIntoConfig(base, tabBar);
+        if (!success) {
+            alert(
+                `Could not update the database (${error || 'unknown'}). The table switched to the code default locally only — try again when the connection is back.`
+            );
+        } else if (opts?.announceSuccess !== false) {
+            alert('The Default preset and tab bar were updated from code in the database.');
+        }
+        setModalConfig(merged);
+        setSelectedPreset('default');
+        setModalDraftActiveTabId(CANONICAL_DEFAULT_TAB_ITEM.id);
+        onSave(merged);
+        if (onPresetSelect) onPresetSelect('default');
+        setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            next.set('preset', 'default');
+            next.set(TABLE_TAB_URL_PARAM, CANONICAL_DEFAULT_TAB_ITEM.id);
+            return next;
+        });
+    };
+
+    const handleSave = async () => {
+        const placement =
+            modalConfig.tabBarPlacement === 'left-of-table' ? 'left-of-table' : 'between-title-and-panel';
+        const tabMenuStyleNormalized = normalizeTabMenuStyle(modalConfig.tabMenuStyle);
+        const tabStyleCanonical = canonicalTabStyleForSave(modalConfig.tabStyle);
+        const tabShowSaved =
+            typeof modalConfig.tabShowUnderline === 'boolean'
+                ? modalConfig.tabShowUnderline
+                : resolveTabShowUnderline(undefined, modalConfig.tabStyle);
+        const layoutConfig = stripSavedQueryStateFromConfig(modalConfig as Record<string, unknown>) as TableConfig;
+        const savedConfigNormalized: TableConfig = {
+            ...layoutConfig,
+            tabBarPlacement: placement,
+            tabMenuStyle: tabMenuStyleNormalized,
+            tabStyle: tabStyleCanonical as TableConfig['tabStyle'],
+            tabShowUnderline: tabShowSaved,
+            tabList: injectCanonicalDefaultTab<TabItem>(layoutConfig.tabList),
+        };
+
+        const { success, error: dbError, didSkipDefaultPresetBody } = await saveTableSettingsToDB(
+            selectedPreset,
+            savedConfigNormalized as Record<string, unknown>,
+            undefined,
+            undefined,
+            undefined,
+            { activeTabIdOverride: modalDraftActiveTabId },
+        );
+        if (!success) {
+            alert(
+                `Table settings were not saved to the database.\n\n${dbError || 'Unknown error'}\n\nTab bar and preset body are stored in platform_config (ObjectLoader).`
+            );
+            return;
+        }
+
+        if (didSkipDefaultPresetBody) {
+            alert(
+                'The Default preset’s layout is protected and was not overwritten in the database. Tab bar settings were saved; the built-in Default tab row is always stored as defined by the platform. To keep your layout, save it as a new bookmark (preset).'
+            );
+        }
+
+        setSearchParams((prev) => {
+            const next = new URLSearchParams(prev);
+            const tid = modalDraftActiveTabId;
+            if (tid && savedConfigNormalized.tabList?.some((t) => t.id === tid)) {
+                next.set(TABLE_TAB_URL_PARAM, tid);
+            } else {
+                next.delete(TABLE_TAB_URL_PARAM);
+            }
+            return next;
+        });
+
+        onSave(savedConfigNormalized);
         if (onPresetSelect) {
             onPresetSelect(selectedPreset);
         }
 
-        // Save modal settings
+        // Save modal settings (menuStyle = modal nav icon/button — NOT table tab menu)
         const modalSettings = {
             width: modalWidth,
             height: modalHeight,
@@ -210,116 +349,84 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({ isOpen, onClose
     ].filter((p, idx, arr) => arr.findIndex(x => x.id === p.id) === idx);
 
     const handlePresetChange = (presetId: string) => {
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{
-            method:'POST',
-            headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({
-                location:'TableSettingsModal.tsx:handlePresetChange',
-                message:'Preset change requested',
-                data:{
-                    presetId,
-                    availablePresetIds:[...systemPresets, ...allCustomPresets].map(p=>p.id)
-                },
-                timestamp:Date.now(),
-                sessionId:'debug-session',
-                runId:'run1',
-                hypothesisId:'B'
-            })
-        }).catch(()=>{});
-        // #endregion
         setSelectedPreset(presetId);
         if (onPresetSelect) {
             onPresetSelect(presetId);
         }
+
+        const tabs = modalConfig.tabList ?? [];
+        const tabForPreset = tabs.find((t) => t.presetId === presetId);
+        const tabId = tabForPreset?.id ?? tabs[0]?.id ?? null;
+        persistActiveContextToDB(presetId, tabId).then(({ error }) => {
+            if (error) console.warn('[TableSettings] DB active preset/tab update failed:', error);
+        });
+
         const preset = [...systemPresets, ...allCustomPresets].find(p => p.id === presetId);
         if (preset) {
-            // Start from preset config (match action panel behavior), then preserve only tab settings
+            const basePresetConfig = stripSavedQueryStateFromConfig(
+                (preset.config || {}) as Record<string, unknown>
+            );
             const nextConfig = {
-                ...preset.config,
-                // Preserve tab settings
+                ...basePresetConfig,
                 enableTabs: modalConfig.enableTabs,
+                tabList: modalConfig.tabList,
                 tabHeight: modalConfig.tabHeight,
                 tabAlignment: modalConfig.tabAlignment,
                 tabOrientation: modalConfig.tabOrientation,
                 tabLabelWidth: modalConfig.tabLabelWidth,
+                tabBarPlacement: modalConfig.tabBarPlacement,
+                tabMenuStyle: modalConfig.tabMenuStyle,
+                tabPanelSpacing: modalConfig.tabPanelSpacing,
+                tabPanelMarginTop: modalConfig.tabPanelMarginTop,
                 tabCustomSelection: modalConfig.tabCustomSelection,
                 tabSelectionColor: modalConfig.tabSelectionColor,
                 tabCustomHover: modalConfig.tabCustomHover,
                 tabHoverColor: modalConfig.tabHoverColor,
                 tabPanelBackground: modalConfig.tabPanelBackground,
-                tabList: modalConfig.tabList
+                tabUseCustomPanelBackground: modalConfig.tabUseCustomPanelBackground,
+                tabStyle: modalConfig.tabStyle,
+                tabShowUnderline: modalConfig.tabShowUnderline,
+                tabIconSize: modalConfig.tabIconSize,
+                tabGap: modalConfig.tabGap,
             };
 
-            // Apply preset config, but preserve tab and title panel settings
             setModalConfig(nextConfig);
             onSave(nextConfig);
             if (onPresetSelect) {
                 onPresetSelect(presetId);
             }
-
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/b5e2ab4e-549f-4252-b311-808050e81c16',{
-                method:'POST',
-                headers:{'Content-Type':'application/json'},
-                body:JSON.stringify({
-                    location:'TableSettingsModal.tsx:handlePresetChange',
-                    message:'Preset applied to modal config',
-                    data:{
-                        presetId,
-                        presetConfigKeys:Object.keys(preset.config||{}),
-                        modalConfigKeys:Object.keys(modalConfig||{}).length,
-                        presetSample:{
-                            searchButtonType: preset.config?.searchButtonType,
-                            sortButtonType: preset.config?.sortButtonType,
-                            filterButtonType: preset.config?.filterButtonType,
-                            exportButtonType: preset.config?.exportButtonType,
-                            importButtonType: preset.config?.importButtonType,
-                            theme: preset.config?.theme,
-                            tableView: preset.config?.tableView
-                        },
-                        nextConfigSample:{
-                            searchButtonType: nextConfig.searchButtonType,
-                            sortButtonType: nextConfig.sortButtonType,
-                            filterButtonType: nextConfig.filterButtonType,
-                            exportButtonType: nextConfig.exportButtonType,
-                            importButtonType: nextConfig.importButtonType,
-                            theme: nextConfig.theme,
-                            tableView: nextConfig.tableView
-                        }
-                    },
-                    timestamp:Date.now(),
-                    sessionId:'debug-session',
-                    runId:'run1',
-                    hypothesisId:'C'
-                })
-            }).catch(()=>{});
-            // #endregion
         }
     };
 
-    const handleSavePreset = () => {
+    const handleSavePreset = async () => {
         const presetName = prompt('Enter preset name:');
-        if (presetName) {
-            const newPresetId = `custom-${Date.now()}`;
-            const newPreset: TablePreset = {
-                id: newPresetId,
-                presetId: newPresetId,
-                name: presetName,
-                config: {
-                    ...modalConfig,
-                    // Exclude tab and title panel settings from saved preset
-                }
-            };
-            const updatedCustomPresets = [...customPresets, newPreset];
-            setCustomPresets(updatedCustomPresets);
-            localStorage.setItem('customTablePresets', JSON.stringify(updatedCustomPresets));
-            
-            // Update presets in parent component if callback provided
-            if (onPresetsChange) {
-                const updatedAllPresets = [...presets, newPreset];
-                onPresetsChange(updatedAllPresets);
-            }
+        const trimmed = presetName?.trim();
+        if (!trimmed) return;
+
+        const newPresetId = `custom-${Date.now()}`;
+        const newPreset: TablePreset = {
+            id: newPresetId,
+            presetId: newPresetId,
+            name: trimmed,
+            config: {
+                ...modalConfig,
+                ...(tableQueryState ? { savedQueryState: tableQueryState } : {}),
+            },
+        };
+
+        const { success, error: dbError } = await appendPresetToDB(newPreset);
+        if (!success) {
+            console.error('[TableSettings] DB append failed:', dbError);
+            alert(
+                `Preset was not saved to the database.\n\n${dbError || 'Unknown error'}\n\nEnsure platform_config has a seeded row for ObjectLoader (config_type=3).`
+            );
+            return;
+        }
+
+        const updatedCustomPresets = [...customPresets, newPreset];
+        setCustomPresets(updatedCustomPresets);
+        if (onPresetsChange) {
+            onPresetsChange([...presets, newPreset]);
         }
     };
 
@@ -327,7 +434,12 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({ isOpen, onClose
         if (window.confirm('Are you sure you want to delete this preset?')) {
             const updatedPresets = customPresets.filter(p => p.id !== presetId);
             setCustomPresets(updatedPresets);
-            localStorage.setItem('customTablePresets', JSON.stringify(updatedPresets));
+
+            // Remove from DB document
+            removePresetFromDB(presetId).then(({ error }) => {
+                if (error) console.warn('[TableSettings] DB delete failed:', error);
+            });
+
             if (selectedPreset === presetId) {
                 setSelectedPreset('default');
             }
@@ -338,48 +450,21 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({ isOpen, onClose
         setShowResetConfirm(true);
     };
 
-    const confirmFactoryReset = () => {
-        if (defaultConfig) {
-            // Reset to default configuration
-            setModalConfig(defaultConfig);
-            setSelectedPreset('default');
-
-            // Clear all custom presets
-            setCustomPresets([]);
-            localStorage.removeItem('customTablePresets');
-            localStorage.removeItem('tableConfig');
-
-            // Reset modal settings to defaults
-            setModalWidth(45);
-            setModalHeight(70);
-            setModalVerticalAlign('center');
-            setModalHorizontalAlign('center');
-            setModalTransparency(100);
-            setModalOverlayTransparency(60);
-            setModalTitleFontSize(18);
-            setModalHeaderFontSize(16);
-            setModalContentFontSize(14);
-            setModalMenuFontSize(14);
-            setModalPaddingTop(0);
-            setModalPaddingRight(0);
-            setModalPaddingBottom(0);
-            setModalPaddingLeft(0);
-            setOverlayColor('#000000');
-            setModalBackgroundColor('#ffffff');
-            setModalHeaderBackgroundColor('#f9fafb');
-            setModalBodyBackgroundColor('#ffffff');
-            setModalBodyContentBackgroundColor('#ffffff');
-            setModalFooterBackgroundColor('#f9fafb');
-            setModalMenuBackgroundColor('#f9fafb');
-            setMenuDirection('horizontal');
-            setMenuStyle('icon');
-            localStorage.removeItem('modalSettings');
-
-            // Apply the reset immediately
-            onSave(defaultConfig);
-        }
+    const confirmFactoryReset = async () => {
         setShowResetConfirm(false);
+        await pushCodeDefaultPresetToDatabaseAndUi({ announceSuccess: true });
     };
+
+    const tabItems = [
+        { id: 'display', label: 'Display', icon: <PanelBottom size={16} /> },
+        { id: 'layout', label: 'Layout', icon: <LayoutPanelLeft size={16} /> },
+        { id: 'behavior', label: 'Behavior', icon: <Dices size={16} /> },
+        { id: 'data', label: 'Data', icon: <Database size={16} /> },
+        { id: 'theme', label: 'Theme', icon: <Palette size={16} /> },
+        { id: 'preset', label: 'Preset', icon: <BookmarkCheck size={16} /> },
+        { id: 'tabs', label: 'Tabs', icon: <AppWindow size={16} /> },
+        { id: 'devices', label: 'Devices', icon: <MonitorSpeaker size={16} /> }
+    ];
 
     if (!isOpen) return null;
 
@@ -401,17 +486,6 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({ isOpen, onClose
 
         return `${alignItems} ${justifyContent}`;
     };
-
-    const tabItems = [
-        { id: 'display', label: 'Display', icon: <PanelBottom size={16} /> },
-        { id: 'layout', label: 'Layout', icon: <LayoutPanelLeft size={16} /> },
-        { id: 'behavior', label: 'Behavior', icon: <Dices size={16} /> },
-        { id: 'data', label: 'Data', icon: <Database size={16} /> },
-        { id: 'theme', label: 'Theme', icon: <Palette size={16} /> },
-        { id: 'preset', label: 'Preset', icon: <BookmarkCheck size={16} /> },
-        { id: 'tabs', label: 'Tabs', icon: <AppWindow size={16} /> },
-        { id: 'devices', label: 'Devices', icon: <MonitorSpeaker size={16} /> }
-    ];
 
     const getModalPositionStyle = () => {
         const baseStyle = {
@@ -458,9 +532,9 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({ isOpen, onClose
                         margin: `${modalPaddingTop}px ${modalPaddingRight}px ${modalPaddingBottom}px ${modalPaddingLeft}px`,
                     }}
                 >
-                    {/* Header */}
+                    {/* Header - z-10 so it stays above scrollable content (toggles/sections must not overlay Settings icon) */}
                     <div
-                        className="flex items-center justify-between p-4 border-b border-gray-200"
+                        className="flex flex-shrink-0 items-center justify-between p-4 border-b border-gray-200 relative z-10"
                         style={{
                             backgroundColor: modalHeaderBackgroundColor,
                         }}
@@ -484,7 +558,7 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({ isOpen, onClose
 
                     {/* Modal Settings Panel */}
                     {showModalSettings && (
-                        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black bg-opacity-50">
+                        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black bg-opacity-50" aria-modal="true">
                             <div className="bg-white rounded-lg shadow-xl mx-4 flex flex-col"
                                 style={{
                                     width: `${modalWidth * 0.8}%`,
@@ -738,8 +812,11 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({ isOpen, onClose
 
                     {/* Navigation */}
                     {menuDirection === 'horizontal' ? (
-                        <div className="border-b border-gray-200 overflow-x-auto" style={{ backgroundColor: modalMenuBackgroundColor, minHeight: menuStyle === 'button' ? '72px' : '56px' }}>
-                            <div className="flex min-w-max">
+                        <div
+                            className="border-b border-gray-200 overflow-x-hidden overflow-y-hidden min-w-0"
+                            style={{ backgroundColor: modalMenuBackgroundColor, minHeight: menuStyle === 'button' ? '72px' : '56px' }}
+                        >
+                            <div className="flex flex-wrap">
                                 {tabItems.map((tab) => (
                                     <button
                                         key={tab.id}
@@ -814,6 +891,7 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({ isOpen, onClose
                                             onChange={handleChange}
                                             modalHeaderFontSize={modalHeaderFontSize}
                                             modalContentFontSize={modalContentFontSize}
+                                            onNavigateToTab={setActiveTab}
                                         />
                                     )}
 
@@ -832,6 +910,7 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({ isOpen, onClose
                                             onChange={handleChange}
                                             modalHeaderFontSize={modalHeaderFontSize}
                                             modalContentFontSize={modalContentFontSize}
+                                            fieldMappings={fieldMappings}
                                         />
                                     )}
 
@@ -847,11 +926,7 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({ isOpen, onClose
                                     {activeTab === 'theme' && (
                                         <ThemeSettingsSection
                                             config={modalConfig}
-                                            modalWidth={modalWidth}
-                                            modalOverlayTransparency={modalOverlayTransparency}
                                             onChange={handleChange}
-                                            onModalWidthChange={setModalWidth}
-                                            onModalOverlayTransparencyChange={setModalOverlayTransparency}
                                         />
                                     )}
 
@@ -875,6 +950,7 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({ isOpen, onClose
                                             }
                                             }}
                                             currentConfig={modalConfig}
+                                            currentTableQueryState={tableQueryState}
                                         onPresetSelect={onPresetSelect}
                                         />
                                     )}
@@ -884,8 +960,11 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({ isOpen, onClose
                                             modalHeaderFontSize={modalHeaderFontSize}
                                             modalContentFontSize={modalContentFontSize}
                                             config={modalConfig}
-                                            customPresets={customPresets}
+                                            presets={presets}
                                             onChange={handleChange}
+                                            activeTableTabId={modalDraftActiveTabId}
+                                            onActiveTableTabChange={setModalDraftActiveTabId}
+                                            contextPresetIdForNewTab={selectedPreset}
                                         />
                                     )}
 
@@ -933,10 +1012,10 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({ isOpen, onClose
                     <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
                         <div className="flex items-center space-x-3 mb-4">
                             <AlertTriangle size={24} className="text-red-500" />
-                            <h3 className="text-lg font-semibold text-gray-900">Reset Modal Pop-up to System Default</h3>
+                            <h3 className="text-lg font-semibold text-gray-900">Reset to System Default</h3>
                         </div>
                         <p className="text-gray-600 mb-6">
-                            Are you sure you want to reset all settings to default? This will remove all custom presets and settings. This action cannot be undone.
+                            Overwrite the <strong>Default</strong> bookmark and protected tab bar in the database with the built-in values from application code. Other bookmarks and custom presets are not removed. This cannot be undone.
                         </p>
                         <div className="flex justify-end space-x-3">
                             <button
@@ -946,7 +1025,8 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({ isOpen, onClose
                                 Cancel
                             </button>
                             <button
-                                onClick={confirmFactoryReset}
+                                type="button"
+                                onClick={() => void confirmFactoryReset()}
                                 className="btn btn-danger"
                             >
                                 Reset to System Default

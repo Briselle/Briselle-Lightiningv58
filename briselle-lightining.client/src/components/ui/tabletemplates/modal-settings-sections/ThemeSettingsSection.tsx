@@ -1,36 +1,28 @@
 import React from 'react';
-import { Palette, Monitor, Smartphone, Tablet } from 'lucide-react';
+import { Palette } from 'lucide-react';
 
 interface ThemeSettingsSectionProps {
     config: {
-        theme: 'default' | 'professional' | 'modern' | 'minimal' | 'executive' | 'corporate' | 'finance' | 'tech';
-        density: 'compact' | 'standard' | 'comfortable' | 'spacious';
-        tableView: 'default' | 'card' | 'list';
+        theme: 'default' | 'professional' | 'modern' | 'minimal' | 'executive' | 'corporate' | 'finance' | 'tech' | 'classic' | 'neutral';
     };
-    modalWidth: number;
-    modalOverlayTransparency: number;
     onChange: (key: string, value: any) => void;
-    onModalWidthChange: (width: number) => void;
-    onModalOverlayTransparencyChange: (transparency: number) => void;
 }
 
 const ThemeSettingsSection: React.FC<ThemeSettingsSectionProps> = ({
     config,
-    modalWidth,
-    modalOverlayTransparency,
     onChange,
-    onModalWidthChange,
-    onModalOverlayTransparencyChange,
 }) => {
     const themes = [
         { id: 'default', name: 'Default', description: 'Clean and simple design', color: '#6b7280' },
-        { id: 'professional', name: 'Professional', description: 'Business-focused styling', color: '#0891b2' },
-        { id: 'modern', name: 'Modern', description: 'Contemporary and sleek', color: '#10b981' },
-        { id: 'minimal', name: 'Minimal', description: 'Clean and minimal approach', color: '#eab308' },
-        { id: 'executive', name: 'Executive', description: 'Premium executive styling', color: '#7c3aed' },
-        { id: 'corporate', name: 'Corporate', description: 'Corporate environment design', color: '#dc2626' },
-        { id: 'finance', name: 'Finance', description: 'Financial industry focused', color: '#059669' },
-        { id: 'tech', name: 'Tech', description: 'Technology-oriented design', color: '#2563eb' },
+        { id: 'professional', name: 'Professional', description: 'Business-focused styling', color: '#D4E0EE' },
+        { id: 'modern', name: 'Modern', description: 'Contemporary and sleek', color: '#ccd9ec' },
+        { id: 'minimal', name: 'Minimal', description: 'Clean and minimal approach', color: '#f8e7c2' },
+        { id: 'executive', name: 'Executive', description: 'Premium executive styling', color: '#d6ccaf' },
+        { id: 'corporate', name: 'Corporate', description: 'Corporate environment design', color: '#e0e0e0' },
+        { id: 'finance', name: 'Finance', description: 'Financial industry focused', color: '#d4d5af' },
+        { id: 'tech', name: 'Tech', description: 'Technology-oriented design', color: '#9ec5f0' },
+        { id: 'classic', name: 'Classic', description: 'Light gray palette', color: '#e5e5e5' },
+        { id: 'neutral', name: 'Neutral', description: 'Soft neutral tones', color: '#d8d8d8' },
     ];
 
     return (
@@ -71,90 +63,6 @@ const ThemeSettingsSection: React.FC<ThemeSettingsSectionProps> = ({
                             </div>
                         </div>
                     ))}
-                </div>
-            </div>
-            
-            {/* Table Density */}
-            <div className="bg-gray-50 p-4 rounded-lg">
-                <h4 className="text-md font-semibold text-gray-800 mb-3">Table Density</h4>
-                <div className="grid grid-cols-2 gap-3">
-                    {[
-                        { id: 'compact', name: 'Compact', description: 'Tight spacing' },
-                        { id: 'standard', name: 'Standard', description: 'Default spacing' },
-                        { id: 'comfortable', name: 'Comfortable', description: 'Relaxed spacing' },
-                        { id: 'spacious', name: 'Spacious', description: 'Maximum spacing' },
-                    ].map((density) => (
-                        <div
-                            key={density.id}
-                            className={`p-3 rounded-lg border-2 cursor-pointer transition-all duration-200 ${
-                                config.density === density.id
-                                    ? 'border-blue-500 bg-blue-50'
-                                    : 'border-gray-200 bg-white hover:border-gray-300'
-                            }`}
-                            onClick={() => onChange('density', density.id)}
-                        >
-                            <div className="font-medium text-sm text-gray-900">{density.name}</div>
-                            <div className="text-xs text-gray-500">{density.description}</div>
-                        </div>
-                    ))}
-                </div>
-            </div>
-            
-            {/* Table View */}
-            <div className="bg-gray-50 p-4 rounded-lg">
-                <h4 className="text-md font-semibold text-gray-800 mb-3">Table View</h4>
-                <select 
-                    className="input" 
-                    value={config.tableView} 
-                    onChange={(e) => onChange('tableView', e.target.value)}
-                >
-                    <option value="default">Default</option>
-                    <option value="card">Card View</option>
-                    <option value="list">List View</option>
-                </select>
-            </div>
-            
-            {/* Modal Pop-up Settings */}
-            <div className="bg-gray-50 p-4 rounded-lg">
-                <h4 className="text-md font-semibold text-gray-800 mb-3">Modal Pop-up Settings</h4>
-                <div className="space-y-4">
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Modal Width ({modalWidth}%)
-                        </label>
-                        <input 
-                            type="range" 
-                            min="40" 
-                            max="80" 
-                            value={modalWidth} 
-                            onChange={(e) => onModalWidthChange(Number(e.target.value))} 
-                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                        />
-                        <div className="flex justify-between text-xs text-gray-500 mt-1">
-                            <span>40%</span>
-                            <span>60%</span>
-                            <span>80%</span>
-                        </div>
-                    </div>
-                    
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                            Overlay Transparency ({modalOverlayTransparency}%)
-                        </label>
-                        <input 
-                            type="range" 
-                            min="0" 
-                            max="100" 
-                            value={modalOverlayTransparency} 
-                            onChange={(e) => onModalOverlayTransparencyChange(Number(e.target.value))} 
-                            className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-                        />
-                        <div className="flex justify-between text-xs text-gray-500 mt-1">
-                            <span>0%</span>
-                            <span>50%</span>
-                            <span>100%</span>
-                        </div>
-                    </div>
                 </div>
             </div>
         </div>

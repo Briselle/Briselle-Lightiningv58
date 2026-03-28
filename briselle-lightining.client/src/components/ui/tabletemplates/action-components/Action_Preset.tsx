@@ -8,6 +8,10 @@ export interface TablePreset {
     config: any;
     isDefault?: boolean;
     presetId: string;
+    /** Optional icon for preset lists / tabs (see `TAB_BAR_ICON_OPTIONS`) */
+    iconKey?: string;
+    /** Emoji or short text override */
+    customIcon?: string;
 }
 
 interface Action_PresetProps {
@@ -88,7 +92,7 @@ const Action_Preset: React.FC<Action_PresetProps> = ({
                     e.stopPropagation();
                     handlePresetClick();
                 }}
-                className="flex items-center justify-center px-3 py-2 border border-gray-300 rounded-md hover:bg-gray-50 h-10"
+                className="flex items-center justify-center px-3 py-2 text-gray-500 hover:text-primary border border-gray-300 rounded-md hover:bg-gray-50 h-10"
             >
                 {getButtonContent(
                     <Bookmark size={16} />,

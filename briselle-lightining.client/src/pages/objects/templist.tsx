@@ -10,6 +10,26 @@ const fieldMappings = {
     dobj_updated_at: "Last Modified",
 };
 
+/** Normalize row keys to match fieldMappings (handles Supabase returning different casing or names). Preserves all original keys. */
+function normalizeRowsToFieldMappings<T extends Record<string, unknown>>(
+    rows: T[],
+    mappingKeys: string[]
+): Record<string, unknown>[] {
+    if (!rows?.length) return [];
+    return rows.map((row) => {
+        const rowKeysLower = Object.fromEntries(
+            Object.keys(row).map((k) => [k.toLowerCase(), k])
+        );
+        const out: Record<string, unknown> = { ...row };
+        for (const key of mappingKeys) {
+            if (row[key] !== undefined) continue;
+            const lowerKey = rowKeysLower[key.toLowerCase()];
+            if (lowerKey != null) out[key] = row[lowerKey];
+        }
+        return out;
+    });
+}
+
 const defaultConfig: TableConfig = {
     // Core Features
     enableSort: true,
@@ -152,6 +172,13 @@ const defaultConfig: TableConfig = {
     tabHoverColor: "",
     tabPanelBackground: "",
     tabList: [],
+    tabBarPlacement: "between-title-and-panel",
+    tabPanelMarginTop: 0,
+    tabMenuStyle: "icon",
+    tabStyle: "standard",
+    tabShowUnderline: true,
+    tabIconSize: 0,
+    tabGap: 8,
 
     // Bulk Actions
     enableBulkActions: true,
@@ -162,15 +189,22 @@ const defaultConfig: TableConfig = {
 export default function TempList() {
     const [data, setData] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [config, setConfig] = useState<TableConfig>(defaultConfig);
 
     const fetchEntities = async () => {
         setLoading(true);
-        const { data, error } = await supabase.from("dobj").select("*");
-        if (error) {
-            console.error("Supabase fetch error:", error);
+        setError(null);
+        const { data: result, error: err } = await supabase.from("dobj").select("*");
+        if (err) {
+            console.error("Supabase fetch error:", err);
+            setError(err.message || "Failed to load data from Supabase. Check table 'dobj' exists and RLS allows anon read.");
+            setData([]);
         } else {
-            setData(data || []);
+            const raw = result ?? [];
+            const mappingKeys = Object.keys(fieldMappings);
+            const normalized = normalizeRowsToFieldMappings(raw, mappingKeys);
+            setData(normalized);
         }
         setLoading(false);
     };
@@ -212,6 +246,7 @@ export default function TempList() {
             onConfigChange={handleConfigChange}
             onRefresh={handleRefresh}
             baseUrl="/objects"
+            error={error}
         />
     );
 }

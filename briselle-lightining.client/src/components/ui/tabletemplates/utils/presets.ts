@@ -1,29 +1,24 @@
 import { TablePreset } from '../action-components/Action_Preset';
 import { TableConfig } from '../ConfigurableListTemplate';
 import { DEFAULT_ACTION_PANEL_ORDER } from './actionPanelOrder';
+import { CANONICAL_DEFAULT_TAB_ITEM } from './canonicalObjectLoaderDefaults';
 
 /**
- * Single source of truth for all table presets
- * This file contains both system-defined and default presets
- * Future: Can be extended to fetch from database
+ * Code-level failover preset — only the Default is kept in code.
+ * All presets (including Default) are loaded from the database (platform_config table).
+ * This code default is used ONLY when the database fetch fails.
  */
 export const DEFAULT_PRESETS: TablePreset[] = [
     {
         id: 'default',
         name: 'Default',
         presetId: 'default',
+        iconKey: 'preset',
         isDefault: true,
         config: {
-            
-                // ==============================
-                // CORE TABLE BEHAVIOR
-                // ==============================
                 "theme": "default",
                 "tableView": "default",
-              
-                // ==============================
-                // STRUCTURE & LAYOUT
-                // ==============================
+                "density": "standard",
                 "enableHeader": true,
                 "enableFooter": true,
                 "enableRowNumber": true,
@@ -39,47 +34,26 @@ export const DEFAULT_PRESETS: TablePreset[] = [
                 "enableWrapText": true,
                 "enableTableTotals": true,
                 "enablePagination": true,
-              
-                // ==============================
-                // ROW & INTERACTION
-                // ==============================
                 "enableRowHoverHighlight": true,
                 "enableRowSelection": true,
                 "enableMassSelection": true,
                 "enableRowActions": true,
-              
-                // ==============================
-                // INFO & META
-                // ==============================
                 "enableRecordCount": true,
                 "enableSortInfo": true,
                 "enableFilterInfo": true,
                 "enableLastUpdated": true,
-              
-                // ==============================
-                // TITLE BAR
-                // ==============================
                 "enableTitle": true,
                 "enableNewButton": true,
                 "newButtonType": "icon",
                 "enableTitleBackground": true,
                 "titleBackgroundColor": "#ffffff",
                 "titleTableSpacing": 0,
-              
-                // ==============================
-                // TABLE PANEL & BACKGROUND
-                // ==============================
                 "enableTablePanel": true,
                 "tablePanelBackground": true,
                 "tablePanelBackgroundColor": "#ffffff",
                 "tablePanelSpacing": 0,
-              
                 "tableBackground": true,
                 "tableBackgroundColor": "#ffffff",
-              
-                // ==============================
-                // TABS
-                // ==============================
                 "enableTabs": true,
                 "tabHeight": "small",
                 "tabAlignment": "left",
@@ -92,95 +66,52 @@ export const DEFAULT_PRESETS: TablePreset[] = [
                 "tabPanelSpacing": 0,
                 "tabPanelBackgroundColor": "",
                 "tabPanelBackground": "",
-                "tabList": [],
-              
-                // ==============================
-                // PRESETS
-                // ==============================
+                "tabList": [{ ...CANONICAL_DEFAULT_TAB_ITEM }],
+                "tabBarPlacement": "between-title-and-panel",
+                "tabMenuStyle": "icon-and-label",
+                "tabStyle": "underline",
+                "tabShowUnderline": true,
+                "tabIconSize": 16,
+                "tabGap": 0,
+                "tabUseCustomPanelBackground": false,
+                "tabPanelMarginTop": 0,
                 "enablePresetSelector": true,
                 "presetButtonType": "icon",
                 "presetButtonAlign": "right",
-              
-                // ==============================
-                // SEARCH
-                // ==============================
                 "enableSearch": true,
                 "searchButtonType": "icon",
                 "searchButtonAlign": "right",
-              
-                // ==============================
-                // SORT
-                // ==============================
+                "searchQuery": "",
                 "enableSort": true,
                 "sortButtonType": "icon",
                 "sortButtonAlign": "right",
-              
-                // ==============================
-                // FILTER
-                // ==============================
                 "enableFilter": true,
                 "filterButtonType": "icon",
                 "filterButtonAlign": "right",
-              
-                // ==============================
-                // GROUPING
-                // ==============================
                 "enableGroup": true,
                 "groupButtonType": "icon",
                 "groupButtonAlign": "right",
-              
-                // ==============================
-                // COLUMN VISIBILITY
-                // ==============================
                 "enableColumnVisibility": true,
                 "columnVisibilityButtonType": "icon",
                 "columnVisibilityButtonAlign": "right",
-              
-                // ==============================
-                // REFRESH
-                // ==============================
                 "enableRefresh": true,
                 "refreshButtonType": "icon",
                 "refreshButtonAlign": "right",
-              
-                // ==============================
-                // EXPORT
-                // ==============================
                 "enableExport": true,
                 "exportButtonType": "icon",
                 "exportButtonAlign": "right",
-              
-                // ==============================
-                // IMPORT
-                // ==============================
                 "enableImport": true,
                 "importButtonType": "icon",
                 "importButtonAlign": "right",
-              
-                // ==============================
-                // PRINT
-                // ==============================
                 "enablePrint": true,
                 "printButtonType": "icon",
                 "printButtonAlign": "right",
-              
-                // ==============================
-                // OWNERSHIP
-                // ==============================
                 "enableChangeOwner": true,
                 "changeOwnerButtonType": "icon",
                 "changeOwnerButtonAlign": "right",
-              
-                // ==============================
-                // ANALYTICS
-                // ==============================
                 "enableChart": true,
                 "chartButtonType": "icon",
                 "chartButtonAlign": "right",
-              
-                // ==============================
-                // SHARING
-                // ==============================
                 "enableShare": true,
                 "shareButtonType": "icon",
                 "shareButtonAlign": "right",
@@ -191,24 +122,11 @@ export const DEFAULT_PRESETS: TablePreset[] = [
                 "shareShowAllFieldsExpanded": false,
                 "shareRestrictByPasswordOrDomain": false,
                 "shareRestrictEmail": "",
-
-                // ==============================
-                // ACTION PANEL ORDER (sync with Display Settings & UI)
-                // ==============================
                 "actionPanelButtonOrder": DEFAULT_ACTION_PANEL_ORDER,
-
-                // ==============================
-                // VIEW & SETTINGS
-                // ==============================
                 "tableViewButtonType": "icon",
                 "tableViewButtonAlign": "right",
-              
                 "settingsButtonType": "icon",
                 "settingsButtonAlign": "right",
-              
-                // ==============================
-                // FREEZE PANE
-                // ==============================
                 "enableFreezePane": true,
                 "freezePaneType": "icon",
                 "freezePaneAlign": "right",
@@ -219,16 +137,8 @@ export const DEFAULT_PRESETS: TablePreset[] = [
                 "tableLayoutSetupButtonAlign": "right",
                 "enableSettings": true,
                 "freezePaneColumnIndexNo": 1,
-              
-                // ==============================
-                // UX ENHANCEMENTS
-                // ==============================
                 "enableTooltips": true,
-
-                "enableInlineEdit": [
-                    "dobj_name_display",
-                    "dobj_description"
-                    ],
+                "enableInlineEdit": ["dobj_name_display", "dobj_description"],
                 "enableBulkActions": true,
                 "editActionButtonType": "icon",
                 "editActionButtonAlign": "right",
@@ -239,256 +149,19 @@ export const DEFAULT_PRESETS: TablePreset[] = [
                 "ownerActionButtonType": "icon",
                 "ownerActionButtonAlign": "right",
                 "pageSize": 25,
-                "pageSizeOptions": [
-                    10,
-                    25,
-                    50,
-                    100
-                ],
+                "pageSizeOptions": [10, 25, 50, 100],
                 "rowActionsPosition": "right",
                 "showRowActionsOnHover": false,
-                "enabledRowActions": [
-                    "view",
-                    "edit",
-                    "copy",
-                    "delete"
-                ],
+                "enabledRowActions": ["view", "edit", "copy", "delete"],
                 "actionStyle": "icons",
                 "actionStyleFlow": "expand",
                 "bulkActionStyle": "icons",
                 "enableEditAction": true,
                 "enableChartAction": true,
                 "enablePrintAction": true,
-                "enableOwnerAction": true
-              }
-              
-        }
-    ,
-    {
-        id: 'all-icons-right',
-        name: 'All Icons Right',
-        presetId: 'all-icons-right',
-        isDefault: false,
-        config: {
-            enableSort: true,
-            enableHeader: true,
-            enableRowHoverHighlight: true,
-            enableSearch: true,
-            enableFilter: true,
-            enableExport: true,
-            enableImport: true,
-            enableRefresh: true,
-            enableColumnVisibility: true,
-            enableRowActions: true,
-            enableTitle: true,
-            enableNewButton: true,
-            enableTitleBackground: true,
-            titleBackgroundColor: '#f8f9fa',
-            enableTablePanel: true,
-            tablePanelBackground: true,
-            tablePanelBackgroundColor: '#f8f9fa',
-            enablePresetSelector: true,
-            searchButtonType: 'icon',
-            searchButtonAlign: 'right',
-            sortButtonType: 'icon',
-            sortButtonAlign: 'right',
-            filterButtonType: 'icon',
-            filterButtonAlign: 'right',
-            columnVisibilityButtonType: 'icon',
-            columnVisibilityButtonAlign: 'right',
-            refreshButtonType: 'icon',
-            refreshButtonAlign: 'right',
-            exportButtonType: 'icon',
-            exportButtonAlign: 'right',
-            importButtonType: 'icon',
-            importButtonAlign: 'right',
-            tableViewButtonType: 'icon',
-            tableViewButtonAlign: 'right',
-            settingsButtonType: 'icon',
-            settingsButtonAlign: 'right',
-            presetButtonType: 'icon',
-            presetButtonAlign: 'right',
-            theme: 'default',
-            tableView: 'default'
-        }
-    },
-    {
-        id: 'all-buttons-right',
-        name: 'All Buttons Right',
-        presetId: 'all-buttons-right',
-        isDefault: false,
-        config: {
-            enableSort: true,
-            enableHeader: true,
-            enableRowHoverHighlight: true,
-            enableSearch: true,
-            enableFilter: true,
-            enableExport: true,
-            enableImport: true,
-            enableRefresh: true,
-            enableColumnVisibility: true,
-            enableRowActions: true,
-            enableTitle: true,
-            enableNewButton: true,
-            enableTitleBackground: true,
-            titleBackgroundColor: '#f1f5f9',
-            enableTablePanel: true,
-            tablePanelBackground: true,
-            tablePanelBackgroundColor: '#f1f5f9',
-            enablePresetSelector: true,
-            searchButtonType: 'button',
-            searchButtonAlign: 'right',
-            sortButtonType: 'button',
-            sortButtonAlign: 'right',
-            filterButtonType: 'button',
-            filterButtonAlign: 'right',
-            columnVisibilityButtonType: 'button',
-            columnVisibilityButtonAlign: 'right',
-            refreshButtonType: 'button',
-            refreshButtonAlign: 'right',
-            exportButtonType: 'button',
-            exportButtonAlign: 'right',
-            importButtonType: 'button',
-            importButtonAlign: 'right',
-            tableViewButtonType: 'button',
-            tableViewButtonAlign: 'right',
-            settingsButtonType: 'button',
-            settingsButtonAlign: 'right',
-            presetButtonType: 'button',
-            presetButtonAlign: 'right',
-            theme: 'professional',
-            tableView: 'comfortable'
-        }
-    },
-    {
-        id: 'left-aligned-modern',
-        name: 'Left Aligned Modern',
-        presetId: 'left-aligned-modern',
-        isDefault: false,
-        config: {
-            enableSort: true,
-            enableHeader: true,
-            enableRowHoverHighlight: true,
-            enableSearch: true,
-            enableFilter: true,
-            enableExport: true,
-            enableRefresh: true,
-            enableColumnVisibility: true,
-            enableRowActions: true,
-            enableTitle: true,
-            enableNewButton: true,
-            enableTitleBackground: true,
-            titleBackgroundColor: '#ecfdf5',
-            enableTablePanel: true,
-            tablePanelBackground: true,
-            tablePanelBackgroundColor: '#ecfdf5',
-            enablePresetSelector: true,
-            searchButtonType: 'button',
-            searchButtonAlign: 'left',
-            sortButtonType: 'button',
-            sortButtonAlign: 'left',
-            filterButtonType: 'button',
-            filterButtonAlign: 'left',
-            columnVisibilityButtonType: 'icon',
-            columnVisibilityButtonAlign: 'right',
-            refreshButtonType: 'icon',
-            refreshButtonAlign: 'right',
-            exportButtonType: 'button',
-            exportButtonAlign: 'left',
-            tableViewButtonType: 'icon',
-            tableViewButtonAlign: 'right',
-            settingsButtonType: 'icon',
-            settingsButtonAlign: 'right',
-            presetButtonType: 'button',
-            presetButtonAlign: 'left',
-            theme: 'modern',
-            tableView: 'comfortable'
-        }
-    },
-    {
-        id: 'compact-minimal',
-        name: 'Compact Minimal',
-        presetId: 'compact-minimal',
-        isDefault: false,
-        config: {
-            enableSort: true,
-            enableHeader: true,
-            enableRowHoverHighlight: true,
-            enableSearch: true,
-            enableTitle: true,
-            enableNewButton: true,
-            enableTitleBackground: false,
-            titleTableSpacing: 8,
-            enableTablePanel: true,
-            tablePanelBackground: true,
-            tablePanelBackgroundColor: '#ffffff',
-            enablePresetSelector: true,
-            searchButtonType: 'icon',
-            searchButtonAlign: 'right',
-            sortButtonType: 'icon',
-            sortButtonAlign: 'right',
-            tableViewButtonType: 'icon',
-            tableViewButtonAlign: 'right',
-            settingsButtonType: 'icon',
-            settingsButtonAlign: 'right',
-            presetButtonType: 'icon',
-            presetButtonAlign: 'right',
-            theme: 'minimal',
-            tableView: 'compact'
-        }
-    },
-    {
-        id: 'data-analyst',
-        name: 'Data Analyst',
-        presetId: 'data-analyst',
-        isDefault: false,
-        config: {
-            enableSort: true,
-            enableHeader: true,
-            enableRowNumber: true,
-            enableRowSelection: true,
-            enableMassSelection: true,
-            enableRowHoverHighlight: true,
-            enableStripedRows: true,
-            enableRowDivider: true,
-            enableColumnResize: true,
-            enableSearch: true,
-            enableFilter: true,
-            enableExport: true,
-            enableColumnVisibility: true,
-            enableGroup: true,
-            enableRowActions: true,
-            enableTitle: true,
-            enableNewButton: true,
-            enableTitleBackground: true,
-            titleBackgroundColor: '#fef3c7',
-            enableRecordCount: true,
-            enableSortInfo: true,
-            enableFilterInfo: true,
-            enableTablePanel: true,
-            tablePanelBackground: true,
-            tablePanelBackgroundColor: '#fef3c7',
-            enablePresetSelector: true,
-            searchButtonType: 'button',
-            searchButtonAlign: 'left',
-            sortButtonType: 'button',
-            sortButtonAlign: 'left',
-            filterButtonType: 'button',
-            filterButtonAlign: 'left',
-            columnVisibilityButtonType: 'button',
-            columnVisibilityButtonAlign: 'right',
-            exportButtonType: 'button',
-            exportButtonAlign: 'right',
-            groupButtonType: 'button',
-            groupButtonAlign: 'left',
-            tableViewButtonType: 'icon',
-            tableViewButtonAlign: 'right',
-            settingsButtonType: 'icon',
-            settingsButtonAlign: 'right',
-            presetButtonType: 'button',
-            presetButtonAlign: 'left',
-            theme: 'professional',
-            tableView: 'spacious'
+                "enableOwnerAction": true,
+                "visibleColumns": [],
+                "columnOrder": [],
         }
     }
 ];

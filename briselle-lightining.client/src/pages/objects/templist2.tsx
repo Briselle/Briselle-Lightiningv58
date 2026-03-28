@@ -155,6 +155,7 @@ const defaultConfig: TableConfig = {
     tabHeight: 'small',
     tabAlignment: 'left',
     tabOrientation: 'horizontal',
+    tabShowUnderline: true,
     tabLabelWidth: 0,
     tabCustomSelection: false,
     tabSelectionColor: '',
@@ -213,7 +214,7 @@ export default function TempList2() {
 
     return (
         <ConfigurableListTemplate
-            title="Objects (Refactored)"
+            title="Objects"
             data={data}
             fieldMappings={fieldMappings}
             config={config}
