@@ -67,7 +67,7 @@ const DEFAULT_INLINE_EDIT_FIELDS = [
     'dobj_name_system',
     'dobj_description',
     'dobj_status',
-    'dobj_updated_at',
+    'sys_updated_ts',
 ];
 
 const BehaviorSettingsSection: React.FC<BehaviorSettingsSectionProps> = ({

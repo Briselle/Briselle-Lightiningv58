@@ -13,6 +13,8 @@ export interface TableQueryState {
     activeColumns: string[];
     visibleColumns: string[];
     columnOrder: string[];
+    /** Fixed widths in px for visible columns only; keyed by field/column key (not label). Omitted = auto. */
+    columnWidthsPx: Record<string, number>;
 }
 
 const STORAGE_VERSION = 'v1';
@@ -45,7 +47,25 @@ export function emptyTableQueryState(allColumnKeys: string[]): TableQueryState {
         activeColumns: [...allColumnKeys],
         visibleColumns: [...allColumnKeys],
         columnOrder: [...allColumnKeys],
+        columnWidthsPx: {},
     };
+}
+
+function sanitizeColumnWidthsPx(
+    raw: unknown,
+    validKeys: Set<string>,
+    visibleKeys: string[]
+): Record<string, number> {
+    const vis = new Set(visibleKeys);
+    if (!raw || typeof raw !== 'object') return {};
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+        if (!validKeys.has(k) || !vis.has(k)) continue;
+        const n = typeof v === 'number' ? v : Number(v);
+        if (!Number.isFinite(n) || n < 80 || n > 4000) continue;
+        out[k] = Math.round(n);
+    }
+    return out;
 }
 
 export function sanitizeTableQueryState(
@@ -55,6 +75,13 @@ export function sanitizeTableQueryState(
     const set = new Set(validKeys);
     const filterArr = (cols: string[] | undefined) =>
         (cols || []).filter((c) => set.has(c));
+
+    /** Keys the user had ever referenced in saved layout; used to default-new mapping keys to visible without resurrecting columns they removed from all three lists. */
+    const storedKeys = new Set(
+        [...(partial?.columnOrder ?? []), ...(partial?.visibleColumns ?? []), ...(partial?.activeColumns ?? [])].filter(
+            (c) => typeof c === 'string' && set.has(c)
+        )
+    );
 
     const sortCriteria = (partial?.sortCriteria || []).filter((s) => set.has(s.column));
     const filterCriteria = (partial?.filterCriteria || []).filter((f) => set.has(f.column));
@@ -74,6 +101,14 @@ export function sanitizeTableQueryState(
     const rest = validKeys.filter((k) => !columnOrder.includes(k));
     columnOrder = [...columnOrder, ...rest];
 
+    for (const k of validKeys) {
+        if (storedKeys.has(k)) continue;
+        if (!activeColumns.includes(k)) activeColumns.push(k);
+        if (!visibleColumns.includes(k)) visibleColumns.push(k);
+    }
+
+    const columnWidthsPx = sanitizeColumnWidthsPx(partial?.columnWidthsPx, set, visibleColumns);
+
     return {
         searchTerm: typeof partial?.searchTerm === 'string' ? partial.searchTerm : '',
         sortCriteria,
@@ -82,6 +117,7 @@ export function sanitizeTableQueryState(
         activeColumns,
         visibleColumns,
         columnOrder,
+        columnWidthsPx,
     };
 }
 
@@ -161,4 +197,18 @@ export function importUserViewsFromJsonObject(blob: Record<string, TableQuerySta
         }
     }
     return { imported };
+}
+
+/** Remove all persisted per-preset table query state (localStorage only). */
+export function clearAllTableUserViewLocalStorage(): void {
+    try {
+        const toRemove: string[] = [];
+        for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i);
+            if (k && k.startsWith(`${KEY_PREFIX}::`)) toRemove.push(k);
+        }
+        for (const k of toRemove) localStorage.removeItem(k);
+    } catch {
+        /* ignore */
+    }
 }

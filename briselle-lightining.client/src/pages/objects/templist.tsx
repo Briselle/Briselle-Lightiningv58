@@ -1,34 +1,13 @@
 import ConfigurableListTemplate, { TableConfig } from "../../components/ui/tabletemplates/ConfigurableListTemplate";
+import { resolveObjectLoaderCrudDefaults } from "../../components/ui/tabletemplates/objectLoaderRecordModals";
 import { supabase } from '../../utils/supabase';
-import { useEffect, useState } from "react";
-
-const fieldMappings = {
-    dobj_name_display: "Name",
-    dobj_name_system: "API Name",
-    dobj_description: "Description",
-    dobj_status: "Status",
-    dobj_updated_at: "Last Modified",
-};
-
-/** Normalize row keys to match fieldMappings (handles Supabase returning different casing or names). Preserves all original keys. */
-function normalizeRowsToFieldMappings<T extends Record<string, unknown>>(
-    rows: T[],
-    mappingKeys: string[]
-): Record<string, unknown>[] {
-    if (!rows?.length) return [];
-    return rows.map((row) => {
-        const rowKeysLower = Object.fromEntries(
-            Object.keys(row).map((k) => [k.toLowerCase(), k])
-        );
-        const out: Record<string, unknown> = { ...row };
-        for (const key of mappingKeys) {
-            if (row[key] !== undefined) continue;
-            const lowerKey = rowKeysLower[key.toLowerCase()];
-            if (lowerKey != null) out[key] = row[lowerKey];
-        }
-        return out;
-    });
-}
+import { useEffect, useMemo, useState } from "react";
+import {
+    buildDobjFieldMappings,
+    buildDobjObjectLoaderCrud,
+    normalizeRowsToFieldMappings,
+    objectLoaderCrudBase,
+} from "./dobjTableShared";
 
 const defaultConfig: TableConfig = {
     // Core Features
@@ -156,7 +135,8 @@ const defaultConfig: TableConfig = {
     density: "compact",
     enableFooter: false,
     enableTableTotals: false,
-    enableWrapClipOption: false,
+    enableWrapClipOption: true,
+    customRowBadgeColumn: 'dobj_name_display',
     tablePanelSpacing: 0,
     newButtonType: "icon",
     tabPanelSpacing: 0,
@@ -187,66 +167,38 @@ const defaultConfig: TableConfig = {
 };
 
 export default function TempList() {
-    const [data, setData] = useState([]);
+    const [data, setData] = useState<Record<string, unknown>[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [config, setConfig] = useState<TableConfig>(defaultConfig);
 
+    const fieldMappings = useMemo(() => buildDobjFieldMappings(data), [data]);
+
+    const objectLoaderCrud = useMemo(() => buildDobjObjectLoaderCrud(data), [data]);
+
     const fetchEntities = async () => {
         setLoading(true);
         setError(null);
-        const { data: result, error: err } = await supabase.from("dobj").select("*");
+        const listOpts = resolveObjectLoaderCrudDefaults(objectLoaderCrudBase);
+        let q = supabase.from("dobj").select("*");
+        if (listOpts.queryActiveOnly) {
+            q = q.eq(listOpts.sysStatusColumn, listOpts.sysStatusActiveValue);
+        }
+        const { data: result, error: err } = await q;
         if (err) {
             console.error("Supabase fetch error:", err);
             setError(err.message || "Failed to load data from Supabase. Check table 'dobj' exists and RLS allows anon read.");
             setData([]);
         } else {
-            const raw = result ?? [];
-            const mappingKeys = Object.keys(fieldMappings);
+            const raw = (result ?? []) as Record<string, unknown>[];
+            const mappingKeys = Object.keys(buildDobjFieldMappings(raw));
             const normalized = normalizeRowsToFieldMappings(raw, mappingKeys);
             setData(normalized);
         }
         setLoading(false);
     };
+</think>
 
-    useEffect(() => {
-        fetchEntities();
-    }, []);
 
-    // Load saved config from localStorage
-    useEffect(() => {
-        const savedConfig = localStorage.getItem('tableConfig');
-        if (savedConfig) {
-            try {
-                const parsedConfig = JSON.parse(savedConfig);
-                setConfig({ ...defaultConfig, ...parsedConfig });
-            } catch (error) {
-                console.error('Error loading saved config:', error);
-            }
-        }
-    }, []);
-
-    // Save config to localStorage when it changes
-    const handleConfigChange = (newConfig: TableConfig) => {
-        setConfig(newConfig);
-        localStorage.setItem('tableConfig', JSON.stringify(newConfig));
-    };
-
-    const handleRefresh = () => {
-        fetchEntities();
-    };
-
-    return (
-        <ConfigurableListTemplate
-            title="Objects"
-            data={data}
-            fieldMappings={fieldMappings}
-            config={config}
-            loading={loading}
-            onConfigChange={handleConfigChange}
-            onRefresh={handleRefresh}
-            baseUrl="/objects"
-            error={error}
-        />
-    );
-}
+<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>
+Read

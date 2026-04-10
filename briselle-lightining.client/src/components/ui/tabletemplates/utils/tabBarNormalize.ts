@@ -1,4 +1,4 @@
-/** Stored placement (legacy + UI values). */
+/** Stored placement (alternate + current UI values). */
 export type TabBarPlacementStored =
     | 'between-title-and-panel'
     | 'left-of-table'
@@ -18,7 +18,7 @@ export function normalizeTabMenuStyle(raw: unknown): 'icon' | 'both' | 'label' {
     return 'icon';
 }
 
-/** Maps legacy tabStyle keys to current shape ids. */
+/** Maps older tabStyle keys to current shape ids. */
 export function normalizeTabShape(raw: unknown): string {
     const s = typeof raw === 'string' ? raw : 'standard';
     if (s === 'underline') return 'standard';
@@ -27,7 +27,7 @@ export function normalizeTabShape(raw: unknown): string {
 }
 
 /**
- * When `tabShowUnderline` is unset, infer from legacy tabStyle:
+ * When `tabShowUnderline` is unset, infer from older tabStyle:
  * underline/standard/default → true; other shapes → false.
  */
 export function resolveTabShowUnderline(tabShowUnderline: unknown, tabStyle: unknown): boolean {

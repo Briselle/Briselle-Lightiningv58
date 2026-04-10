@@ -1,6 +1,65 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
 import { Eye, EyeOff, ChevronUp, ChevronDown, X } from 'lucide-react';
 import { cn } from '../../../../utils/helpers';
+
+const MIN_COL_PX = 80;
+const MAX_COL_PX = 4000;
+
+/** Lets users type multi-digit widths; commits valid range on change when complete, clamps on blur. */
+const ColumnWidthPxInput: React.FC<{
+    colKey: string;
+    widthPx?: number;
+    onCommit: (px: number | null) => void;
+}> = ({ colKey, widthPx, onCommit }) => {
+    const [text, setText] = useState(widthPx != null ? String(widthPx) : '');
+
+    useEffect(() => {
+        setText(widthPx != null ? String(widthPx) : '');
+    }, [widthPx, colKey]);
+
+    return (
+        <input
+            type="number"
+            min={MIN_COL_PX}
+            max={MAX_COL_PX}
+            placeholder="Auto"
+            className="w-[4.25rem] border border-gray-300 rounded px-1 py-0.5 text-xs text-gray-800"
+            value={text}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => {
+                e.stopPropagation();
+                const v = e.target.value;
+                setText(v);
+                const t = v.trim();
+                if (t === '') {
+                    onCommit(null);
+                    return;
+                }
+                const n = Number(t);
+                if (Number.isFinite(n) && n >= MIN_COL_PX && n <= MAX_COL_PX) {
+                    onCommit(Math.round(n));
+                }
+            }}
+            onBlur={() => {
+                const t = text.trim();
+                if (!t) {
+                    onCommit(null);
+                    setText('');
+                    return;
+                }
+                const n = Number(t);
+                if (!Number.isFinite(n)) {
+                    setText(widthPx != null ? String(widthPx) : '');
+                    return;
+                }
+                const c = Math.min(MAX_COL_PX, Math.max(MIN_COL_PX, Math.round(n)));
+                setText(String(c));
+                onCommit(c);
+            }}
+            title="Column width in pixels; leave empty for auto"
+        />
+    );
+};
 
 interface Action_ColumnVisibilityProps {
     enableColumnVisibility: boolean;
@@ -24,6 +83,8 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
     visibleColumns,
     onActiveColumnsChange,
     onVisibleColumnsChange,
+    columnWidths,
+    onColumnWidthsChange,
 }) => {
     const [showColumnDropdown, setShowColumnDropdown] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
@@ -71,9 +132,33 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
 
     const removeColumn = (key: string) => {
         if (activeColumns.length === 1) return;
-        
+
         onActiveColumnsChange(activeColumns.filter(col => col !== key));
         onVisibleColumnsChange(visibleColumns.filter(col => col !== key));
+        onColumnWidthsChange((prev) => {
+            const next = { ...prev };
+            delete next[key];
+            return next;
+        });
+    };
+
+    const MIN_PX = 80;
+    const MAX_PX = 4000;
+
+    const commitColumnWidthPx = (key: string, raw: string) => {
+        const t = raw.trim();
+        if (!t) {
+            onColumnWidthsChange((prev) => {
+                const next = { ...prev };
+                delete next[key];
+                return next;
+            });
+            return;
+        }
+        const num = Number(t);
+        if (!Number.isFinite(num)) return;
+        const clamped = Math.min(MAX_PX, Math.max(MIN_PX, Math.round(num)));
+        onColumnWidthsChange((prev) => ({ ...prev, [key]: clamped }));
     };
 
     const addColumn = (key: string) => {
@@ -233,7 +318,7 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
                                 </button>
                             </div>
 
-                            <div className="max-h-40 overflow-y-auto space-y-1">
+                            <div className="max-h-64 overflow-y-auto space-y-1">
                                 {activeColumns.map((key, index) => {
                                     const isOnlyOne = activeColumns.length === 1;
                                     const isVisible = visibleColumns.includes(key);
@@ -241,31 +326,28 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
                                     return (
                                         <div
                                             key={key}
-                                            className="flex items-center justify-between p-2 bg-blue-50 rounded"
+                                            className="flex items-center gap-2 p-2 bg-blue-50 rounded min-w-0"
                                         >
-                                            <span className="text-sm text-blue-700">
+                                            <span className="text-sm text-blue-700 flex-1 min-w-0 truncate shrink">
                                                 {fieldMappings[key] ?? key}
                                             </span>
 
-                                            <div className="flex items-center gap-2">
-                                                {/* Eye toggle */}
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        toggleColumnVisibility(key);
-                                                    }}
-                                                    disabled={isOnlyOne && isVisible}
-                                                    className={cn(
-                                                        isOnlyOne && isVisible
-                                                            ? 'text-gray-300 cursor-not-allowed'
-                                                            : 'text-blue-600 hover:text-blue-800'
-                                                    )}
-                                                    title="Show / Hide column"
-                                                >
-                                                    {isVisible ? <Eye size={14} /> : <EyeOff size={14} />}
-                                                </button>
+                                            <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                                                {isVisible ? (
+                                                    <label className="flex items-center gap-0.5 text-xs text-gray-600 whitespace-nowrap">
+                                                        <span>px</span>
+                                                        <ColumnWidthPxInput
+                                                            colKey={key}
+                                                            widthPx={columnWidths[key]}
+                                                            onCommit={(px) => commitWidthForKey(key, px)}
+                                                        />
+                                                    </label>
+                                                ) : (
+                                                    <span className="text-xs text-gray-400 w-[4.25rem] text-center">
+                                                        —
+                                                    </span>
+                                                )}
 
-                                                {/* Close */}
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
@@ -278,11 +360,28 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
                                                             : 'text-blue-600 hover:text-blue-800'
                                                     )}
                                                     title="Remove column"
+                                                    type="button"
                                                 >
                                                     <X size={14} />
                                                 </button>
 
-                                                {/* Move up */}
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        toggleColumnVisibility(key);
+                                                    }}
+                                                    disabled={isOnlyOne && isVisible}
+                                                    className={cn(
+                                                        isOnlyOne && isVisible
+                                                            ? 'text-gray-300 cursor-not-allowed'
+                                                            : 'text-blue-600 hover:text-blue-800'
+                                                    )}
+                                                    title="Show / Hide column"
+                                                    type="button"
+                                                >
+                                                    {isVisible ? <Eye size={14} /> : <EyeOff size={14} />}
+                                                </button>
+
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
@@ -291,11 +390,11 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
                                                     disabled={index === 0}
                                                     className="text-gray-500 hover:text-primary disabled:text-gray-300"
                                                     title="Move up"
+                                                    type="button"
                                                 >
                                                     <ChevronUp size={14} />
                                                 </button>
 
-                                                {/* Move down */}
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
@@ -304,6 +403,7 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
                                                     disabled={index === activeColumns.length - 1}
                                                     className="text-gray-500 hover:text-primary disabled:text-gray-300"
                                                     title="Move down"
+                                                    type="button"
                                                 >
                                                     <ChevronDown size={14} />
                                                 </button>

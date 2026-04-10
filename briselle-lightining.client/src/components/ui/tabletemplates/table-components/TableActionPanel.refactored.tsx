@@ -64,14 +64,16 @@ interface TableActionPanelProps {
     visibleColumns: string[];
     onActiveColumnsChange: (columns: string[]) => void;
     onVisibleColumnsChange: (columns: string[]) => void;
+    columnWidths: Record<string, number>;
+    onColumnWidthsChange: React.Dispatch<React.SetStateAction<Record<string, number>>>;
     
-    // Freeze Pane
-    enableFreezePane: boolean;
+    // Freeze Pane (toolbar button is always eligible; Display `enableFreezePane` gates table only)
     freezePaneType: 'icon' | 'button';
     freezePaneAlign: 'left' | 'right';
     enableFreezePaneRowHeader: boolean;
     enablefreezePaneColumnIndex: boolean;
     freezePaneColumnIndexNo: number;
+    maxColumnIndex?: number;
     
     // Refresh
     enableRefresh: boolean;
@@ -124,7 +126,7 @@ interface TableActionPanelProps {
     onPresetClick: () => void;
     onPresetApply: (preset: TablePreset) => void;
     
-    // Table View (legacy, kept for backward compat)
+    // Table View (density shortcut; optional when layout setup is enabled)
     tableViewButtonType?: 'icon' | 'button';
     tableViewButtonAlign?: 'left' | 'right';
     currentTableView?: 'default' | 'compact' | 'comfortable' | 'spacious';
@@ -176,8 +178,35 @@ const TableActionPanel: React.FC<TableActionPanelProps> = (props) => {
         sort: <Action_Sort key="sort" enableSort={props.enableSort} sortButtonType={props.sortButtonType} sortButtonAlign={props.sortButtonAlign} fieldMappings={props.fieldMappings} sortCriteria={props.sortCriteria} onSortCriteriaChange={props.onSortCriteriaChange} />,
         filter: <Action_Filter key="filter" enableFilter={props.enableFilter} filterButtonType={props.filterButtonType} filterButtonAlign={props.filterButtonAlign} fieldMappings={props.fieldMappings} filterCriteria={props.filterCriteria} onFilterCriteriaChange={props.onFilterCriteriaChange} />,
         group: <Action_Group key="group" enableGroup={props.enableGroup} groupButtonType={props.groupButtonType} groupButtonAlign={props.groupButtonAlign} fieldMappings={props.fieldMappings} groupByColumn={props.groupByColumn} onGroupByColumnChange={props.onGroupByColumnChange} />,
-        columnVisibility: <Action_ColumnVisibility key="columnVisibility" enableColumnVisibility={props.enableColumnVisibility} columnVisibilityButtonType={props.columnVisibilityButtonType} columnVisibilityButtonAlign={props.columnVisibilityButtonAlign} fieldMappings={props.fieldMappings} allColumns={props.allColumns} activeColumns={props.activeColumns} visibleColumns={props.visibleColumns} onActiveColumnsChange={props.onActiveColumnsChange} onVisibleColumnsChange={props.onVisibleColumnsChange} />,
-        freezePane: <Action_FreezePane key="freezePane" enableFreezePane={props.enableFreezePane} freezePaneType={props.freezePaneType} freezePaneAlign={props.freezePaneAlign} enableFreezePaneRowHeader={props.enableFreezePaneRowHeader} enablefreezePaneColumnIndex={props.enablefreezePaneColumnIndex} freezePaneColumnIndexNo={props.freezePaneColumnIndexNo} onConfigChange={props.onConfigChange} config={props.config} />,
+        columnVisibility: (
+            <Action_ColumnVisibility
+                key="columnVisibility"
+                enableColumnVisibility={props.enableColumnVisibility}
+                columnVisibilityButtonType={props.columnVisibilityButtonType}
+                columnVisibilityButtonAlign={props.columnVisibilityButtonAlign}
+                fieldMappings={props.fieldMappings}
+                allColumns={props.allColumns}
+                activeColumns={props.activeColumns}
+                visibleColumns={props.visibleColumns}
+                onActiveColumnsChange={props.onActiveColumnsChange}
+                onVisibleColumnsChange={props.onVisibleColumnsChange}
+                columnWidths={props.columnWidths}
+                onColumnWidthsChange={props.onColumnWidthsChange}
+            />
+        ),
+        freezePane: (
+            <Action_FreezePane
+                key="freezePane"
+                freezePaneType={props.freezePaneType}
+                freezePaneAlign={props.freezePaneAlign}
+                enableFreezePaneRowHeader={props.enableFreezePaneRowHeader}
+                enablefreezePaneColumnIndex={props.enablefreezePaneColumnIndex}
+                freezePaneColumnIndexNo={props.freezePaneColumnIndexNo}
+                maxColumnIndex={props.maxColumnIndex}
+                onConfigChange={props.onConfigChange}
+                config={props.config}
+            />
+        ),
         refresh: <Action_Refresh key="refresh" enableRefresh={props.enableRefresh} refreshButtonType={props.refreshButtonType} refreshButtonAlign={props.refreshButtonAlign} onRefreshClick={props.onRefreshClick} />,
         export: <Action_Export key="export" enableExport={props.enableExport} exportButtonType={props.exportButtonType} exportButtonAlign={props.exportButtonAlign} onExportClick={props.onExportClick} />,
         import: <Action_Import key="import" enableImport={props.enableImport} importButtonType={props.importButtonType} importButtonAlign={props.importButtonAlign} onImportClick={props.onImportClick} />,
@@ -220,7 +249,12 @@ const TableActionPanel: React.FC<TableActionPanelProps> = (props) => {
     order.forEach((key) => {
         const def = BUTTON_DEFINITIONS[key];
         const enableKey = def?.enableKey;
-        const isEnabled = !enableKey || def?.disabled || def?.frozenEnableOnly || !!config?.[enableKey];
+        const isEnabled =
+            !enableKey ||
+            def?.disabled ||
+            def?.frozenEnableOnly ||
+            def?.ignoreEnableKeyForPanel ||
+            !!config?.[enableKey];
         if (!isEnabled) return;
         const comp = buttons[key];
         if (!comp) return;
@@ -231,7 +265,7 @@ const TableActionPanel: React.FC<TableActionPanelProps> = (props) => {
 
     return (
         <div
-            className="px-4 py-2 border-b border-gray-200 flex items-center justify-between min-h-[48px]"
+            className="relative z-[110] px-4 py-2 border-b border-gray-200 flex items-center justify-between min-h-[48px]"
             style={{
                 backgroundColor: tablePanelBackground ? tablePanelBackgroundColor : 'transparent',
             }}

@@ -15,7 +15,7 @@ export interface TabItem {
 export type TabBarPlacement = 'between-title-and-panel' | 'left-of-table';
 export type TabMenuStyle = 'icon' | 'both' | 'label';
 
-/** Stored values may include legacy keys; normalized at render. */
+/** Stored values may include alternate keys; normalized at render. */
 export type TabVisualStyle =
     | 'standard'
     | 'pill'

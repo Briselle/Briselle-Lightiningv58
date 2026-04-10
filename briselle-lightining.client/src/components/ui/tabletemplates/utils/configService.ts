@@ -205,6 +205,10 @@ export async function fetchPresetsFromDB(
 export type SaveTableSettingsOptions = {
     /** When set, preferred over URL / stored active tab if it exists in tabList */
     activeTabIdOverride?: string | null;
+    /** Allow writing the Default preset body in DB (normally protected). */
+    allowDefaultPresetBodyOverwrite?: boolean;
+    /** Merged into preset `config` in DB (filter/sort/columns/widths, etc.) */
+    savedQueryState?: Record<string, unknown> | null;
 };
 
 /**
@@ -257,12 +261,18 @@ export async function saveTableSettingsToDB(
     if (idx === -1) return { success: false, error: `Preset "${selectedPresetId}" not found in DB document` };
 
     let didSkipDefaultPresetBody = false;
-    if (selectedPresetId === 'default') {
+    if (selectedPresetId === 'default' && options?.allowDefaultPresetBodyOverwrite !== true) {
         didSkipDefaultPresetBody = true;
     } else {
+        const stripped = stripObjectTabBarFromConfig(fullLayoutConfig) as Record<string, unknown>;
+        const sq = options?.savedQueryState;
+        const configBody =
+            sq != null && typeof sq === 'object'
+                ? { ...stripped, savedQueryState: sq }
+                : stripped;
         p.presets[idx] = {
             ...p.presets[idx],
-            config: stripObjectTabBarFromConfig(fullLayoutConfig),
+            config: configBody as (typeof p.presets)[number]['config'],
         };
     }
 
@@ -314,6 +324,51 @@ export async function resetDefaultToCodeInDB(
         tabList: [CANONICAL_DEFAULT_TAB_ITEM, ...restTabs],
     };
 
+    p.activePresetId = 'default';
+    p.activeTabId = CANONICAL_DEFAULT_TAB_ITEM.id;
+
+    return writeRawDocument(entityId, dobjId, p, userId);
+}
+
+/**
+ * Platform reset (config_type = OBJECT_LOADER_TYPE): keep only default-tagged presets,
+ * set tab row to the protected Default tab only, and point active context at default.
+ * Does not replace default preset body with code — DB default entry is preserved (normalized id/default flags).
+ */
+export async function pruneObjectLoaderToDefaultOnlyInDB(
+    entityId: number = DB_ENTITY_ID,
+    dobjId: number = DB_DOBJ_ID,
+    userId: string = '1',
+): Promise<{ success: boolean; error: string | null }> {
+    const { payload, error } = await fetchRawDocument(entityId, dobjId);
+    if (error || !payload) return { success: false, error: error || 'No data' };
+
+    const p = payload as ConfigJsonPayload;
+    const tagged = p.presets.filter((e) => e.isDefault === true || e.id === 'default');
+    let defaultRow =
+        tagged.find((e) => e.id === 'default') ?? tagged[0];
+
+    if (!defaultRow) {
+        return { success: false, error: 'No default-tagged preset in document' };
+    }
+
+    defaultRow = {
+        ...defaultRow,
+        id: 'default',
+        isDefault: true,
+        name: 'Default',
+        presetOrder: 0,
+        isActive: true,
+    };
+
+    p.presets = [defaultRow];
+
+    const tabSlice = extractObjectTabBarFromConfig(defaultRow.config as Record<string, unknown>);
+    p.objectTabBar = {
+        ...(p.objectTabBar && typeof p.objectTabBar === 'object' ? p.objectTabBar : {}),
+        ...tabSlice,
+        tabList: [CANONICAL_DEFAULT_TAB_ITEM],
+    };
     p.activePresetId = 'default';
     p.activeTabId = CANONICAL_DEFAULT_TAB_ITEM.id;
 
@@ -437,6 +492,6 @@ export async function savePresetOrderToDB(
     return writeRawDocument(entityId, dobjId, payload, userId);
 }
 
-// Legacy wrappers for backward compatibility
+// Shorter aliases (same behavior as append/remove preset helpers)
 export const savePresetToDB = appendPresetToDB;
 export const deletePresetFromDB = removePresetFromDB;

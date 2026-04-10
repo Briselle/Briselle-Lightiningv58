@@ -1,14 +1,13 @@
 import ConfigurableListTemplate, { TableConfig } from "../../components/ui/tabletemplates/ConfigurableListTemplate";
+import { resolveObjectLoaderCrudDefaults } from "../../components/ui/tabletemplates/objectLoaderRecordModals";
 import { supabase } from '../../utils/supabase';
-import { useEffect, useState } from "react";
-
-const fieldMappings = {
-    dobj_name_display: "Name",
-    dobj_name_system: "API Name",
-    dobj_description: "Description",
-    dobj_status: "Status",
-    dobj_updated_at: "Last Modified",
-};
+import { useEffect, useMemo, useState } from "react";
+import {
+    buildDobjFieldMappings,
+    buildDobjObjectLoaderCrud,
+    normalizeRowsToFieldMappings,
+    objectLoaderCrudBase,
+} from "./dobjTableShared";
 
 const defaultConfig: TableConfig = {
     // Core Features
@@ -144,7 +143,8 @@ const defaultConfig: TableConfig = {
     enableTableTotals: false,
 
     // Additional Options (Required)
-    enableWrapClipOption: false,
+    enableWrapClipOption: true,
+    customRowBadgeColumn: 'dobj_name_display',
     tablePanelSpacing: 0,
     newButtonType: 'icon',
     tabPanelSpacing: 0,
@@ -170,17 +170,33 @@ const defaultConfig: TableConfig = {
 };
 
 export default function TempList2() {
-    const [data, setData] = useState([]);
+    const [data, setData] = useState<Record<string, unknown>[]>([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
     const [config, setConfig] = useState<TableConfig>(defaultConfig);
+
+    const fieldMappings = useMemo(() => buildDobjFieldMappings(data), [data]);
+
+    const objectLoaderCrud = useMemo(() => buildDobjObjectLoaderCrud(data), [data]);
 
     const fetchEntities = async () => {
         setLoading(true);
-        const { data, error } = await supabase.from("dobj").select("*");
-        if (error) {
-            console.error("Supabase fetch error:", error);
+        setError(null);
+        const listOpts = resolveObjectLoaderCrudDefaults(objectLoaderCrudBase);
+        let q = supabase.from("dobj").select("*");
+        if (listOpts.queryActiveOnly) {
+            q = q.eq(listOpts.sysStatusColumn, listOpts.sysStatusActiveValue);
+        }
+        const { data: result, error: err } = await q;
+        if (err) {
+            console.error("Supabase fetch error:", err);
+            setError(err.message || "Failed to load data from Supabase.");
+            setData([]);
         } else {
-            setData(data || []);
+            const raw = (result ?? []) as Record<string, unknown>[];
+            const mappingKeys = Object.keys(buildDobjFieldMappings(raw));
+            const normalized = normalizeRowsToFieldMappings(raw, mappingKeys);
+            setData(normalized);
         }
         setLoading(false);
     };
@@ -222,6 +238,8 @@ export default function TempList2() {
             onConfigChange={handleConfigChange}
             onRefresh={handleRefresh}
             baseUrl="/objects"
+            error={error}
+            objectLoaderCrud={objectLoaderCrud}
         />
     );
 }

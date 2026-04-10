@@ -4,7 +4,7 @@ import {
     Plus, AlertTriangle, ExternalLink, Settings, Edit, Trash2,
     ChevronRight, ChevronDown, GripVertical, X, Copy, Bookmark, Star,
 } from 'lucide-react';
-import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { cn } from '../../../utils/helpers';
 import TableSettingsModal from "./TableSettingsModal";
 import TableTitlePanel from "./table-components/TableTitlePanel";
@@ -26,6 +26,74 @@ import { SortCriteria } from "./action-components/Action_Sort";
 import { FilterCriteria } from "./action-components/Action_Filter";
 import { TablePreset } from "./action-components/Action_Preset";
 import { loadTableConfig, loadTablePresets } from "./utils/loadTableConfig";
+
+/** Sticky frozen body cells stack above horizontally scrolling cells so borders/dividers stay visible. */
+const FROZEN_BODY_Z_BASE = 40;
+/** Header frozen cells sit above body stickies and `.freeze-header` defaults. */
+const FROZEN_HEADER_Z_BASE = 52;
+
+type CellRangePoint = { row: number; col: string };
+
+function normalizeCellRangeRect(orderCols: string[], a: CellRangePoint, b: CellRangePoint) {
+    const ia = orderCols.indexOf(a.col);
+    const ib = orderCols.indexOf(b.col);
+    if (ia < 0 || ib < 0) return null;
+    const c0 = Math.min(ia, ib);
+    const c1 = Math.max(ia, ib);
+    const r0 = Math.min(a.row, b.row);
+    const r1 = Math.max(a.row, b.row);
+    return { r0, r1, c0, c1 };
+}
+
+function isCellInRangeRect(
+    flatRow: number,
+    col: string,
+    orderCols: string[],
+    rect: NonNullable<ReturnType<typeof normalizeCellRangeRect>>,
+): boolean {
+    const ci = orderCols.indexOf(col);
+    if (ci < 0) return false;
+    return flatRow >= rect.r0 && flatRow <= rect.r1 && ci >= rect.c0 && ci <= rect.c1;
+}
+
+function escapeHtmlForClipboard(s: string) {
+    return s
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+}
+
+function buildCellRangeClipboard(
+    rows: Record<string, unknown>[],
+    cols: string[],
+    fieldMappings: Record<string, string>,
+): { tsv: string; html: string } {
+    const headers = cols.map((c) => fieldMappings[c] ?? c);
+    const tsvLines = [
+        headers.join('\t'),
+        ...rows.map((row) =>
+            cols
+                .map((c) =>
+                    String(row[c] ?? '')
+                        .replace(/\r?\n/g, ' ')
+                        .replace(/\t/g, ' '),
+                )
+                .join('\t'),
+        ),
+    ];
+    const th = headers.map((h) => `<th>${escapeHtmlForClipboard(h)}</th>`).join('');
+    const trs = rows
+        .map((row) => {
+            const tds = cols
+                .map((c) => `<td>${escapeHtmlForClipboard(String(row[c] ?? ''))}</td>`)
+                .join('');
+            return `<tr>${tds}</tr>`;
+        })
+        .join('');
+    const html = `<table border="1" cellspacing="0" cellpadding="3"><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
+    return { tsv: tsvLines.join('\n'), html };
+}
 import { DEFAULT_PRESETS, getDefaultPreset, loadCustomPresetsFromStorage, saveCustomPresetsToStorage } from "./utils/presets";
 import { fetchPresetsFromDB, persistActiveContextToDB } from "./utils/configService";
 import { mergePresetWithPreservedTabState, mergeObjectTabBarIntoConfig } from "./utils/mergePresetConfig";
@@ -41,7 +109,125 @@ import {
     readSavedQueryStateFromPresetConfig,
     type TableQueryState,
 } from "./utils/tableUserViewStorage";
+import { applyFreezePaneConsistency } from "./utils/freezePaneConfigSync";
+import {
+    ObjectLoaderRecordModals,
+    ObjectLoaderRowActionsBar,
+    resolveRowRecordId,
+    type ObjectLoaderCrudOptions,
+    type ObjectLoaderRecordModalState,
+} from "./objectLoaderRecordModals";
 
+export type { ObjectLoaderCrudOptions, ObjectLoaderRecordModalState } from "./objectLoaderRecordModals";
+export { resolveObjectLoaderCrudDefaults, coercePostgrestNumericId } from "./objectLoaderRecordModals";
+
+/** Skip these when picking a fallback “title” column (bold) if the name column is hidden. */
+const ROW_ACCENT_SKIP_KEYS = new Set(['sys_id', 'entity_id', 'dobj_id']);
+
+const DEFAULT_CUSTOM_BADGE_COLUMN = 'dobj_name_display';
+
+/**
+ * “Custom” badge: only on the configured name column (default dobj_name_display). Never on description or other fields.
+ */
+function resolveCustomBadgeColumnKey(
+    orderedVisibleColumns: string[],
+    explicit?: string | null,
+): string | null {
+    const key = (explicit && explicit.trim() !== '' ? explicit.trim() : DEFAULT_CUSTOM_BADGE_COLUMN);
+    return orderedVisibleColumns.includes(key) ? key : null;
+}
+
+/** Row title emphasis (font-medium) when the name column is visible; else first non-id column. */
+function resolveRowAccentColumnKey(
+    orderedVisibleColumns: string[],
+    badgeColumnKey: string | null,
+): string | null {
+    if (badgeColumnKey) return badgeColumnKey;
+    const hit = orderedVisibleColumns.find((c) => !ROW_ACCENT_SKIP_KEYS.has(c));
+    return hit ?? null;
+}
+
+/** Per-column wrap vs clip when enableWrapClipOption; otherwise follows enableWrapText. */
+function getCellWrapMode(
+    col: string,
+    config: TableConfig,
+    columnWrapStates: Record<string, 'wrap' | 'clip'>,
+): 'wrap' | 'clip' {
+    if (config.enableWrapClipOption) {
+        return columnWrapStates[col] ?? 'clip';
+    }
+    return config.enableWrapText ? 'wrap' : 'clip';
+}
+
+export type CustomRowBadgeOverflowMode = 'follow' | 'wrap' | 'clip' | 'none';
+
+/** How the Custom badge + name behave when space is tight (independent from generic cell wrap when set). */
+function getCustomBadgeLayoutKind(
+    col: string,
+    config: TableConfig,
+    columnWrapStates: Record<string, 'wrap' | 'clip'>,
+): 'wrap' | 'clip' | 'none' {
+    const raw = (config.customRowBadgeOverflowMode ?? 'follow') as CustomRowBadgeOverflowMode;
+    if (raw === 'wrap' || raw === 'clip' || raw === 'none') {
+        return raw;
+    }
+    if (config.enableWrapClipOption) {
+        return getCellWrapMode(col, config, columnWrapStates) === 'wrap' ? 'wrap' : 'clip';
+    }
+    if (config.enableWrapText) return 'wrap';
+    return 'none';
+}
+
+/** `inline-flex` + `max-w-full` (never `w-full`) so short values stay width-hugged and the pill sits flush after the text. */
+function getCustomBadgeCellWrapperClass(
+    col: string,
+    config: TableConfig,
+    columnWrapStates: Record<string, 'wrap' | 'clip'>,
+): string {
+    const kind = getCustomBadgeLayoutKind(col, config, columnWrapStates);
+    if (kind === 'wrap') {
+        return 'inline-flex flex-wrap items-center justify-start gap-x-2 gap-y-1 max-w-full min-w-0 text-left align-middle';
+    }
+    if (kind === 'clip') {
+        return 'inline-flex flex-nowrap items-center justify-start gap-2 max-w-full min-w-0 text-left align-middle';
+    }
+    return 'inline-flex flex-nowrap items-center justify-start gap-2 max-w-full min-w-0 text-left align-middle';
+}
+
+function getCustomBadgeValueSpanClass(
+    col: string,
+    config: TableConfig,
+    columnWrapStates: Record<string, 'wrap' | 'clip'>,
+    isAccentCol: boolean,
+): string {
+    const kind = getCustomBadgeLayoutKind(col, config, columnWrapStates);
+    return cn(
+        'min-w-0 text-left',
+        kind === 'wrap' && 'break-words [overflow-wrap:anywhere]',
+        kind === 'clip' && 'truncate',
+        kind === 'none' && 'whitespace-nowrap',
+        isAccentCol && 'font-medium',
+    );
+}
+
+/** Checkbox / # column: strong divider only when freeze count = 1 (checkbox only). Otherwise light divider like other internal edges. */
+function checkboxColumnRightBorderClass(
+    enableColumnDivider: boolean,
+    checkboxFrozen: boolean,
+    enableFreezePaneColumn: boolean | undefined,
+    freezePaneColumnIndexNo: number | undefined,
+): string {
+    if (!enableColumnDivider) return '';
+    const fi = freezePaneColumnIndexNo || 1;
+    if (checkboxFrozen && enableFreezePaneColumn && fi === 1) {
+        return 'freeze-pane-seam';
+    }
+    /* fi > 1: first frozen data cell uses ::before left (higher z); checkbox right pseudo would sit under that cell. */
+    if (checkboxFrozen && enableFreezePaneColumn && fi > 1) {
+        return '';
+    }
+    return 'border-r border-gray-200';
+}
 
 export interface TableConfig {
     [x: string]: any;
@@ -218,7 +404,7 @@ export interface TableConfig {
     tabPanelMarginTop?: number;
     /** Icon-only, icon + label, or label-only */
     tabMenuStyle?: TabMenuStyle;
-    /** Visual chrome for tab buttons (legacy: underline, rounded) */
+    /** Visual chrome for tab buttons (e.g. underline, rounded) */
     tabStyle?: string;
     /** Accent underline / side line on the active tab (all shapes) */
     tabShowUnderline?: boolean;
@@ -233,6 +419,17 @@ export interface TableConfig {
 
     /** Preset JSON only: default query (filter/sort/group/columns). Stripped when merging into live page config. */
     savedQueryState?: TableQueryState;
+
+    /**
+     * Column key for the “Custom” row badge and primary (bold) cell. Default: dobj_name_display (Name).
+     * Badge never appears on other columns unless you set this to another visible field key.
+     */
+    customRowBadgeColumn?: string;
+    /**
+     * How the Custom badge groups with the name when space is tight.
+     * `follow` = use column Wrap/Clip when “Enable Wrap & Clip” is on, else table wrap text, else no clip.
+     */
+    customRowBadgeOverflowMode?: CustomRowBadgeOverflowMode;
 }
 
 // Types are now imported from action components
@@ -247,6 +444,15 @@ interface Props {
     onConfigChange: (newConfig: TableConfig) => void;
     baseUrl?: string;
     onRefresh?: () => void;
+    /** When set, row actions open dynamic view/edit/copy/delete modals and call Supabase on the given table. */
+    objectLoaderCrud?: ObjectLoaderCrudOptions | null;
+}
+
+/** Stable row identity for React keys and findIndex — avoid entity_id alone when many rows share one tenant. */
+function getTemplateRowIdentityKey(row: Record<string, unknown>): string | number | undefined {
+    const v = row.sys_id ?? row.dobj_id ?? row.id ?? row.entity_id;
+    if (v !== undefined && v !== null) return v as string | number;
+    return undefined;
 }
 
 export default function ConfigurableListTemplate({
@@ -258,20 +464,32 @@ export default function ConfigurableListTemplate({
     error,
     onConfigChange,
     baseUrl = '/data',
-    onRefresh
+    onRefresh,
+    objectLoaderCrud = null
 }: Props) {
     // Initialize selectedRows as a proper Set to fix the .has() error
 
     const configRef = useRef(config);
     configRef.current = config;
-    const onConfigChangeRef = useRef(onConfigChange);
-    onConfigChangeRef.current = onConfigChange;
+
+    const pushConfig = useCallback(
+        (next: TableConfig) => onConfigChange(applyFreezePaneConsistency(next) as TableConfig),
+        [onConfigChange],
+    );
+    const pushConfigRef = useRef(pushConfig);
+    pushConfigRef.current = pushConfig;
+
+    /** `enableFreezePane === false` turns off table/header/column freeze; action bar Freeze control stays visible. */
+    const freezePaneAppliesToTable = config.enableFreezePane !== false;
+    const tableFreezeColumnEnabled = freezePaneAppliesToTable && !!config.enablefreezePaneColumnIndex;
+    const tableFreezeHeaderEnabled = freezePaneAppliesToTable && !!config.enableFreezePaneRowHeader;
 
     // State management
     const [sortCriteria, setSortCriteria] = useState<SortCriteria[]>([]);
     const [filterCriteria, setFilterCriteria] = useState<FilterCriteria[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedRows, setSelectedRows] = useState<number[]>([]);
+    const [objectLoaderModal, setObjectLoaderModal] = useState<ObjectLoaderRecordModalState>(null);
     const [groupByColumn, setGroupByColumn] = useState<string | null>(null);
     const [presets, setPresets] = useState<TablePreset[]>([]);
     const [activePresetId, setActivePresetId] = useState<string>('default');
@@ -285,6 +503,34 @@ export default function ConfigurableListTemplate({
     const [isTableSettingsOpen, setIsTableSettingsOpen] = useState(false);
     const [chartPanelOpen, setChartPanelOpen] = useState(false);
     const [columnWrapStates, setColumnWrapStates] = useState<Record<string, 'wrap' | 'clip'>>({});
+    /** Inline-edit + Custom badge: show text+badge until user clicks value; then input only (badge hidden). */
+    const [inlineEditActiveKey, setInlineEditActiveKey] = useState<string | null>(null);
+
+    /** Re-fetch presets from DB and merge with localStorage (icons + custom); keeps preset `config` in sync after Save. */
+    const reloadPresetsFromDatabase = useCallback(async () => {
+        let overrides: Record<string, { iconKey?: string; customIcon?: string }> = {};
+        try {
+            overrides = JSON.parse(localStorage.getItem('presetIconOverrides') || '{}');
+        } catch {
+            overrides = {};
+        }
+        const { presets: dbPresets, error: dbError } = await fetchPresetsFromDB(1000000000, 1000000001);
+        if (dbError) {
+            console.warn('[Presets] Refresh after save failed:', dbError);
+            return;
+        }
+        if (!dbPresets.length) return;
+
+        const mergedSystem = dbPresets.map((p) => ({
+            ...p,
+            ...(overrides[p.id] || {}),
+        }));
+        const customPresets = loadCustomPresetsFromStorage();
+        const systemIds = new Set(mergedSystem.map((p) => p.id));
+        const uniqueCustom = customPresets.filter((p) => !systemIds.has(p.id));
+        const merged = [...mergedSystem, ...uniqueCustom];
+        setPresets(merged);
+    }, []);
     const [shareViewParams, setShareViewParams] = useState<{ isShareView: boolean; restrictCopy: boolean; panelAllowed: boolean }>({ isShareView: false, restrictCopy: false, panelAllowed: false });
 
     useEffect(() => {
@@ -313,44 +559,22 @@ export default function ConfigurableListTemplate({
     const dropdownRef = useRef<HTMLDivElement>(null);
     const [showPresetDropdown, setShowPresetDropdown] = useState(false);
     const [openRowActionsMenuId, setOpenRowActionsMenuId] = useState<string | null>(null);
+    const isResizingColumnRef = useRef(false);
+    const [activeResizeColumn, setActiveResizeColumn] = useState<string | null>(null);
+    const [activeInlineCellKey, setActiveInlineCellKey] = useState<string | null>(null);
+    const inlineEditHighlightColor =
+        config.tabCustomSelection && config.tabSelectionColor ? config.tabSelectionColor : '#2563eb';
 
-    // Measure and initialize column widths from actual rendered table
+    // Checkbox column width only (data columns use auto layout unless `columnWidths` has explicit px)
     useEffect(() => {
         if (visibleColumns.length === 0) return;
-        
-        const measuredWidths: Record<string, number> = {};
-        let allMeasured = true;
-        
-        // Measure checkbox column width
         if (checkboxColumnRef.current) {
             const checkboxWidth = checkboxColumnRef.current.offsetWidth;
             if (checkboxWidth !== checkboxColumnWidth) {
                 setCheckboxColumnWidth(checkboxWidth);
             }
         }
-        
-        // Measure data column widths from header cells
-        visibleColumns.forEach((col) => {
-            const headerCell = headerCellRefs.current[col];
-            if (headerCell) {
-                const width = headerCell.offsetWidth;
-                measuredWidths[col] = width;
-            } else {
-                allMeasured = false;
-            }
-        });
-        
-        // Only update if we have measurements and widths changed
-        if (allMeasured && Object.keys(measuredWidths).length > 0) {
-            setColumnWidths((prev) => {
-                // Only update if widths are different
-                const hasChanges = Object.keys(measuredWidths).some(
-                    (col) => prev[col] !== measuredWidths[col]
-                );
-                return hasChanges ? { ...prev, ...measuredWidths } : prev;
-            });
-        }
-    }, [visibleColumns, data.length]); // Re-measure when visible columns or data changes
+    }, [visibleColumns, data.length]);
 
     /* =======================
       UI & DATA HELPERS
@@ -368,6 +592,102 @@ export default function ConfigurableListTemplate({
 
     const displayRows = rowOrder ? rowOrder.map(i => sortedData[i]) : sortedData;
     const displayIndices = rowOrder ? rowOrder : sortedData.map((_, i) => i);
+
+    const orderedVisibleCols = useMemo(
+        () => columnOrder.filter((c) => visibleColumns.includes(c)),
+        [columnOrder, visibleColumns],
+    );
+
+    const flatDataRowsForRange = useMemo(() => {
+        if (!groupedData) return displayRows;
+        const rows: typeof sortedData = [];
+        for (const [, groupRows] of Object.entries(groupedData)) {
+            for (const r of groupRows) rows.push(r);
+        }
+        return rows;
+    }, [groupedData, displayRows, sortedData]);
+
+    const [cellRangeAnchor, setCellRangeAnchor] = useState<CellRangePoint | null>(null);
+    const [cellRangeFocus, setCellRangeFocus] = useState<CellRangePoint | null>(null);
+    const cellRangeDraggingRef = useRef(false);
+
+    const cellRangeRect = useMemo(() => {
+        if (!cellRangeAnchor || !cellRangeFocus) return null;
+        return normalizeCellRangeRect(orderedVisibleCols, cellRangeAnchor, cellRangeFocus);
+    }, [cellRangeAnchor, cellRangeFocus, orderedVisibleCols]);
+
+    const clearCellRangeSelection = useCallback(() => {
+        setCellRangeAnchor(null);
+        setCellRangeFocus(null);
+        cellRangeDraggingRef.current = false;
+    }, []);
+
+    const handleCellRangeMouseDown = useCallback(
+        (e: React.MouseEvent, flatRowIndex: number, col: string) => {
+            if (e.button !== 0) return;
+            const t = e.target as HTMLElement;
+            if (t.closest('input, textarea, select, button, a')) return;
+            if (shareViewParams.isShareView && shareViewParams.restrictCopy) return;
+            if (e.shiftKey && cellRangeAnchor) {
+                setCellRangeFocus({ row: flatRowIndex, col });
+                e.preventDefault();
+                return;
+            }
+            setCellRangeAnchor({ row: flatRowIndex, col });
+            setCellRangeFocus({ row: flatRowIndex, col });
+            cellRangeDraggingRef.current = true;
+            e.preventDefault();
+        },
+        [cellRangeAnchor, shareViewParams.isShareView, shareViewParams.restrictCopy],
+    );
+
+    const handleCellRangeMouseEnter = useCallback((e: React.MouseEvent, flatRowIndex: number, col: string) => {
+        if (!cellRangeDraggingRef.current) return;
+        if ((e.buttons & 1) === 0) return;
+        setCellRangeFocus({ row: flatRowIndex, col });
+    }, []);
+
+    useEffect(() => {
+        const endDrag = () => {
+            cellRangeDraggingRef.current = false;
+        };
+        window.addEventListener('mouseup', endDrag);
+        return () => window.removeEventListener('mouseup', endDrag);
+    }, []);
+
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') clearCellRangeSelection();
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [clearCellRangeSelection]);
+
+    useEffect(() => {
+        const onCopy = (e: ClipboardEvent) => {
+            if (shareViewParams.isShareView && shareViewParams.restrictCopy) return;
+            const tgt = e.target;
+            if (tgt instanceof HTMLInputElement || tgt instanceof HTMLTextAreaElement) return;
+            if (!cellRangeRect) return;
+            const cols = orderedVisibleCols.slice(cellRangeRect.c0, cellRangeRect.c1 + 1);
+            if (cols.length === 0) return;
+            const slice = flatDataRowsForRange.slice(cellRangeRect.r0, cellRangeRect.r1 + 1) as Record<string, unknown>[];
+            if (slice.length === 0) return;
+            const { tsv, html } = buildCellRangeClipboard(slice, cols, fieldMappings);
+            e.preventDefault();
+            e.clipboardData?.setData('text/plain', tsv);
+            e.clipboardData?.setData('text/html', html);
+        };
+        window.addEventListener('copy', onCopy);
+        return () => window.removeEventListener('copy', onCopy);
+    }, [
+        shareViewParams.isShareView,
+        shareViewParams.restrictCopy,
+        cellRangeRect,
+        orderedVisibleCols,
+        flatDataRowsForRange,
+        fieldMappings,
+    ]);
 
     const sortSignature = sortCriteria.map(s => `${s.column}-${s.order}`).join(',');
     useEffect(() => {
@@ -535,7 +855,7 @@ export default function ConfigurableListTemplate({
                     ...merged,
                     tabList: injectCanonicalDefaultTab<TabItem>(merged.tabList),
                 };
-                onConfigChange(withCanonicalTabs);
+                pushConfigRef.current(withCanonicalTabs);
 
                 setSearchParams((sp) => {
                     const next = new URLSearchParams(sp);
@@ -1191,7 +1511,7 @@ export default function ConfigurableListTemplate({
 
     const handleTableViewChange = (view: 'default' | 'compact' | 'comfortable' | 'spacious') => {
         console.log("Table view changed to:", view);
-        onConfigChange({
+        pushConfig({
             ...config,
             tableView: view
         });
@@ -1216,7 +1536,7 @@ export default function ConfigurableListTemplate({
         }));
     }, []);
 
-    // Presets are loaded from database on mount. This legacy function resets to code Default only.
+    // Presets are loaded from database on mount. Resets to code default when DB fetch is unavailable.
     const setDefaultPresets = () => {
         const codeDefault = DEFAULT_PRESETS[0];
         const customPresets = loadCustomPresetsFromStorage();
@@ -1601,16 +1921,32 @@ export default function ConfigurableListTemplate({
 
     const handleMouseDown = (e: React.MouseEvent<HTMLDivElement>, col: string) => {
         if (!config.enableColumnResize) return;
+        e.preventDefault();
+        e.stopPropagation();
 
         const startX = e.clientX;
         const startWidth = columnWidths[col] || (resizeRefs.current[col]?.offsetWidth ?? 150);
+        const MIN_COLUMN_WIDTH = 80;
+        let moveCount = 0;
+        isResizingColumnRef.current = true;
+        setActiveResizeColumn(col);
+        document.body.style.userSelect = 'none';
+        document.body.style.cursor = 'col-resize';
 
         const handleMouseMove = (e: MouseEvent) => {
-            const newWidth = startWidth + (e.clientX - startX);
+            const newWidth = Math.max(MIN_COLUMN_WIDTH, startWidth + (e.clientX - startX));
+            moveCount += 1;
+            if (moveCount === 1 || moveCount % 8 === 0) {
+                // sampled move ticks kept for lightweight breakpointing if needed
+            }
             setColumnWidths((prev) => ({ ...prev, [col]: newWidth }));
         };
 
         const handleMouseUp = () => {
+            isResizingColumnRef.current = false;
+            setActiveResizeColumn(null);
+            document.body.style.userSelect = '';
+            document.body.style.cursor = '';
             document.removeEventListener("mousemove", handleMouseMove);
             document.removeEventListener("mouseup", handleMouseUp);
         };
@@ -1648,6 +1984,10 @@ export default function ConfigurableListTemplate({
     // Column reordering functions
     const handleColumnDragStart = (e: React.DragEvent, index: number) => {
         if (!config.enableColumnReorder) return;
+        if (isResizingColumnRef.current || activeResizeColumn !== null) {
+            e.preventDefault();
+            return;
+        }
         setDraggedColumnIndex(index);
         e.dataTransfer.effectAllowed = 'move';
     };
@@ -1807,13 +2147,13 @@ export default function ConfigurableListTemplate({
     };
 
     // Apply preset handler — merge so preset.config does not wipe tabList / tab UI (was clearing saved tabs)
-    // Use onConfigChangeRef so this callback stays stable (unstable parent onConfigChange was retriggering URL sync every render).
+    // Use pushConfigRef so preset apply stays stable and freeze flags stay consistent with saved JSON.
     const applyPreset = useCallback((preset: TablePreset, explicitTableTabId?: string | null) => {
         setActivePresetId(preset.id);
         const prev = configRef.current;
         const presetLayout = stripSavedQueryStateFromConfig((preset.config || {}) as Record<string, unknown>);
         const mergedForTabs = mergePresetWithPreservedTabState(prev, presetLayout as typeof prev);
-        onConfigChangeRef.current(mergedForTabs);
+        pushConfigRef.current(mergedForTabs);
 
         const tabs = mergedForTabs.tabList ?? [];
         let tabId: string | null = explicitTableTabId ?? null;
@@ -1849,7 +2189,6 @@ export default function ConfigurableListTemplate({
 
         const fromUser = loadTableQueryState(tableUserId, templateId, p.id);
         const fromPreset = readSavedQueryStateFromPresetConfig(p.config);
-        const source: 'user' | 'preset' | 'default' = fromUser ? 'user' : fromPreset ? 'preset' : 'default';
         const mergedPartial = (fromUser || fromPreset || {}) as Partial<TableQueryState>;
         const sanitized = sanitizeTableQueryState(mergedPartial, keys);
 
@@ -1860,6 +2199,7 @@ export default function ConfigurableListTemplate({
         setActiveColumns(sanitized.activeColumns);
         setVisibleColumns(sanitized.visibleColumns);
         setColumnOrder(sanitized.columnOrder);
+        setColumnWidths(sanitized.columnWidthsPx ?? {});
     }, [activePresetId, templateId, tableUserId, presets.length]);
 
     /** Debounced persist of current query state (local JSON via localStorage) */
@@ -1870,6 +2210,10 @@ export default function ConfigurableListTemplate({
             if (!p) return;
             const keys = Object.keys(fieldMappingsRef.current);
             if (!keys.length) return;
+            const visibleSet = new Set(visibleColumns);
+            const columnWidthsPx = Object.fromEntries(
+                Object.entries(columnWidths).filter(([k]) => visibleSet.has(k))
+            );
             const state: TableQueryState = {
                 searchTerm,
                 sortCriteria,
@@ -1878,6 +2222,7 @@ export default function ConfigurableListTemplate({
                 activeColumns,
                 visibleColumns,
                 columnOrder,
+                columnWidthsPx,
             };
             const sanitized = sanitizeTableQueryState(state, keys);
             saveTableQueryState(tableUserId, templateId, p.id, sanitized);
@@ -1891,6 +2236,7 @@ export default function ConfigurableListTemplate({
         activeColumns,
         visibleColumns,
         columnOrder,
+        columnWidths,
         tableUserId,
         templateId,
         activePresetId,
@@ -1935,7 +2281,7 @@ export default function ConfigurableListTemplate({
         if (!prev.enableTabs || !prev.tabList?.length) return;
         const sanitized = sanitizeTabListPresetIds(prev.tabList, presets);
         if (!sanitized || sanitized === prev.tabList) return;
-        onConfigChangeRef.current({ ...prev, tabList: sanitized });
+        pushConfigRef.current({ ...prev, tabList: sanitized });
     }, [presets]);
 
     // All button rendering is now handled by TableActionPanel component
@@ -2012,7 +2358,11 @@ export default function ConfigurableListTemplate({
     };
 
     const renderTableRows = () => {
+        const badgeColumnKey = resolveCustomBadgeColumnKey(orderedVisibleCols, config.customRowBadgeColumn ?? null);
+        const rowAccentColumnKey = resolveRowAccentColumnKey(orderedVisibleCols, badgeColumnKey);
+
         if (groupedData) {
+            let flatRowCounter = 0;
             return Object.entries(groupedData).map(([groupValue, groupRows]) => {
                 const sortSignature = sortCriteria.map(s => `${s.column}-${s.order}`).join('|');
                 
@@ -2035,25 +2385,21 @@ export default function ConfigurableListTemplate({
                         </td>
                     </tr>
                     {groupRows.map((row, groupRowIdx) => {
-                        // Find the actual index in sortedData for proper row tracking
-                        // This ensures selection and styling work correctly
-                        const actualIndex = sortedData.findIndex(r => {
-                            // Try to match by ID first, then by reference
+                        const actualIndex = sortedData.findIndex((r) => {
+                            const rk = getTemplateRowIdentityKey(r as Record<string, unknown>);
+                            const rowK = getTemplateRowIdentityKey(row as Record<string, unknown>);
+                            if (rk != null && rowK != null && rk === rowK) return true;
                             if (r.id && row.id && r.id === row.id) return true;
-                            if (r.entity_id && row.entity_id && r.entity_id === row.entity_id) return true;
                             if (r === row) return true;
-                            // Fallback: compare all keys
                             return JSON.stringify(r) === JSON.stringify(row);
                         });
                         const rowIndex = actualIndex >= 0 ? actualIndex : groupRowIdx;
-                        // Use a stable unique key based on row.id or entity_id
-                        // CRITICAL: Use entity_id or id, NOT idx, so React can track rows across sort changes
-                        // Also include a sort signature to ensure React sees this as a new render when sorting changes
-                        // Include group info in key to ensure uniqueness when grouping
                         const sortSignature = sortCriteria.map(s => `${s.column}-${s.order}`).join('|');
-                        const rowKey = row.entity_id || row.id || `${groupValue}-${groupRowIdx}-${JSON.stringify(row).substring(0, 50)}`;
-                        // Include group info in key to prevent duplicate rendering when grouping changes
+                        const rowKey =
+                            getTemplateRowIdentityKey(row as Record<string, unknown>) ??
+                            `${groupValue}-${groupRowIdx}-${JSON.stringify(row).substring(0, 50)}`;
                         const stableRowKey = `${rowKey}-group-${groupValue}-${groupByColumn}-${sortSignature}`;
+                        const flatRowIndex = flatRowCounter++;
                         
                         return (
                         <tr
@@ -2074,11 +2420,14 @@ export default function ConfigurableListTemplate({
                                 return (
                                 <td 
                                     className={cn(
-                                        "px-4 py-2 text-sm text-gray-700",
-                                        config.enableColumnDivider ? 'border-r border-gray-200' : '',
+                                        'px-4 py-2 text-sm text-gray-700 relative',
+                                        checkboxColumnRightBorderClass(
+                                            !!config.enableColumnDivider,
+                                            checkboxFrozen,
+                                            tableFreezeColumnEnabled,
+                                            config.freezePaneColumnIndexNo,
+                                        ),
                                         !config.enableRowDivider ? '!border-b-0' : '',
-                                        // Show border on checkbox column when freezeIndex = 1 (only checkbox frozen) AND feature is enabled
-                                        checkboxFrozen && config.enablefreezePaneColumnIndex && (config.freezePaneColumnIndexNo || 1) === 1 && 'border-r-2 border-gray-300'
                                     )}
                                     style={{
                                         width: checkboxColumnWidth ? `${checkboxColumnWidth}px` : 'auto',
@@ -2086,9 +2435,8 @@ export default function ConfigurableListTemplate({
                                         ...(checkboxFrozen ? {
                                             position: 'sticky',
                                             left: '0px',
-                                            zIndex: 21,
+                                            zIndex: FROZEN_BODY_Z_BASE,
                                             backgroundColor: rowBg,
-                                            boxShadow: (config.freezePaneColumnIndexNo || 1) === 1 ? '2px 0 4px rgba(0, 0, 0, 0.1)' : 'none'
                                         } : {})
                                     }}
                                 >
@@ -2124,79 +2472,250 @@ export default function ConfigurableListTemplate({
                             {config.enableRowActions && config.rowActionsPosition === 'left' && (() => {
                                 const enabledActions = config.enabledRowActions ?? ['view', 'edit', 'copy', 'delete'];
                                 const actionStyleIsMenu = config.actionStyle === 'menu' || config.actionStyle === 'dropdown';
-                                const menuId = `row-actions-left-${row.id ?? rowKey}`;
+                                const rowLinkId =
+                                    objectLoaderCrud != null
+                                        ? resolveRowRecordId(row as Record<string, unknown>, objectLoaderCrud.idColumn) ?? row.id
+                                        : row.id;
+                                const menuId = `row-actions-left-${rowLinkId ?? rowKey}`;
                                 const isMenuOpen = openRowActionsMenuId === menuId;
                                 return (
-                                    <td className={cn("px-4 py-2 text-sm text-gray-700", !config.enableRowDivider ? '!border-b-0' : '', config.enableColumnDivider ? 'border-r border-gray-200' : '')}>
-                                        <div className={cn("flex space-x-2", config.showRowActionsOnHover ? 'opacity-0 group-hover:opacity-100 transition-opacity' : '')}>
-                                            {actionStyleIsMenu ? (
-                                                <div className="relative">
-                                                    <button type="button" onClick={() => setOpenRowActionsMenuId(isMenuOpen ? null : menuId)} className="p-1.5 border border-gray-300 rounded hover:bg-gray-50 flex items-center gap-1 text-sm">Actions <ChevronDown size={14} /></button>
-                                                    {isMenuOpen && (<><div className="fixed inset-0 z-10" onClick={() => setOpenRowActionsMenuId(null)} /><div className="absolute left-0 top-full mt-1 py-1 bg-white border border-gray-200 rounded shadow-lg z-20 min-w-[120px]">
-                                                        {enabledActions.includes('view') && <Link to={`${baseUrl}/${row.id}`} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-100" onClick={() => setOpenRowActionsMenuId(null)}><ExternalLink size={14} /> View</Link>}
-                                                        {enabledActions.includes('edit') && <Link to={`${baseUrl}/${row.id}/edit`} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-100" onClick={() => setOpenRowActionsMenuId(null)}><Edit size={14} /> Edit</Link>}
-                                                        {enabledActions.includes('copy') && <button type="button" className="flex items-center gap-2 w-full px-3 py-1.5 text-sm hover:bg-gray-100 text-left" onClick={() => setOpenRowActionsMenuId(null)}><Copy size={14} /> Copy</button>}
-                                                        {enabledActions.includes('delete') && <button type="button" className="flex items-center gap-2 w-full px-3 py-1.5 text-sm hover:bg-gray-100 text-red-600 text-left" onClick={() => setOpenRowActionsMenuId(null)}><Trash2 size={14} /> Delete</button>}
-                                                    </div></>)}
-                                                </div>
-                                            ) : (
-                                                <>{enabledActions.includes('view') && <Link to={`${baseUrl}/${row.id}`} className="p-1 text-gray-500 hover:text-primary" title="View"><ExternalLink size={16} /></Link>}{enabledActions.includes('edit') && <Link to={`${baseUrl}/${row.id}/edit`} className="p-1 text-gray-500 hover:text-primary" title="Edit"><Edit size={16} /></Link>}{enabledActions.includes('copy') && <button type="button" className="p-1 text-gray-500 hover:text-primary" title="Copy"><Copy size={16} /></button>}{enabledActions.includes('delete') && <button type="button" className="p-1 text-gray-500 hover:text-red-600" title="Delete"><Trash2 size={16} /></button>}</>
-                                            )}
-                                        </div>
-                                    </td>
+                                    <ObjectLoaderRowActionsBar
+                                        enabledActions={enabledActions}
+                                        actionStyleIsMenu={actionStyleIsMenu}
+                                        menuId={menuId}
+                                        isMenuOpen={isMenuOpen}
+                                        setOpenRowActionsMenuId={setOpenRowActionsMenuId}
+                                        menuDropdownAlign="left"
+                                        baseUrl={baseUrl}
+                                        rowLinkId={rowLinkId ?? rowKey}
+                                        objectLoaderCrud={objectLoaderCrud}
+                                        onObjectLoaderAction={
+                                            objectLoaderCrud
+                                                ? (action) => {
+                                                      const r = row as Record<string, unknown>;
+                                                      if (action === 'view') setObjectLoaderModal({ type: 'view', row: r });
+                                                      else if (action === 'edit') setObjectLoaderModal({ type: 'edit', row: r });
+                                                      else if (action === 'copy') setObjectLoaderModal({ type: 'copy', row: r });
+                                                      else setObjectLoaderModal({ type: 'delete', row: r });
+                                                  }
+                                                : undefined
+                                        }
+                                        showRowActionsOnHover={config.showRowActionsOnHover}
+                                        actionsTdClassName={cn(
+                                            'px-4 py-2 text-sm text-gray-700',
+                                            !config.enableRowDivider ? '!border-b-0' : '',
+                                            config.enableColumnDivider ? 'border-r border-gray-200' : ''
+                                        )}
+                                    />
                                 );
                             })()}
                             {columnOrder
                                 .filter(col => visibleColumns.includes(col))
                                 .map((col, colIndex, arr) => {
                                     const isFrozen = isColumnFrozen(colIndex);
-                                    const freezeIndex = (config.freezePaneColumnIndexNo || 1);
-                                    const shouldShowBorder = freezeIndex >= 2 && colIndex === freezeIndex - 2;
+                                    const freezeIndex = config.freezePaneColumnIndexNo || 1;
+                                    const shouldShowBorder =
+                                        tableFreezeColumnEnabled &&
+                                        freezeIndex >= 2 &&
+                                        colIndex === freezeIndex - 2;
+                                    const freezeEdgeDivider =
+                                        !!config.enableColumnDivider && shouldShowBorder;
+                                    const lightColDivider =
+                                        !!config.enableColumnDivider &&
+                                        colIndex < arr.length - 1 &&
+                                        !freezeEdgeDivider;
+                                    const nextIsFrozen =
+                                        colIndex + 1 < arr.length && isColumnFrozen(colIndex + 1);
+                                    const showFrozenLeftDivider =
+                                        isFrozen &&
+                                        ((colIndex > 0 && isColumnFrozen(colIndex - 1)) ||
+                                            (colIndex === 0 &&
+                                                (config.enableRowSelection || config.enableRowNumber) &&
+                                                isCheckboxColumnFrozen() &&
+                                                freezeIndex > 1));
                                     const rowBg = config.enableStripedRows && rowIndex % 2 === 1 ? 'rgb(249 250 251)' : 'white';
                                     const leftOffset = isFrozen ? getFreezeLeftOffset(colIndex) : 0;
                                     const cellValue = row[col]?.toString() || '-';
-                                    
+                                    const wrapMode = getCellWrapMode(col, config, columnWrapStates);
+                                    const clipMode = wrapMode === 'clip';
+                                    const isAccentCol = col === rowAccentColumnKey;
+                                    const showCustomBadge =
+                                        badgeColumnKey != null &&
+                                        col === badgeColumnKey &&
+                                        (row['isCustom'] === true || row['isCustom'] === 1);
+                                    const badgeLayoutKind = showCustomBadge
+                                        ? getCustomBadgeLayoutKind(col, config, columnWrapStates)
+                                        : null;
+                                    const tdClipOverflow =
+                                        clipMode && !(showCustomBadge && badgeLayoutKind === 'wrap');
+                                    const badgeInlineEditKey = `${stableRowKey}__${col}`;
+                                    const isBadgeColumnEditing =
+                                        showCustomBadge &&
+                                        config.enableInlineEdit?.includes(col) &&
+                                        inlineEditActiveKey === badgeInlineEditKey;
+                                    const inCellRange =
+                                        cellRangeRect != null &&
+                                        isCellInRangeRect(flatRowIndex, col, orderedVisibleCols, cellRangeRect);
+                                    const showRangeHighlight =
+                                        inCellRange && activeInlineCellKey !== badgeInlineEditKey;
+
                                     return (
                                     <td
                                         key={`${stableRowKey}-${col}`}
+                                        data-cell-row={flatRowIndex}
+                                        data-cell-col={col}
+                                        onMouseDown={(e) => handleCellRangeMouseDown(e, flatRowIndex, col)}
+                                        onMouseEnter={(e) => handleCellRangeMouseEnter(e, flatRowIndex, col)}
                                         className={cn(
-                                            "px-4 py-2 text-sm text-gray-700",
-                                            config.enableColumnDivider && colIndex < arr.length - 1 ? 'border-r border-gray-200' : '',
+                                            'px-4 py-2 text-sm text-gray-700 text-left align-top select-none',
+                                            lightColDivider &&
+                                                (!isFrozen || !nextIsFrozen) &&
+                                                'border-r border-gray-200',
+                                            showFrozenLeftDivider && 'freeze-col-light-l',
                                             !config.enableRowDivider ? '!border-b-0' : '',
-                                            // Border only on last frozen data column
-                                            shouldShowBorder && 'border-r-2 border-gray-300 freeze-border-sticky'
+                                            freezeEdgeDivider && 'freeze-pane-seam',
+                                            tdClipOverflow && 'overflow-hidden',
+                                            activeInlineCellKey === badgeInlineEditKey && 'relative z-[2]',
+                                            showRangeHighlight && 'relative z-[1]',
                                         )}
                                         style={{
                                             width: columnWidths[col] ? `${columnWidths[col]}px` : undefined,
                                             minWidth: columnWidths[col] ? `${columnWidths[col]}px` : undefined,
                                             maxWidth: columnWidths[col] ? `${columnWidths[col]}px` : undefined,
                                             boxSizing: 'border-box',
-                                            ...(isFrozen ? {
-                                                position: 'sticky',
-                                                left: `${leftOffset}px`,
-                                                zIndex: 20,
-                                                backgroundColor: rowBg,
-                                                boxShadow: shouldShowBorder ? '2px 0 4px rgba(0, 0, 0, 0.1)' : 'none'
-                                            } : {})
+                                            ...(activeInlineCellKey === badgeInlineEditKey
+                                                ? {
+                                                      boxShadow: `inset 0 0 0 2px ${inlineEditHighlightColor}`,
+                                                      backgroundColor: 'white',
+                                                  }
+                                                : showRangeHighlight
+                                                  ? {
+                                                        boxShadow: `inset 0 0 0 2px ${inlineEditHighlightColor}`,
+                                                        ...(isFrozen
+                                                            ? { backgroundColor: rowBg }
+                                                            : { backgroundColor: 'rgb(219 234 254)' }),
+                                                    }
+                                                  : {}),
+                                            ...(isFrozen
+                                                ? {
+                                                      position: 'sticky',
+                                                      left: `${leftOffset}px`,
+                                                      zIndex: FROZEN_BODY_Z_BASE + 1 + colIndex,
+                                                      ...(!(activeInlineCellKey === badgeInlineEditKey || showRangeHighlight)
+                                                          ? { backgroundColor: rowBg }
+                                                          : {}),
+                                                  }
+                                                : {}),
                                         }}
                                         title={config.enableTooltips === true ? cellValue : undefined}
-                                    >
-                                        <span className={colIndex === 0 ? 'font-medium' : ''} title={config.enableTooltips === true ? cellValue : undefined}>
-                                            {config.enableInlineEdit?.includes(col) ? (
-                                                <input
-                                                    type="text"
-                                                    defaultValue={cellValue}
-                                                    className="w-full border-none bg-transparent focus:bg-white focus:border focus:border-primary focus:outline-none px-1 py-0.5 rounded"
-                                                />
-                                            ) : (
-                                                cellValue
+                                        >
+                                        <div
+                                            className={cn(
+                                                showCustomBadge
+                                                    ? getCustomBadgeCellWrapperClass(col, config, columnWrapStates)
+                                                    : 'flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 w-full',
                                             )}
-                                        </span>
-                                        {colIndex === 0 && (row['isCustom'] === true || row['isCustom'] === 1) && (
-                                            <span className="ml-2 px-2 py-0.5 text-xs bg-accent text-white rounded-full">
-                                                Custom
-                                            </span>
-                                        )}
+                                        >
+                                            {config.enableInlineEdit?.includes(col) ? (
+                                                showCustomBadge ? (
+                                                    isBadgeColumnEditing ? (
+                                                        <input
+                                                            key={badgeInlineEditKey}
+                                                            type="text"
+                                                            defaultValue={cellValue}
+                                                            autoFocus
+                                                            title={config.enableTooltips === true ? cellValue : undefined}
+                                                            onFocus={() => {
+                                                                setActiveInlineCellKey(badgeInlineEditKey);
+                                                            }}
+                                                            onBlur={() => {
+                                                                setActiveInlineCellKey(null);
+                                                                setInlineEditActiveKey(null);
+                                                            }}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === 'Escape') {
+                                                                    e.stopPropagation();
+                                                                    setInlineEditActiveKey(null);
+                                                                }
+                                                            }}
+                                                            className={cn(
+                                                                'min-w-0 w-full border-none bg-transparent focus:bg-transparent focus:outline-none px-1 py-0.5 rounded select-text',
+                                                                isAccentCol && 'font-medium',
+                                                            )}
+                                                        />
+                                                    ) : (
+                                                        <span
+                                                            role="button"
+                                                            tabIndex={0}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setInlineEditActiveKey(badgeInlineEditKey);
+                                                            }}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === 'Enter' || e.key === ' ') {
+                                                                    e.preventDefault();
+                                                                    setInlineEditActiveKey(badgeInlineEditKey);
+                                                                }
+                                                            }}
+                                                            className={cn(
+                                                                getCustomBadgeValueSpanClass(
+                                                                    col,
+                                                                    config,
+                                                                    columnWrapStates,
+                                                                    isAccentCol,
+                                                                ),
+                                                                'cursor-text rounded px-0.5 -mx-0.5 hover:bg-gray-100/80',
+                                                            )}
+                                                            title={config.enableTooltips === true ? cellValue : undefined}
+                                                        >
+                                                            {cellValue}
+                                                        </span>
+                                                    )
+                                                ) : (
+                                                    <input
+                                                        type="text"
+                                                        defaultValue={cellValue}
+                                                        title={config.enableTooltips === true ? cellValue : undefined}
+                                                        onFocus={() => {
+                                                            setActiveInlineCellKey(badgeInlineEditKey);
+                                                        }}
+                                                        onBlur={() => {
+                                                            setActiveInlineCellKey(null);
+                                                        }}
+                                                        className={cn(
+                                                            'min-w-0 border-none bg-transparent focus:bg-transparent focus:outline-none px-1 py-0.5 rounded w-full max-w-full select-text',
+                                                            isAccentCol && 'font-medium',
+                                                        )}
+                                                    />
+                                                )
+                                            ) : (
+                                                <span
+                                                    className={cn(
+                                                        showCustomBadge
+                                                            ? getCustomBadgeValueSpanClass(
+                                                                  col,
+                                                                  config,
+                                                                  columnWrapStates,
+                                                                  isAccentCol,
+                                                              )
+                                                            : cn(
+                                                                  'min-w-0 text-left block w-full',
+                                                                  isAccentCol && 'font-medium',
+                                                                  clipMode && 'truncate',
+                                                                  !clipMode && 'break-words [overflow-wrap:anywhere]',
+                                                              ),
+                                                    )}
+                                                    title={config.enableTooltips === true ? cellValue : undefined}
+                                                >
+                                                    {cellValue}
+                                                </span>
+                                            )}
+                                            {showCustomBadge && !isBadgeColumnEditing && (
+                                                <span className="shrink-0 whitespace-nowrap px-2 py-0.5 text-xs bg-accent text-white rounded-full leading-tight">
+                                                    Custom
+                                                </span>
+                                            )}
+                                        </div>
                                     </td>
                                     );
                                 })}
@@ -2204,67 +2723,42 @@ export default function ConfigurableListTemplate({
                             {config.enableRowActions && config.rowActionsPosition !== 'left' && (() => {
                                 const enabledActions = config.enabledRowActions ?? ['view', 'edit', 'copy', 'delete'];
                                 const actionStyleIsMenu = config.actionStyle === 'menu' || config.actionStyle === 'dropdown';
-                                const menuId = `row-actions-${row.id ?? rowKey}`;
+                                const rowLinkId =
+                                    objectLoaderCrud != null
+                                        ? resolveRowRecordId(row as Record<string, unknown>, objectLoaderCrud.idColumn) ?? row.id
+                                        : row.id;
+                                const menuId = `row-actions-${rowLinkId ?? rowKey}`;
                                 const isMenuOpen = openRowActionsMenuId === menuId;
-                                const actionsCell = (
-                                    <td className={cn(
-                                        "px-4 py-2 text-sm text-gray-700",
-                                        !config.enableRowDivider ? '!border-b-0' : '',
-                                        config.enableColumnDivider ? 'border-l border-gray-200' : ''
-                                    )}>
-                                        <div className={cn(
-                                            "flex space-x-2",
-                                            config.showRowActionsOnHover ? 'opacity-0 group-hover:opacity-100 transition-opacity' : ''
-                                        )}>
-                                            {actionStyleIsMenu ? (
-                                                <div className="relative">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setOpenRowActionsMenuId(isMenuOpen ? null : menuId)}
-                                                        className="p-1.5 border border-gray-300 rounded hover:bg-gray-50 flex items-center gap-1 text-sm"
-                                                    >
-                                                        Actions <ChevronDown size={14} />
-                                                    </button>
-                                                    {isMenuOpen && (
-                                                        <>
-                                                            <div className="fixed inset-0 z-10" onClick={() => setOpenRowActionsMenuId(null)} />
-                                                            <div className="absolute right-0 top-full mt-1 py-1 bg-white border border-gray-200 rounded shadow-lg z-20 min-w-[120px]">
-                                                                {enabledActions.includes('view') && (
-                                                                    <Link to={`${baseUrl}/${row.id}`} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-100" onClick={() => setOpenRowActionsMenuId(null)}><ExternalLink size={14} /> View</Link>
-                                                                )}
-                                                                {enabledActions.includes('edit') && (
-                                                                    <Link to={`${baseUrl}/${row.id}/edit`} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-100" onClick={() => setOpenRowActionsMenuId(null)}><Edit size={14} /> Edit</Link>
-                                                                )}
-                                                                {enabledActions.includes('copy') && (
-                                                                    <button type="button" className="flex items-center gap-2 w-full px-3 py-1.5 text-sm hover:bg-gray-100 text-left" onClick={() => setOpenRowActionsMenuId(null)}><Copy size={14} /> Copy</button>
-                                                                )}
-                                                                {enabledActions.includes('delete') && (
-                                                                    <button type="button" className="flex items-center gap-2 w-full px-3 py-1.5 text-sm hover:bg-gray-100 text-red-600 text-left" onClick={() => setOpenRowActionsMenuId(null)}><Trash2 size={14} /> Delete</button>
-                                                                )}
-                                                            </div>
-                                                        </>
-                                                    )}
-                                                </div>
-                                            ) : (
-                                                <>
-                                                    {enabledActions.includes('view') && (
-                                                        <Link to={`${baseUrl}/${row.id}`} className="p-1 text-gray-500 hover:text-primary" title="View"><ExternalLink size={16} /></Link>
-                                                    )}
-                                                    {enabledActions.includes('edit') && (
-                                                        <Link to={`${baseUrl}/${row.id}/edit`} className="p-1 text-gray-500 hover:text-primary" title="Edit"><Edit size={16} /></Link>
-                                                    )}
-                                                    {enabledActions.includes('copy') && (
-                                                        <button type="button" className="p-1 text-gray-500 hover:text-primary" title="Copy"><Copy size={16} /></button>
-                                                    )}
-                                                    {enabledActions.includes('delete') && (
-                                                        <button type="button" className="p-1 text-gray-500 hover:text-red-600" title="Delete"><Trash2 size={16} /></button>
-                                                    )}
-                                                </>
-                                            )}
-                                        </div>
-                                    </td>
+                                return (
+                                    <ObjectLoaderRowActionsBar
+                                        enabledActions={enabledActions}
+                                        actionStyleIsMenu={actionStyleIsMenu}
+                                        menuId={menuId}
+                                        isMenuOpen={isMenuOpen}
+                                        setOpenRowActionsMenuId={setOpenRowActionsMenuId}
+                                        menuDropdownAlign="right"
+                                        baseUrl={baseUrl}
+                                        rowLinkId={rowLinkId ?? rowKey}
+                                        objectLoaderCrud={objectLoaderCrud}
+                                        onObjectLoaderAction={
+                                            objectLoaderCrud
+                                                ? (action) => {
+                                                      const r = row as Record<string, unknown>;
+                                                      if (action === 'view') setObjectLoaderModal({ type: 'view', row: r });
+                                                      else if (action === 'edit') setObjectLoaderModal({ type: 'edit', row: r });
+                                                      else if (action === 'copy') setObjectLoaderModal({ type: 'copy', row: r });
+                                                      else setObjectLoaderModal({ type: 'delete', row: r });
+                                                  }
+                                                : undefined
+                                        }
+                                        showRowActionsOnHover={config.showRowActionsOnHover}
+                                        actionsTdClassName={cn(
+                                            'px-4 py-2 text-sm text-gray-700',
+                                            !config.enableRowDivider ? '!border-b-0' : '',
+                                            config.enableColumnDivider ? 'border-l border-gray-200' : ''
+                                        )}
+                                    />
                                 );
-                                return actionsCell;
                             })()}
                         </tr>
                     )})}
@@ -2276,7 +2770,9 @@ export default function ConfigurableListTemplate({
         return displayRows.map((row, idx) => {
             const actualIndex = displayIndices[idx];
             const sortSignature = sortCriteria.map(s => `${s.column}-${s.order}`).join('|');
-            const rowKey = row.entity_id || row.id || `row-${actualIndex}-${JSON.stringify(row).substring(0, 50)}`;
+            const rowKey =
+                getTemplateRowIdentityKey(row as Record<string, unknown>) ??
+                `row-${actualIndex}-${JSON.stringify(row).substring(0, 50)}`;
             const stableRowKey = `${rowKey}-ungrouped-${sortSignature}`;
             const rowPositionKey = `${stableRowKey}-pos${idx}`;
             
@@ -2299,11 +2795,14 @@ export default function ConfigurableListTemplate({
                     return (
                     <td 
                         className={cn(
-                            "px-4 py-2 text-sm text-gray-700 relative",
-                            config.enableColumnDivider ? 'border-r border-gray-200' : '',
+                            'px-4 py-2 text-sm text-gray-700 relative',
+                            checkboxColumnRightBorderClass(
+                                !!config.enableColumnDivider,
+                                checkboxFrozen,
+                                tableFreezeColumnEnabled,
+                                config.freezePaneColumnIndexNo,
+                            ),
                             !config.enableRowDivider ? '!border-b-0' : '',
-                            // Show border on checkbox column when freezeIndex = 1 (only checkbox frozen)
-                            checkboxFrozen && (config.freezePaneColumnIndexNo || 1) === 1 && 'border-r-2 border-gray-300'
                         )}
                         style={{
                             width: checkboxColumnWidth ? `${checkboxColumnWidth}px` : 'auto',
@@ -2311,9 +2810,8 @@ export default function ConfigurableListTemplate({
                             ...(checkboxFrozen ? {
                                 position: 'sticky',
                                 left: '0px',
-                                zIndex: 21,
+                                zIndex: FROZEN_BODY_Z_BASE,
                                 backgroundColor: rowBg,
-                                boxShadow: (config.freezePaneColumnIndexNo || 1) === 1 ? '2px 0 4px rgba(0, 0, 0, 0.1)' : 'none'
                             } : {})
                         }}
                     >
@@ -2349,80 +2847,251 @@ export default function ConfigurableListTemplate({
                             {config.enableRowActions && config.rowActionsPosition === 'left' && (() => {
                                 const enabledActions = config.enabledRowActions ?? ['view', 'edit', 'copy', 'delete'];
                                 const actionStyleIsMenu = config.actionStyle === 'menu' || config.actionStyle === 'dropdown';
-                                const menuId = `row-actions-left-${row.id ?? rowPositionKey}`;
+                                const rowLinkId =
+                                    objectLoaderCrud != null
+                                        ? resolveRowRecordId(row as Record<string, unknown>, objectLoaderCrud.idColumn) ?? row.id
+                                        : row.id;
+                                const menuId = `row-actions-left-${rowLinkId ?? rowPositionKey}`;
                                 const isMenuOpen = openRowActionsMenuId === menuId;
                                 return (
-                                    <td className={cn("px-4 py-2 text-sm text-gray-700", !config.enableRowDivider ? '!border-b-0' : '', config.enableColumnDivider ? 'border-r border-gray-200' : '')}>
-                                        <div className={cn("flex space-x-2", config.showRowActionsOnHover ? 'opacity-0 group-hover:opacity-100 transition-opacity' : '')}>
-                                            {actionStyleIsMenu ? (
-                                                <div className="relative">
-                                                    <button type="button" onClick={() => setOpenRowActionsMenuId(isMenuOpen ? null : menuId)} className="p-1.5 border border-gray-300 rounded hover:bg-gray-50 flex items-center gap-1 text-sm">Actions <ChevronDown size={14} /></button>
-                                                    {isMenuOpen && (<><div className="fixed inset-0 z-10" onClick={() => setOpenRowActionsMenuId(null)} /><div className="absolute left-0 top-full mt-1 py-1 bg-white border border-gray-200 rounded shadow-lg z-20 min-w-[120px]">
-                                                        {enabledActions.includes('view') && <Link to={`${baseUrl}/${row.id}`} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-100" onClick={() => setOpenRowActionsMenuId(null)}><ExternalLink size={14} /> View</Link>}
-                                                        {enabledActions.includes('edit') && <Link to={`${baseUrl}/${row.id}/edit`} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-100" onClick={() => setOpenRowActionsMenuId(null)}><Edit size={14} /> Edit</Link>}
-                                                        {enabledActions.includes('copy') && <button type="button" className="flex items-center gap-2 w-full px-3 py-1.5 text-sm hover:bg-gray-100 text-left" onClick={() => setOpenRowActionsMenuId(null)}><Copy size={14} /> Copy</button>}
-                                                        {enabledActions.includes('delete') && <button type="button" className="flex items-center gap-2 w-full px-3 py-1.5 text-sm hover:bg-gray-100 text-red-600 text-left" onClick={() => setOpenRowActionsMenuId(null)}><Trash2 size={14} /> Delete</button>}
-                                                    </div></>)}
-                                                </div>
-                                            ) : (
-                                                <>{enabledActions.includes('view') && <Link to={`${baseUrl}/${row.id}`} className="p-1 text-gray-500 hover:text-primary" title="View"><ExternalLink size={16} /></Link>}{enabledActions.includes('edit') && <Link to={`${baseUrl}/${row.id}/edit`} className="p-1 text-gray-500 hover:text-primary" title="Edit"><Edit size={16} /></Link>}{enabledActions.includes('copy') && <button type="button" className="p-1 text-gray-500 hover:text-primary" title="Copy"><Copy size={16} /></button>}{enabledActions.includes('delete') && <button type="button" className="p-1 text-gray-500 hover:text-red-600" title="Delete"><Trash2 size={16} /></button>}</>
-                                            )}
-                                        </div>
-                                    </td>
+                                    <ObjectLoaderRowActionsBar
+                                        enabledActions={enabledActions}
+                                        actionStyleIsMenu={actionStyleIsMenu}
+                                        menuId={menuId}
+                                        isMenuOpen={isMenuOpen}
+                                        setOpenRowActionsMenuId={setOpenRowActionsMenuId}
+                                        menuDropdownAlign="left"
+                                        baseUrl={baseUrl}
+                                        rowLinkId={rowLinkId ?? rowPositionKey}
+                                        objectLoaderCrud={objectLoaderCrud}
+                                        onObjectLoaderAction={
+                                            objectLoaderCrud
+                                                ? (action) => {
+                                                      const r = row as Record<string, unknown>;
+                                                      if (action === 'view') setObjectLoaderModal({ type: 'view', row: r });
+                                                      else if (action === 'edit') setObjectLoaderModal({ type: 'edit', row: r });
+                                                      else if (action === 'copy') setObjectLoaderModal({ type: 'copy', row: r });
+                                                      else setObjectLoaderModal({ type: 'delete', row: r });
+                                                  }
+                                                : undefined
+                                        }
+                                        showRowActionsOnHover={config.showRowActionsOnHover}
+                                        actionsTdClassName={cn(
+                                            'px-4 py-2 text-sm text-gray-700',
+                                            !config.enableRowDivider ? '!border-b-0' : '',
+                                            config.enableColumnDivider ? 'border-r border-gray-200' : ''
+                                        )}
+                                    />
                                 );
                             })()}
                             {columnOrder
                                 .filter(col => visibleColumns.includes(col))
                                 .map((col, colIndex, arr) => {
                                     const isFrozen = isColumnFrozen(colIndex);
-                                    const freezeIndex = (config.freezePaneColumnIndexNo || 1);
-                                    const shouldShowBorder = config.enablefreezePaneColumnIndex && freezeIndex >= 2 && colIndex === freezeIndex - 2;
+                                    const freezeIndex = config.freezePaneColumnIndexNo || 1;
+                                    const shouldShowBorder =
+                                        tableFreezeColumnEnabled &&
+                                        freezeIndex >= 2 &&
+                                        colIndex === freezeIndex - 2;
+                                    const freezeEdgeDivider =
+                                        !!config.enableColumnDivider && shouldShowBorder;
+                                    const lightColDivider =
+                                        !!config.enableColumnDivider &&
+                                        colIndex < arr.length - 1 &&
+                                        !freezeEdgeDivider;
+                                    const nextIsFrozen =
+                                        colIndex + 1 < arr.length && isColumnFrozen(colIndex + 1);
+                                    const showFrozenLeftDivider =
+                                        isFrozen &&
+                                        ((colIndex > 0 && isColumnFrozen(colIndex - 1)) ||
+                                            (colIndex === 0 &&
+                                                (config.enableRowSelection || config.enableRowNumber) &&
+                                                isCheckboxColumnFrozen() &&
+                                                freezeIndex > 1));
                                     const rowBg = config.enableStripedRows && idx % 2 === 1 ? 'rgb(249 250 251)' : 'white';
                                     const leftOffset = isFrozen ? getFreezeLeftOffset(colIndex) : 0;
                                     const cellValue = row[col]?.toString() || '-';
                                     const cellKey = `${rowPositionKey}-${col}-${(cellValue || '').slice(0, 30)}`;
-                                    
+                                    const wrapMode = getCellWrapMode(col, config, columnWrapStates);
+                                    const clipMode = wrapMode === 'clip';
+                                    const isAccentCol = col === rowAccentColumnKey;
+                                    const showCustomBadge =
+                                        badgeColumnKey != null &&
+                                        col === badgeColumnKey &&
+                                        (row['isCustom'] === true || row['isCustom'] === 1);
+                                    const badgeLayoutKind = showCustomBadge
+                                        ? getCustomBadgeLayoutKind(col, config, columnWrapStates)
+                                        : null;
+                                    const tdClipOverflow =
+                                        clipMode && !(showCustomBadge && badgeLayoutKind === 'wrap');
+                                    const badgeInlineEditKey = `${rowPositionKey}__${col}`;
+                                    const isBadgeColumnEditing =
+                                        showCustomBadge &&
+                                        config.enableInlineEdit?.includes(col) &&
+                                        inlineEditActiveKey === badgeInlineEditKey;
+                                    const inCellRange =
+                                        cellRangeRect != null &&
+                                        isCellInRangeRect(idx, col, orderedVisibleCols, cellRangeRect);
+                                    const showRangeHighlight =
+                                        inCellRange && activeInlineCellKey !== badgeInlineEditKey;
+
                                     return (
                                     <td
                                         key={cellKey}
+                                        data-cell-row={idx}
+                                        data-cell-col={col}
+                                        onMouseDown={(e) => handleCellRangeMouseDown(e, idx, col)}
+                                        onMouseEnter={(e) => handleCellRangeMouseEnter(e, idx, col)}
                                         className={cn(
-                                            "px-4 py-2 text-sm text-gray-700",
-                                            config.enableColumnDivider && colIndex < arr.length - 1 ? 'border-r border-gray-200' : '',
+                                            'px-4 py-2 text-sm text-gray-700 text-left align-top select-none',
+                                            lightColDivider &&
+                                                (!isFrozen || !nextIsFrozen) &&
+                                                'border-r border-gray-200',
+                                            showFrozenLeftDivider && 'freeze-col-light-l',
                                             !config.enableRowDivider ? '!border-b-0' : '',
-                                            // Border only on last frozen data column
-                                            shouldShowBorder && 'border-r-2 border-gray-300 freeze-border-sticky'
+                                            freezeEdgeDivider && 'freeze-pane-seam',
+                                            tdClipOverflow && 'overflow-hidden',
+                                            activeInlineCellKey === badgeInlineEditKey && 'relative z-[2]',
+                                            showRangeHighlight && 'relative z-[1]',
                                         )}
                                         style={{
                                             width: columnWidths[col] ? `${columnWidths[col]}px` : undefined,
                                             minWidth: columnWidths[col] ? `${columnWidths[col]}px` : undefined,
                                             maxWidth: columnWidths[col] ? `${columnWidths[col]}px` : undefined,
                                             boxSizing: 'border-box',
-                                            ...(isFrozen ? {
-                                                position: 'sticky',
-                                                left: `${leftOffset}px`,
-                                                zIndex: 20,
-                                                backgroundColor: rowBg,
-                                                boxShadow: shouldShowBorder ? '2px 0 4px rgba(0, 0, 0, 0.1)' : 'none'
-                                            } : {})
+                                            ...(activeInlineCellKey === badgeInlineEditKey
+                                                ? {
+                                                      boxShadow: `inset 0 0 0 2px ${inlineEditHighlightColor}`,
+                                                      backgroundColor: 'white',
+                                                  }
+                                                : showRangeHighlight
+                                                  ? {
+                                                        boxShadow: `inset 0 0 0 2px ${inlineEditHighlightColor}`,
+                                                        ...(isFrozen
+                                                            ? { backgroundColor: rowBg }
+                                                            : { backgroundColor: 'rgb(219 234 254)' }),
+                                                    }
+                                                  : {}),
+                                            ...(isFrozen
+                                                ? {
+                                                      position: 'sticky',
+                                                      left: `${leftOffset}px`,
+                                                      zIndex: FROZEN_BODY_Z_BASE + 1 + colIndex,
+                                                      ...(!(activeInlineCellKey === badgeInlineEditKey || showRangeHighlight)
+                                                          ? { backgroundColor: rowBg }
+                                                          : {}),
+                                                  }
+                                                : {}),
                                         }}
                                         title={config.enableTooltips === true ? cellValue : undefined}
-                                    >
-                                        <span className={colIndex === 0 ? 'font-medium' : ''} title={config.enableTooltips === true ? cellValue : undefined}>
-                                            {config.enableInlineEdit?.includes(col) ? (
-                                                <input
-                                                    type="text"
-                                                    defaultValue={cellValue}
-                                                    className="w-full border-none bg-transparent focus:bg-white focus:border focus:border-primary focus:outline-none px-1 py-0.5 rounded"
-                                                />
-                                            ) : (
-                                                cellValue
+                                        >
+                                        <div
+                                            className={cn(
+                                                showCustomBadge
+                                                    ? getCustomBadgeCellWrapperClass(col, config, columnWrapStates)
+                                                    : 'flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0 w-full',
                                             )}
-                                        </span>
-                                        {colIndex === 0 && (row['isCustom'] === true || row['isCustom'] === 1) && (
-                                            <span className="ml-2 px-2 py-0.5 text-xs bg-accent text-white rounded-full">
-                                                Custom
-                                            </span>
-                                        )}
+                                        >
+                                            {config.enableInlineEdit?.includes(col) ? (
+                                                showCustomBadge ? (
+                                                    isBadgeColumnEditing ? (
+                                                        <input
+                                                            key={badgeInlineEditKey}
+                                                            type="text"
+                                                            defaultValue={cellValue}
+                                                            autoFocus
+                                                            title={config.enableTooltips === true ? cellValue : undefined}
+                                                            onFocus={() => {
+                                                                setActiveInlineCellKey(badgeInlineEditKey);
+                                                            }}
+                                                            onBlur={() => {
+                                                                setActiveInlineCellKey(null);
+                                                                setInlineEditActiveKey(null);
+                                                            }}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === 'Escape') {
+                                                                    e.stopPropagation();
+                                                                    setInlineEditActiveKey(null);
+                                                                }
+                                                            }}
+                                                            className={cn(
+                                                                'min-w-0 w-full border-none bg-transparent focus:bg-transparent focus:outline-none px-1 py-0.5 rounded select-text',
+                                                                isAccentCol && 'font-medium',
+                                                            )}
+                                                        />
+                                                    ) : (
+                                                        <span
+                                                            role="button"
+                                                            tabIndex={0}
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setInlineEditActiveKey(badgeInlineEditKey);
+                                                            }}
+                                                            onKeyDown={(e) => {
+                                                                if (e.key === 'Enter' || e.key === ' ') {
+                                                                    e.preventDefault();
+                                                                    setInlineEditActiveKey(badgeInlineEditKey);
+                                                                }
+                                                            }}
+                                                            className={cn(
+                                                                getCustomBadgeValueSpanClass(
+                                                                    col,
+                                                                    config,
+                                                                    columnWrapStates,
+                                                                    isAccentCol,
+                                                                ),
+                                                                'cursor-text rounded px-0.5 -mx-0.5 hover:bg-gray-100/80',
+                                                            )}
+                                                            title={config.enableTooltips === true ? cellValue : undefined}
+                                                        >
+                                                            {cellValue}
+                                                        </span>
+                                                    )
+                                                ) : (
+                                                    <input
+                                                        type="text"
+                                                        defaultValue={cellValue}
+                                                        title={config.enableTooltips === true ? cellValue : undefined}
+                                                        onFocus={() => {
+                                                            setActiveInlineCellKey(badgeInlineEditKey);
+                                                        }}
+                                                        onBlur={() => {
+                                                            setActiveInlineCellKey(null);
+                                                        }}
+                                                        className={cn(
+                                                            'min-w-0 border-none bg-transparent focus:bg-transparent focus:outline-none px-1 py-0.5 rounded w-full max-w-full select-text',
+                                                            isAccentCol && 'font-medium',
+                                                        )}
+                                                    />
+                                                )
+                                            ) : (
+                                                <span
+                                                    className={cn(
+                                                        showCustomBadge
+                                                            ? getCustomBadgeValueSpanClass(
+                                                                  col,
+                                                                  config,
+                                                                  columnWrapStates,
+                                                                  isAccentCol,
+                                                              )
+                                                            : cn(
+                                                                  'min-w-0 text-left block w-full',
+                                                                  isAccentCol && 'font-medium',
+                                                                  clipMode && 'truncate',
+                                                                  !clipMode && 'break-words [overflow-wrap:anywhere]',
+                                                              ),
+                                                    )}
+                                                    title={config.enableTooltips === true ? cellValue : undefined}
+                                                >
+                                                    {cellValue}
+                                                </span>
+                                            )}
+                                            {showCustomBadge && !isBadgeColumnEditing && (
+                                                <span className="shrink-0 whitespace-nowrap px-2 py-0.5 text-xs bg-accent text-white rounded-full leading-tight">
+                                                    Custom
+                                                </span>
+                                            )}
+                                        </div>
                                     </td>
                                     );
                                 })}
@@ -2430,65 +3099,41 @@ export default function ConfigurableListTemplate({
                             {config.enableRowActions && config.rowActionsPosition !== 'left' && (() => {
                                 const enabledActions = config.enabledRowActions ?? ['view', 'edit', 'copy', 'delete'];
                                 const actionStyleIsMenu = config.actionStyle === 'menu' || config.actionStyle === 'dropdown';
-                                const menuId = `row-actions-${row.id ?? rowPositionKey}`;
+                                const rowLinkId =
+                                    objectLoaderCrud != null
+                                        ? resolveRowRecordId(row as Record<string, unknown>, objectLoaderCrud.idColumn) ?? row.id
+                                        : row.id;
+                                const menuId = `row-actions-${rowLinkId ?? rowPositionKey}`;
                                 const isMenuOpen = openRowActionsMenuId === menuId;
                                 return (
-                                    <td className={cn(
-                                        "px-4 py-2 text-sm text-gray-700",
-                                        !config.enableRowDivider ? '!border-b-0' : '',
-                                        config.enableColumnDivider ? 'border-l border-gray-200' : ''
-                                    )}>
-                                        <div className={cn(
-                                            "flex space-x-2",
-                                            config.showRowActionsOnHover ? 'opacity-0 group-hover:opacity-100 transition-opacity' : ''
-                                        )}>
-                                            {actionStyleIsMenu ? (
-                                                <div className="relative">
-                                                    <button
-                                                        type="button"
-                                                        onClick={() => setOpenRowActionsMenuId(isMenuOpen ? null : menuId)}
-                                                        className="p-1.5 border border-gray-300 rounded hover:bg-gray-50 flex items-center gap-1 text-sm"
-                                                    >
-                                                        Actions <ChevronDown size={14} />
-                                                    </button>
-                                                    {isMenuOpen && (
-                                                        <>
-                                                            <div className="fixed inset-0 z-10" onClick={() => setOpenRowActionsMenuId(null)} />
-                                                            <div className="absolute right-0 top-full mt-1 py-1 bg-white border border-gray-200 rounded shadow-lg z-20 min-w-[120px]">
-                                                                {enabledActions.includes('view') && (
-                                                                    <Link to={`${baseUrl}/${row.id}`} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-100" onClick={() => setOpenRowActionsMenuId(null)}><ExternalLink size={14} /> View</Link>
-                                                                )}
-                                                                {enabledActions.includes('edit') && (
-                                                                    <Link to={`${baseUrl}/${row.id}/edit`} className="flex items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-100" onClick={() => setOpenRowActionsMenuId(null)}><Edit size={14} /> Edit</Link>
-                                                                )}
-                                                                {enabledActions.includes('copy') && (
-                                                                    <button type="button" className="flex items-center gap-2 w-full px-3 py-1.5 text-sm hover:bg-gray-100 text-left" onClick={() => setOpenRowActionsMenuId(null)}><Copy size={14} /> Copy</button>
-                                                                )}
-                                                                {enabledActions.includes('delete') && (
-                                                                    <button type="button" className="flex items-center gap-2 w-full px-3 py-1.5 text-sm hover:bg-gray-100 text-red-600 text-left" onClick={() => setOpenRowActionsMenuId(null)}><Trash2 size={14} /> Delete</button>
-                                                                )}
-                                                            </div>
-                                                        </>
-                                                    )}
-                                                </div>
-                                            ) : (
-                                                <>
-                                                    {enabledActions.includes('view') && (
-                                                        <Link to={`${baseUrl}/${row.id}`} className="p-1 text-gray-500 hover:text-primary" title="View"><ExternalLink size={16} /></Link>
-                                                    )}
-                                                    {enabledActions.includes('edit') && (
-                                                        <Link to={`${baseUrl}/${row.id}/edit`} className="p-1 text-gray-500 hover:text-primary" title="Edit"><Edit size={16} /></Link>
-                                                    )}
-                                                    {enabledActions.includes('copy') && (
-                                                        <button type="button" className="p-1 text-gray-500 hover:text-primary" title="Copy"><Copy size={16} /></button>
-                                                    )}
-                                                    {enabledActions.includes('delete') && (
-                                                        <button type="button" className="p-1 text-gray-500 hover:text-red-600" title="Delete"><Trash2 size={16} /></button>
-                                                    )}
-                                                </>
-                                            )}
-                                        </div>
-                                    </td>
+                                    <ObjectLoaderRowActionsBar
+                                        enabledActions={enabledActions}
+                                        actionStyleIsMenu={actionStyleIsMenu}
+                                        menuId={menuId}
+                                        isMenuOpen={isMenuOpen}
+                                        setOpenRowActionsMenuId={setOpenRowActionsMenuId}
+                                        menuDropdownAlign="right"
+                                        baseUrl={baseUrl}
+                                        rowLinkId={rowLinkId ?? rowPositionKey}
+                                        objectLoaderCrud={objectLoaderCrud}
+                                        onObjectLoaderAction={
+                                            objectLoaderCrud
+                                                ? (action) => {
+                                                      const r = row as Record<string, unknown>;
+                                                      if (action === 'view') setObjectLoaderModal({ type: 'view', row: r });
+                                                      else if (action === 'edit') setObjectLoaderModal({ type: 'edit', row: r });
+                                                      else if (action === 'copy') setObjectLoaderModal({ type: 'copy', row: r });
+                                                      else setObjectLoaderModal({ type: 'delete', row: r });
+                                                  }
+                                                : undefined
+                                        }
+                                        showRowActionsOnHover={config.showRowActionsOnHover}
+                                        actionsTdClassName={cn(
+                                            'px-4 py-2 text-sm text-gray-700',
+                                            !config.enableRowDivider ? '!border-b-0' : '',
+                                            config.enableColumnDivider ? 'border-l border-gray-200' : ''
+                                        )}
+                                    />
                                 );
                             })()}
             </tr>
@@ -2595,6 +3240,7 @@ export default function ConfigurableListTemplate({
     // If freezePaneColumnIndexNo = 3, freeze colIndex < 2 (i.e., colIndex 0 and 1)
     // If freezePaneColumnIndexNo = 4, freeze colIndex < 3 (i.e., colIndex 0, 1, and 2)
     const isColumnFrozen = useCallback((colIndex: number) => {
+        if (config.enableFreezePane === false) return false;
         if (!config.enablefreezePaneColumnIndex) return false;
         const freezeIndex = (config.freezePaneColumnIndexNo || 1); // 1-based
         // Freeze all data columns up to and including (freezeIndex - 2)
@@ -2602,16 +3248,17 @@ export default function ConfigurableListTemplate({
         // If freezeIndex = 3, freeze colIndex < 2 (i.e., colIndex 0, 1)
         // If freezeIndex = 4, freeze colIndex < 3 (i.e., colIndex 0, 1, 2)
         return colIndex < (freezeIndex - 1);
-    }, [config.enablefreezePaneColumnIndex, config.freezePaneColumnIndexNo]);
+    }, [config.enableFreezePane, config.enablefreezePaneColumnIndex, config.freezePaneColumnIndexNo]);
 
     // Check if checkbox/row number column should be frozen
     // Checkbox is column 0, so it's frozen if freezePaneColumnIndexNo >= 1
     const isCheckboxColumnFrozen = useCallback(() => {
+        if (config.enableFreezePane === false) return false;
         if (!config.enablefreezePaneColumnIndex) return false;
         const freezeIndex = (config.freezePaneColumnIndexNo || 1);
         // If freezeIndex >= 1, freeze the checkbox column (column 0)
         return freezeIndex >= 1;
-    }, [config.enablefreezePaneColumnIndex, config.freezePaneColumnIndexNo]);
+    }, [config.enableFreezePane, config.enablefreezePaneColumnIndex, config.freezePaneColumnIndexNo]);
 
     function getThemeClasses(): string {
         const baseClasses = 'data-table';
@@ -2642,7 +3289,7 @@ export default function ConfigurableListTemplate({
         ${viewClasses[config.tableView || 'default']}
         ${!config.enableRowHoverHighlight ? 'no-hover' : ''}
         ${config.enableStripedRows ? 'striped' : ''}
-        ${config.enableFreezePaneRowHeader ? 'freeze-header' : ''}
+        ${tableFreezeHeaderEnabled ? 'freeze-header' : ''}
     `;
     }
 
@@ -2737,8 +3384,12 @@ export default function ConfigurableListTemplate({
             </div>
         ) : null;
 
-    const tableQueryStateForModal = useMemo(
-        (): TableQueryState => ({
+    const tableQueryStateForModal = useMemo((): TableQueryState => {
+        const visibleSet = new Set(visibleColumns);
+        const columnWidthsPx = Object.fromEntries(
+            Object.entries(columnWidths).filter(([k]) => visibleSet.has(k))
+        );
+        return {
             searchTerm,
             sortCriteria,
             filterCriteria,
@@ -2746,9 +3397,18 @@ export default function ConfigurableListTemplate({
             activeColumns,
             visibleColumns,
             columnOrder,
-        }),
-        [searchTerm, sortCriteria, filterCriteria, groupByColumn, activeColumns, visibleColumns, columnOrder]
-    );
+            columnWidthsPx,
+        };
+    }, [
+        searchTerm,
+        sortCriteria,
+        filterCriteria,
+        groupByColumn,
+        activeColumns,
+        visibleColumns,
+        columnOrder,
+        columnWidths,
+    ]);
 
     return (
         <div className="fade-in">
@@ -3029,7 +3689,7 @@ export default function ConfigurableListTemplate({
                             {!config.enableTablePanel && (
                                 <>
                                     {config.enablePresetSelector && (
-                                        <div className="relative" ref={dropdownRef}>
+                                        <div className="relative z-[110]" ref={dropdownRef}>
                                             <button
                                                 onClick={(e) => {
                                                     e.stopPropagation();
@@ -3120,10 +3780,22 @@ export default function ConfigurableListTemplate({
                         allColumns={allColumns}
                         activeColumns={activeColumns}
                         visibleColumns={visibleColumns}
-                        onActiveColumnsChange={(next) => { setActiveColumns(next); setColumnOrder(next); }}
+                        onActiveColumnsChange={(next) => {
+                            setActiveColumns(next);
+                            setColumnOrder(next);
+                            setColumnWidths((prev) => {
+                                const allow = new Set(next);
+                                const o = { ...prev };
+                                for (const k of Object.keys(o)) {
+                                    if (!allow.has(k)) delete o[k];
+                                }
+                                return o;
+                            });
+                        }}
                         onVisibleColumnsChange={setVisibleColumns}
+                        columnWidths={columnWidths}
+                        onColumnWidthsChange={setColumnWidths}
                         // Freeze Pane
-                        enableFreezePane={config.enableFreezePane || false}
                         freezePaneType={config.freezePaneType || 'icon'}
                         freezePaneAlign={config.freezePaneAlign || 'right'}
                         enableFreezePaneRowHeader={config.enableFreezePaneRowHeader || false}
@@ -3173,7 +3845,7 @@ export default function ConfigurableListTemplate({
                 activePresetId={activePresetId}
                         onPresetClick={handlePresetClick}
                         onPresetApply={applyPreset}
-                        // Table View (legacy)
+                        // Table View (density shortcut)
                         tableViewButtonType={config.tableViewButtonType || 'icon'}
                         tableViewButtonAlign={config.tableViewButtonAlign || 'right'}
                         currentTableView={config.tableView || 'default'}
@@ -3189,7 +3861,7 @@ export default function ConfigurableListTemplate({
                         // Common
                         fieldMappings={fieldMappings}
                         config={config}
-                        onConfigChange={onConfigChange}
+                        onConfigChange={pushConfig}
                     />
                     </div>
                 )}
@@ -3214,32 +3886,43 @@ export default function ConfigurableListTemplate({
                     <div className="overflow-x-auto">
                         <table className={getThemeClasses()}>
                             {config.enableHeader && (
-                                <thead className={cn("bg-gray-100", config.enableFreezePaneRowHeader && "sticky top-0 z-30")}>
+                                <thead className="bg-gray-100">
                                     <tr>
                                         {(config.enableRowSelection || config.enableRowNumber) && (() => {
                                             const checkboxFrozen = isCheckboxColumnFrozen();
+                                            const rowHeaderSticky = tableFreezeHeaderEnabled;
+                                            const checkboxHeaderStyle: React.CSSProperties = {
+                                                width: checkboxColumnWidth ? `${checkboxColumnWidth}px` : undefined,
+                                                minWidth: checkboxColumnWidth ? `${checkboxColumnWidth}px` : undefined,
+                                                maxWidth: checkboxColumnWidth ? `${checkboxColumnWidth}px` : undefined,
+                                                boxSizing: 'border-box',
+                                            };
+                                            if (rowHeaderSticky || checkboxFrozen) {
+                                                checkboxHeaderStyle.position = 'sticky';
+                                                checkboxHeaderStyle.backgroundColor = 'rgb(249 250 251)';
+                                            }
+                                            if (rowHeaderSticky) {
+                                                checkboxHeaderStyle.top = 0;
+                                            }
+                                            if (checkboxFrozen) {
+                                                checkboxHeaderStyle.left = 0;
+                                                checkboxHeaderStyle.zIndex = FROZEN_HEADER_Z_BASE;
+                                            } else if (rowHeaderSticky) {
+                                                checkboxHeaderStyle.zIndex = 32;
+                                            }
                                             return (
                                             <th 
                                                 ref={(el) => checkboxColumnRef.current = el}
                                                 className={cn(
-                                                    "px-4 py-2 text-sm text-gray-700",
-                                                    config.enableColumnDivider ? 'border-r border-gray-200' : '',
-                                                    // Show border on checkbox column when freezeIndex = 1 (only checkbox frozen) AND feature is enabled
-                                                    checkboxFrozen && config.enablefreezePaneColumnIndex && (config.freezePaneColumnIndexNo || 1) === 1 && 'border-r-2 border-gray-300'
+                                                    'px-4 py-2 text-sm text-gray-700',
+                                                    checkboxColumnRightBorderClass(
+                                                        !!config.enableColumnDivider,
+                                                        checkboxFrozen,
+                                                        tableFreezeColumnEnabled,
+                                                        config.freezePaneColumnIndexNo,
+                                                    ),
                                                 )}
-                                                style={{
-                                                    width: checkboxColumnWidth ? `${checkboxColumnWidth}px` : undefined,
-                                                    minWidth: checkboxColumnWidth ? `${checkboxColumnWidth}px` : undefined,
-                                                    maxWidth: checkboxColumnWidth ? `${checkboxColumnWidth}px` : undefined,
-                                                    boxSizing: 'border-box',
-                                                    ...(checkboxFrozen ? {
-                                                        position: 'sticky',
-                                                        left: '0px',
-                                                        zIndex: 26,
-                                                        backgroundColor: 'rgb(249 250 251)', // bg-gray-100
-                                                        boxShadow: config.enablefreezePaneColumnIndex && (config.freezePaneColumnIndexNo || 1) === 1 ? '2px 0 4px rgba(0, 0, 0, 0.1)' : 'none'
-                                                    } : {})
-                                                }}
+                                                style={checkboxHeaderStyle}
                                             >
                                                 {config.enableRowSelection && config.enableRowNumber ? (
                                                     <span className="flex items-center gap-1">
@@ -3278,7 +3961,19 @@ export default function ConfigurableListTemplate({
                                         })()}
 
                                         {config.enableRowActions && config.rowActionsPosition === 'left' && (
-                                            <th className={`px-4 py-2 ${config.enableColumnDivider ? 'border-r border-gray-200' : ''}`}>
+                                            <th
+                                                className={`px-4 py-2 ${config.enableColumnDivider ? 'border-r border-gray-200' : ''}`}
+                                                style={
+                                                    tableFreezeHeaderEnabled
+                                                        ? {
+                                                              position: 'sticky',
+                                                              top: 0,
+                                                              zIndex: 29,
+                                                              backgroundColor: 'rgb(249 250 251)',
+                                                          }
+                                                        : undefined
+                                                }
+                                            >
                                                 Actions
                                             </th>
                                         )}
@@ -3286,13 +3981,26 @@ export default function ConfigurableListTemplate({
                                             .filter(col => visibleColumns.includes(col))
                                             .map((col, colIndex, arr) => {
                                                 const isFrozen = isColumnFrozen(colIndex);
-                                                const freezeIndex = (config.freezePaneColumnIndexNo || 1);
-                                        // Border logic:
-                                        // If freezeIndex = 1, freeze checkbox only, no border on data columns
-                                        // If freezeIndex = 2, freeze checkbox + first data column, border on colIndex 0
-                                        // If freezeIndex = 3, freeze checkbox + first two data columns, border on colIndex 1
-                                        // Only show border if feature is enabled
-                                        const shouldShowBorder = config.enablefreezePaneColumnIndex && freezeIndex >= 2 && colIndex === freezeIndex - 2;
+                                                const freezeIndex = config.freezePaneColumnIndexNo || 1;
+                                                const shouldShowBorder =
+                                                    tableFreezeColumnEnabled &&
+                                                    freezeIndex >= 2 &&
+                                                    colIndex === freezeIndex - 2;
+                                                const freezeEdgeDivider =
+                                                    !!config.enableColumnDivider && shouldShowBorder;
+                                                const lightColDivider =
+                                                    !!config.enableColumnDivider &&
+                                                    colIndex < arr.length - 1 &&
+                                                    !freezeEdgeDivider;
+                                                const nextIsFrozen =
+                                                    colIndex + 1 < arr.length && isColumnFrozen(colIndex + 1);
+                                                const showFrozenLeftDivider =
+                                                    isFrozen &&
+                                                    ((colIndex > 0 && isColumnFrozen(colIndex - 1)) ||
+                                                        (colIndex === 0 &&
+                                                            (config.enableRowSelection || config.enableRowNumber) &&
+                                                            isCheckboxColumnFrozen() &&
+                                                            freezeIndex > 1));
                                                 const leftOffset = isFrozen ? getFreezeLeftOffset(colIndex) : 0;
                                                 
                                                 return (
@@ -3304,14 +4012,12 @@ export default function ConfigurableListTemplate({
                                                     }}
                                                     className={cn(
                                                         "px-4 py-2 text-left cursor-pointer relative group",
-                                                        config.enableColumnDivider && colIndex < arr.length - 1 ? 'border-r border-gray-200' : '',
-                                                        // Show border only on the last frozen column
-                                                        // Border only on last frozen data column:
-                                            // If freezePaneColumnIndexNo = 2, freeze colIndex < 1, so border on colIndex 0 (last frozen = colIndex 0)
-                                            // If freezePaneColumnIndexNo = 3, freeze colIndex < 2, so border on colIndex 1 (last frozen = colIndex 1)
-                                            // If freezePaneColumnIndexNo = 1, no data columns frozen, so no border
-                                            // Last frozen colIndex = freezePaneColumnIndexNo - 2 (only when freezePaneColumnIndexNo >= 2)
-                                            shouldShowBorder && 'border-r-2 border-gray-300 freeze-border-sticky'
+                                                        activeResizeColumn === col && 'ring-1 ring-blue-400',
+                                                        lightColDivider &&
+                                                            (!isFrozen || !nextIsFrozen) &&
+                                                            'border-r border-gray-200',
+                                                        showFrozenLeftDivider && 'freeze-col-light-l',
+                                                        freezeEdgeDivider && 'freeze-pane-seam',
                                                     )}
                                                     style={{ 
                                                         width: columnWidths[col] ? `${columnWidths[col]}px` : undefined,
@@ -3321,19 +4027,24 @@ export default function ConfigurableListTemplate({
                                                         ...(isFrozen ? {
                                                             position: 'sticky',
                                                             left: `${leftOffset}px`,
-                                                            // Higher z-index for header to ensure it stays on top, especially when row header is also sticky
-                                                            zIndex: config.enableFreezePaneRowHeader ? 31 : 25,
+                                                            ...(tableFreezeHeaderEnabled ? { top: 0 } : {}),
+                                                            zIndex: FROZEN_HEADER_Z_BASE + 1 + colIndex,
                                                             backgroundColor: 'rgb(249 250 251)', // bg-gray-100
-                                                            boxShadow: shouldShowBorder ? '2px 0 4px rgba(0, 0, 0, 0.1)' : 'none'
+                                                        } : tableFreezeHeaderEnabled ? {
+                                                            position: 'sticky',
+                                                            top: 0,
+                                                            zIndex:
+                                                                tableFreezeColumnEnabled ? 27 : 28,
+                                                            backgroundColor: 'rgb(249 250 251)',
                                                         } : {})
                                                     }}
                                                     onClick={() => handleSort(col)}
-                                                    draggable={config.enableColumnReorder}
+                                                    draggable={config.enableColumnReorder && activeResizeColumn === null}
                                                     onDragStart={(e) => handleColumnDragStart(e, colIndex)}
                                                     onDragOver={(e) => handleColumnDragOver(e, colIndex)}
                                                     onDrop={(e) => handleColumnDrop(e, colIndex)}
                                                 >
-                                                    <div className="flex items-center" title={config.enableTooltips === true ? (fieldMappings[col] ?? col) : undefined}>
+                                                    <div className="flex items-center pr-6" title={config.enableTooltips === true ? (fieldMappings[col] ?? col) : undefined}>
                                                         {config.enableColumnReorder && (
                                                             <div className="cursor-move text-gray-400 hover:text-gray-600 mr-2">
                                                                 <GripVertical size={14} />
@@ -3344,9 +4055,29 @@ export default function ConfigurableListTemplate({
                                                             <span>{sortCriteria.find(s => s.column === col)?.order === 'asc' ? ' ↑' : ' ↓'}</span>
                                                         )}
                                                     </div>
+                                                    {config.enableWrapClipOption && (
+                                                        <div className="absolute right-8 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity z-[1]">
+                                                            <button
+                                                                type="button"
+                                                                className="text-gray-400 hover:text-gray-600 p-1 rounded"
+                                                                onClick={(e) => {
+                                                                    e.stopPropagation();
+                                                                    handleWrapClipToggle(col);
+                                                                }}
+                                                                title={`${getCellWrapMode(col, config, columnWrapStates) === 'wrap' ? 'Clip' : 'Wrap'} text`}
+                                                            >
+                                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                                                                    <path d="M3 6h18M3 12h15a3 3 0 1 1 0 6h-4" />
+                                                                </svg>
+                                                            </button>
+                                                        </div>
+                                                    )}
                                                     {config.enableColumnResize && (
                                                         <div
-                                                            className="absolute top-0 right-0 h-full w-1 cursor-col-resize"
+                                                            className={cn(
+                                                                "absolute top-0 right-0 h-full w-3 cursor-col-resize z-[5]",
+                                                                activeResizeColumn === col && 'bg-blue-400/30'
+                                                            )}
                                                             onMouseDown={(e) => handleMouseDown(e, col)}
                                                         />
                                                     )}
@@ -3355,7 +4086,19 @@ export default function ConfigurableListTemplate({
                                             })}
 
                                         {config.enableRowActions && config.rowActionsPosition !== 'left' && (
-                                            <th className={`px-4 py-2 ${config.enableColumnDivider ? 'border-l border-gray-200' : ''}`}>
+                                            <th
+                                                className={`px-4 py-2 ${config.enableColumnDivider ? 'border-l border-gray-200' : ''}`}
+                                                style={
+                                                    tableFreezeHeaderEnabled
+                                                        ? {
+                                                              position: 'sticky',
+                                                              top: 0,
+                                                              zIndex: 29,
+                                                              backgroundColor: 'rgb(249 250 251)',
+                                                          }
+                                                        : undefined
+                                                }
+                                            >
                                                 Actions
                                             </th>
                                         )}
@@ -3363,7 +4106,7 @@ export default function ConfigurableListTemplate({
                                 </thead>
                             )}
 
-                            <tbody key={`tbody-${groupByColumn ? `grouped-${groupByColumn}` : 'ungrouped'}-${sortCriteria.map(s => `${s.column}-${s.order}`).join('-')}-${sortedData.length}-${sortedData[0]?.entity_id || sortedData[0]?.id || 'empty'}`}>
+                            <tbody key={`tbody-${groupByColumn ? `grouped-${groupByColumn}` : 'ungrouped'}-${sortCriteria.map(s => `${s.column}-${s.order}`).join('-')}-${sortedData.length}-${sortedData[0] ? String(getTemplateRowIdentityKey(sortedData[0] as Record<string, unknown>) ?? 'row0') : 'empty'}`}>
                                 {renderTableRows()}
                             </tbody>
                             <TableFooter
@@ -3374,7 +4117,7 @@ export default function ConfigurableListTemplate({
                                 pageSizeOptions={config.pageSizeOptions || [10, 25, 50, 100]}
                                 totalRecords={sortedData.length}
                                 currentPage={1}
-                                onPageSizeChange={(size) => onConfigChange({ ...config, pageSize: size })}
+                                onPageSizeChange={(size) => pushConfig({ ...config, pageSize: size })}
                             />
                         </table>
 
@@ -3406,7 +4149,12 @@ export default function ConfigurableListTemplate({
             </div>
 
             {/* Bulk Actions Bar - Outside printable content so it doesn't print */}
-            {config.enableBulkActions && selectedRows.length > 0 && (
+            {config.enableBulkActions && selectedRows.length > 0 && (() => {
+                const selectedRecords = selectedRows
+                    .map((i) => sortedData[i])
+                    .filter((r): r is Record<string, unknown> => r != null) as Record<string, unknown>[];
+                const bulkOl = objectLoaderCrud;
+                return (
                 <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-white border border-gray-200 rounded-lg shadow-lg p-4 z-50">
                     <div className="flex items-center space-x-4">
                         <span className="text-sm text-gray-600">
@@ -3415,31 +4163,92 @@ export default function ConfigurableListTemplate({
                         <div className="flex items-center space-x-2">
                             {(config.bulkActionStyle === 'buttons' || config.bulkActionStyle === 'dropdown') ? (
                                 <>
-                                    <button className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50">
+                                    {bulkOl && (
+                                        <button
+                                            type="button"
+                                            className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                                            onClick={() => setObjectLoaderModal({ type: 'bulk_view', rows: selectedRecords })}
+                                        >
+                                            View
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-40"
+                                        onClick={() => bulkOl && setObjectLoaderModal({ type: 'bulk_edit', rows: selectedRecords })}
+                                        disabled={!bulkOl}
+                                    >
                                         Edit
                                     </button>
-                                    <button className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50">
+                                    {bulkOl && (
+                                        <button
+                                            type="button"
+                                            className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50"
+                                            onClick={() => setObjectLoaderModal({ type: 'bulk_copy', rows: selectedRecords })}
+                                        >
+                                            Copy
+                                        </button>
+                                    )}
+                                    <button type="button" className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50">
                                         Export
                                     </button>
-                                    <button className="px-3 py-1 text-sm text-red-600 border border-red-300 rounded hover:bg-red-50">
+                                    <button
+                                        type="button"
+                                        className="px-3 py-1 text-sm text-red-600 border border-red-300 rounded hover:bg-red-50"
+                                        onClick={() =>
+                                            bulkOl
+                                                ? setObjectLoaderModal({ type: 'bulk_delete', rows: selectedRecords })
+                                                : undefined
+                                        }
+                                        disabled={!bulkOl}
+                                    >
                                         Delete
                                     </button>
                                 </>
                             ) : (
                                 <>
-                                    <button className="p-2 text-gray-500 hover:text-primary border border-gray-300 rounded hover:bg-gray-50" title="Edit">
+                                    {bulkOl && (
+                                        <button
+                                            type="button"
+                                            className="p-2 text-gray-500 hover:text-primary border border-gray-300 rounded hover:bg-gray-50"
+                                            title="View"
+                                            onClick={() => setObjectLoaderModal({ type: 'bulk_view', rows: selectedRecords })}
+                                        >
+                                            <ExternalLink size={16} />
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        className="p-2 text-gray-500 hover:text-primary border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-40"
+                                        title="Edit"
+                                        disabled={!bulkOl}
+                                        onClick={() => bulkOl && setObjectLoaderModal({ type: 'bulk_edit', rows: selectedRecords })}
+                                    >
                                         <Edit size={16} />
                                     </button>
-                                    <button className="p-2 text-gray-500 hover:text-primary border border-gray-300 rounded hover:bg-gray-50" title="Copy">
+                                    <button
+                                        type="button"
+                                        className="p-2 text-gray-500 hover:text-primary border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-40"
+                                        title="Copy"
+                                        disabled={!bulkOl}
+                                        onClick={() => bulkOl && setObjectLoaderModal({ type: 'bulk_copy', rows: selectedRecords })}
+                                    >
                                         <Copy size={16} />
                                     </button>
-                                    <button className="p-2 text-red-500 hover:text-red-700 border border-red-300 rounded hover:bg-red-50" title="Delete">
+                                    <button
+                                        type="button"
+                                        className="p-2 text-red-500 hover:text-red-700 border border-red-300 rounded hover:bg-red-50 disabled:opacity-40"
+                                        title="Delete"
+                                        disabled={!bulkOl}
+                                        onClick={() => bulkOl && setObjectLoaderModal({ type: 'bulk_delete', rows: selectedRecords })}
+                                    >
                                         <Trash2 size={16} />
                                     </button>
                                 </>
                             )}
                         </div>
                         <button
+                            type="button"
                             onClick={() => setSelectedRows([])}
                             className="p-1 text-gray-400 hover:text-gray-600"
                         >
@@ -3447,23 +4256,79 @@ export default function ConfigurableListTemplate({
                         </button>
                     </div>
                 </div>
+                );
+            })()}
+
+            {objectLoaderCrud && (
+                <ObjectLoaderRecordModals
+                    state={objectLoaderModal}
+                    onClose={() => setObjectLoaderModal(null)}
+                    fieldMappings={fieldMappings}
+                    columnOrder={columnOrder}
+                    visibleColumns={visibleColumns}
+                    crud={objectLoaderCrud}
+                    onAfterMutation={() => {
+                        onRefresh?.();
+                        setSelectedRows([]);
+                    }}
+                />
             )}
+
+            {/* Single painted seam on last frozen column / checkbox-only freeze — avoids double borders + hollow gaps when scrolling (no extra z-index on scroll cells). */}
+            <style
+                dangerouslySetInnerHTML={{
+                    __html: `
+.data-table td.freeze-pane-seam,
+.data-table th.freeze-pane-seam {
+  position: relative;
+}
+.data-table td.freeze-pane-seam::after,
+.data-table th.freeze-pane-seam::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 2px;
+  background-color: #d1d5db;
+  z-index: 90;
+  pointer-events: none;
+}
+/* Interior frozen–frozen: line on the higher-z cell’s left (::before), not right of lower-z (would be covered). */
+.data-table td.freeze-col-light-l,
+.data-table th.freeze-col-light-l {
+  position: relative;
+}
+.data-table td.freeze-col-light-l::before,
+.data-table th.freeze-col-light-l::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 1px;
+  background-color: #e5e7eb;
+  z-index: 95;
+  pointer-events: none;
+}
+`,
+                }}
+            />
 
             <TableSettingsModal
                 isOpen={isTableSettingsOpen}
-                onSave={onConfigChange}
+                onSave={pushConfig}
                 onClose={handleCloseTableSettings}
                 currentConfig={config}
                 presets={presets}
                 onPresetsChange={setPresets}
+                onPresetsRefresh={reloadPresetsFromDatabase}
                 activePresetId={activePresetId}
                 onPresetSelect={setActivePresetId}
                 fieldMappings={fieldMappings}
                 tableQueryState={tableQueryStateForModal}
             />
 
-            {/* CSS for sticky freeze border */}
-            <style dangerouslySetInnerHTML={{ __html: `.freeze-border-sticky { position: relative; } .freeze-border-sticky::after { content: ""; position: absolute; right: -2px; top: 0; bottom: 0; width: 2px; background-color: #d1d5db; pointer-events: none; z-index: 100; }` }} />
         </div>
     );
 }
