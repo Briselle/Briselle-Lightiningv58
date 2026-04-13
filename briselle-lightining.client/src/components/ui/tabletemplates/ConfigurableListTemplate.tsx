@@ -1,8 +1,20 @@
 import React, { useState, useEffect, useLayoutEffect, useMemo, useRef, useCallback } from "react";
 
 import {
-    Plus, AlertTriangle, ExternalLink, Settings, Edit, Trash2,
-    ChevronRight, ChevronDown, GripVertical, X, Copy, Bookmark, Star,
+    Plus,
+    AlertTriangle,
+    ExternalLink,
+    Settings,
+    Edit,
+    Trash2,
+    ChevronRight,
+    ChevronDown,
+    GripVertical,
+    X,
+    Copy,
+    Camera,
+    Bookmark,
+    Star,
 } from 'lucide-react';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import { cn } from '../../../utils/helpers';
@@ -26,6 +38,31 @@ import { SortCriteria } from "./action-components/Action_Sort";
 import { FilterCriteria } from "./action-components/Action_Filter";
 import { TablePreset } from "./action-components/Action_Preset";
 import { loadTableConfig, loadTablePresets } from "./utils/loadTableConfig";
+import { DEFAULT_PRESETS, getDefaultPreset, loadCustomPresetsFromStorage, saveCustomPresetsToStorage } from "./utils/presets";
+import { fetchPresetsFromDB, persistActiveContextToDB } from "./utils/configService";
+import { mergePresetWithPreservedTabState, mergeObjectTabBarIntoConfig } from "./utils/mergePresetConfig";
+import { injectCanonicalDefaultTab } from "./utils/canonicalObjectLoaderDefaults";
+import { normalizeTabMenuStyle, resolveTabShowUnderline, sanitizeTabListPresetIds } from "./utils/tabBarNormalize";
+import { useAuthStore } from "../../../stores/authStore";
+import {
+    computeTemplateId,
+    loadTableQueryState,
+    saveTableQueryState,
+    sanitizeTableQueryState,
+    stripSavedQueryStateFromConfig,
+    readSavedQueryStateFromPresetConfig,
+    type TableQueryState,
+} from "./utils/tableUserViewStorage";
+import { applyFreezePaneConsistency } from "./utils/freezePaneConfigSync";
+import {
+    CopyGridClipboardModal,
+    ObjectLoaderRecordModals,
+    ObjectLoaderRowActionsBar,
+    resolveRowRecordId,
+    type ObjectLoaderCrudOptions,
+    type ObjectLoaderRecordModalState,
+} from "./objectLoaderRecordModals";
+import { buildClipboardGridPayload } from "./utils/clipboardGridTable";
 
 /** Sticky frozen body cells stack above horizontally scrolling cells so borders/dividers stay visible. */
 const FROZEN_BODY_Z_BASE = 40;
@@ -56,67 +93,90 @@ function isCellInRangeRect(
     return flatRow >= rect.r0 && flatRow <= rect.r1 && ci >= rect.c0 && ci <= rect.c1;
 }
 
-function escapeHtmlForClipboard(s: string) {
-    return s
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;');
+/** Theme-aligned grid inside a selection (lighter/thinner than the hull outline). */
+const SELECTION_GRID_LINE = '#e5e7eb';
+
+function findCheckboxRowRangeForFlatRow(
+    flatRow: number,
+    ranges: { r0: number; r1: number; c0: number; c1: number }[],
+): { r0: number; r1: number; c0: number; c1: number } | null {
+    return ranges.find((r) => flatRow >= r.r0 && flatRow <= r.r1) ?? null;
 }
 
-function buildCellRangeClipboard(
-    rows: Record<string, unknown>[],
-    cols: string[],
-    fieldMappings: Record<string, string>,
-): { tsv: string; html: string } {
-    const headers = cols.map((c) => fieldMappings[c] ?? c);
-    const tsvLines = [
-        headers.join('\t'),
-        ...rows.map((row) =>
-            cols
-                .map((c) =>
-                    String(row[c] ?? '')
-                        .replace(/\r?\n/g, ' ')
-                        .replace(/\t/g, ' '),
-                )
-                .join('\t'),
-        ),
-    ];
-    const th = headers.map((h) => `<th>${escapeHtmlForClipboard(h)}</th>`).join('');
-    const trs = rows
-        .map((row) => {
-            const tds = cols
-                .map((c) => `<td>${escapeHtmlForClipboard(String(row[c] ?? ''))}</td>`)
-                .join('');
-            return `<tr>${tds}</tr>`;
-        })
-        .join('');
-    const html = `<table border="1" cellspacing="0" cellpadding="3"><thead><tr>${th}</tr></thead><tbody>${trs}</tbody></table>`;
-    return { tsv: tsvLines.join('\n'), html };
+function findRangeForDataCell(
+    flatRow: number,
+    col: string,
+    orderCols: string[],
+    ranges: { r0: number; r1: number; c0: number; c1: number }[],
+): { r0: number; r1: number; c0: number; c1: number } | null {
+    for (const r of ranges) {
+        if (isCellInRangeRect(flatRow, col, orderCols, r)) return r;
+    }
+    return null;
 }
-import { DEFAULT_PRESETS, getDefaultPreset, loadCustomPresetsFromStorage, saveCustomPresetsToStorage } from "./utils/presets";
-import { fetchPresetsFromDB, persistActiveContextToDB } from "./utils/configService";
-import { mergePresetWithPreservedTabState, mergeObjectTabBarIntoConfig } from "./utils/mergePresetConfig";
-import { injectCanonicalDefaultTab } from "./utils/canonicalObjectLoaderDefaults";
-import { normalizeTabMenuStyle, resolveTabShowUnderline, sanitizeTabListPresetIds } from "./utils/tabBarNormalize";
-import { useAuthStore } from "../../../stores/authStore";
-import {
-    computeTemplateId,
-    loadTableQueryState,
-    saveTableQueryState,
-    sanitizeTableQueryState,
-    stripSavedQueryStateFromConfig,
-    readSavedQueryStateFromPresetConfig,
-    type TableQueryState,
-} from "./utils/tableUserViewStorage";
-import { applyFreezePaneConsistency } from "./utils/freezePaneConfigSync";
-import {
-    ObjectLoaderRecordModals,
-    ObjectLoaderRowActionsBar,
-    resolveRowRecordId,
-    type ObjectLoaderCrudOptions,
-    type ObjectLoaderRecordModalState,
-} from "./objectLoaderRecordModals";
+
+/** Thin interior grid (1px) inside the selection block. */
+function selectionInnerGridBoxShadow(
+    rect: { r0: number; r1: number; c0: number; c1: number },
+    flatRow: number,
+    colIndex: number,
+    gridColor: string,
+): string {
+    const g = 1;
+    const parts: string[] = [];
+    if (flatRow < rect.r1) parts.push(`inset 0 -${g}px 0 0 ${gridColor}`);
+    if (colIndex < rect.c1) parts.push(`inset -${g}px 0 0 0 ${gridColor}`);
+    return parts.join(', ');
+}
+
+/** Leftmost checkbox column: hull on the left; thin separator toward data cells. */
+function checkboxLeadSelectionShadow(
+    rect: { r0: number; r1: number; c0: number; c1: number },
+    flatRow: number,
+    accentColor: string,
+    gridColor: string,
+): string {
+    const W = 2;
+    const g = 1;
+    const parts: string[] = [];
+    if (flatRow === rect.r0) parts.push(`inset 0 ${W}px 0 0 ${accentColor}`);
+    if (flatRow === rect.r1) parts.push(`inset 0 -${W}px 0 0 ${accentColor}`);
+    parts.push(`inset ${W}px 0 0 0 ${accentColor}`);
+    parts.push(`inset -${g}px 0 0 0 ${gridColor}`);
+    if (flatRow < rect.r1) parts.push(`inset 0 -${g}px 0 0 ${gridColor}`);
+    return parts.join(', ');
+}
+
+/** Excel-like outline: only the selection hull gets 2px edges. */
+function cellRangeExteriorBoxShadow(
+    rect: { r0: number; r1: number; c0: number; c1: number },
+    flatRow: number,
+    colIndex: number,
+    color: string,
+    opts?: { omitLeft?: boolean },
+): string {
+    const w = 2;
+    const parts: string[] = [];
+    if (flatRow === rect.r0) parts.push(`inset 0 ${w}px 0 0 ${color}`);
+    if (flatRow === rect.r1) parts.push(`inset 0 -${w}px 0 0 ${color}`);
+    if (!opts?.omitLeft && colIndex === rect.c0) parts.push(`inset ${w}px 0 0 0 ${color}`);
+    if (colIndex === rect.c1) parts.push(`inset -${w}px 0 0 0 ${color}`);
+    return parts.join(', ');
+}
+
+function composeDataCellSelectionShadow(
+    rect: { r0: number; r1: number; c0: number; c1: number },
+    flatRow: number,
+    colIndex: number,
+    accentColor: string,
+    omitLeftExterior: boolean,
+): string {
+    const inner = selectionInnerGridBoxShadow(rect, flatRow, colIndex, SELECTION_GRID_LINE);
+    const ext = cellRangeExteriorBoxShadow(rect, flatRow, colIndex, accentColor, {
+        omitLeft: omitLeftExterior,
+    });
+    return [inner, ext].filter(Boolean).join(', ');
+}
 
 export type { ObjectLoaderCrudOptions, ObjectLoaderRecordModalState } from "./objectLoaderRecordModals";
 export { resolveObjectLoaderCrudDefaults, coercePostgrestNumericId } from "./objectLoaderRecordModals";
@@ -244,6 +304,8 @@ export interface TableConfig {
     enableHeader?: boolean;
     enableRowNumber?: boolean;
     enableRowSelection?: boolean;
+    /** Drag to select a rectangle of body cells (copy / screenshot toolbar). When omitted, treated as on. */
+    enableTableCellSelection?: boolean;
     enableMassSelection?: boolean;
     enableRowHoverHighlight?: boolean;
     enableStripedRows?: boolean;
@@ -455,6 +517,17 @@ function getTemplateRowIdentityKey(row: Record<string, unknown>): string | numbe
     return undefined;
 }
 
+function rowsLooselyEqual(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
+    if (a === b) return true;
+    const ak = getTemplateRowIdentityKey(a);
+    const bk = getTemplateRowIdentityKey(b);
+    if (ak != null && bk != null && String(ak) === String(bk)) return true;
+    const aid = (a as { id?: unknown }).id;
+    const bid = (b as { id?: unknown }).id;
+    if (aid != null && bid != null && aid === bid) return true;
+    return false;
+}
+
 export default function ConfigurableListTemplate({
     title,
     data,
@@ -490,6 +563,10 @@ export default function ConfigurableListTemplate({
     const [searchTerm, setSearchTerm] = useState('');
     const [selectedRows, setSelectedRows] = useState<number[]>([]);
     const [objectLoaderModal, setObjectLoaderModal] = useState<ObjectLoaderRecordModalState>(null);
+    const [cellRangeGridCopy, setCellRangeGridCopy] = useState<{
+        rows: Record<string, unknown>[];
+        cols: string[];
+    } | null>(null);
     const [groupByColumn, setGroupByColumn] = useState<string | null>(null);
     const [presets, setPresets] = useState<TablePreset[]>([]);
     const [activePresetId, setActivePresetId] = useState<string>('default');
@@ -498,7 +575,9 @@ export default function ConfigurableListTemplate({
     const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
     const [checkboxColumnWidth, setCheckboxColumnWidth] = useState<number | null>(null);
     const [draggedRowIndex, setDraggedRowIndex] = useState<number | null>(null);
+    const [rowDragOverIndex, setRowDragOverIndex] = useState<number | null>(null);
     const [draggedColumnIndex, setDraggedColumnIndex] = useState<number | null>(null);
+    const [columnDragOverIndex, setColumnDragOverIndex] = useState<number | null>(null);
     const [rowOrder, setRowOrder] = useState<number[] | null>(null);
     const [isTableSettingsOpen, setIsTableSettingsOpen] = useState(false);
     const [chartPanelOpen, setChartPanelOpen] = useState(false);
@@ -581,7 +660,7 @@ export default function ConfigurableListTemplate({
       ======================= */
 
     // Use the reusable data processing hook
-    const { filteredEntities, sortedData, groupedData } = useTableData(
+    const { filteredEntities, sortedData } = useTableData(
         data,
         searchTerm,
         sortCriteria,
@@ -593,19 +672,46 @@ export default function ConfigurableListTemplate({
     const displayRows = rowOrder ? rowOrder.map(i => sortedData[i]) : sortedData;
     const displayIndices = rowOrder ? rowOrder : sortedData.map((_, i) => i);
 
+    /** Visual row sequence (applies manual reorder on top of sort). Grouping uses this so drag-drop matches the list. */
+    const orderedSortedRows = useMemo(() => {
+        const order = rowOrder ?? sortedData.map((_, i) => i);
+        return order.map((si) => sortedData[si]).filter((r) => r != null);
+    }, [rowOrder, sortedData]);
+
+    const groupedDisplayData = useMemo(() => {
+        if (!groupByColumn) return null;
+        return orderedSortedRows.reduce<Record<string, typeof sortedData>>((groups, row) => {
+            const key = row[groupByColumn]?.toString() || 'Ungrouped';
+            if (!groups[key]) groups[key] = [];
+            groups[key].push(row);
+            return groups;
+        }, {});
+    }, [groupByColumn, orderedSortedRows]);
+
+    const findSortedIndexForRow = useCallback(
+        (row: Record<string, unknown>) => sortedData.findIndex((r) => rowsLooselyEqual(r as Record<string, unknown>, row)),
+        [sortedData]
+    );
+
+    const findDisplayIndexForRow = useCallback(
+        (row: Record<string, unknown>) =>
+            orderedSortedRows.findIndex((r) => rowsLooselyEqual(r as Record<string, unknown>, row)),
+        [orderedSortedRows]
+    );
+
     const orderedVisibleCols = useMemo(
         () => columnOrder.filter((c) => visibleColumns.includes(c)),
         [columnOrder, visibleColumns],
     );
 
     const flatDataRowsForRange = useMemo(() => {
-        if (!groupedData) return displayRows;
+        if (!groupedDisplayData) return displayRows;
         const rows: typeof sortedData = [];
-        for (const [, groupRows] of Object.entries(groupedData)) {
+        for (const [, groupRows] of Object.entries(groupedDisplayData)) {
             for (const r of groupRows) rows.push(r);
         }
         return rows;
-    }, [groupedData, displayRows, sortedData]);
+    }, [groupedDisplayData, displayRows]);
 
     const [cellRangeAnchor, setCellRangeAnchor] = useState<CellRangePoint | null>(null);
     const [cellRangeFocus, setCellRangeFocus] = useState<CellRangePoint | null>(null);
@@ -622,23 +728,89 @@ export default function ConfigurableListTemplate({
         cellRangeDraggingRef.current = false;
     }, []);
 
+    const tableCellSelectionEnabled = config.enableTableCellSelection !== false;
+
+    useEffect(() => {
+        if (config.enableTableCellSelection === false) {
+            clearCellRangeSelection();
+            setCellRangeGridCopy(null);
+        }
+    }, [config.enableTableCellSelection, clearCellRangeSelection]);
+
+    /** Checkbox-driven row highlight: map sortedData indices → flat display row, merge contiguous blocks. */
+    const checkboxSelectionRanges = useMemo(() => {
+        if (!config.enableRowSelection || selectedRows.length === 0 || orderedVisibleCols.length === 0) {
+            return [] as { r0: number; r1: number; c0: number; c1: number }[];
+        }
+        const sortedIdxToFlat = new Map<number, number>();
+        if (groupedDisplayData) {
+            let f = 0;
+            for (const [, groupRows] of Object.entries(groupedDisplayData)) {
+                for (const row of groupRows) {
+                    const si = sortedData.findIndex((r) =>
+                        rowsLooselyEqual(r as Record<string, unknown>, row as Record<string, unknown>),
+                    );
+                    if (si >= 0) sortedIdxToFlat.set(si, f);
+                    f++;
+                }
+            }
+        } else {
+            displayIndices.forEach((sortedIdx, displayIdx) => {
+                sortedIdxToFlat.set(sortedIdx, displayIdx);
+            });
+        }
+        const flats = selectedRows
+            .map((si) => sortedIdxToFlat.get(si))
+            .filter((x): x is number => x !== undefined);
+        if (flats.length === 0) return [];
+
+        const uniq = [...new Set(flats)].sort((a, b) => a - b);
+        const cLast = orderedVisibleCols.length - 1;
+        const ranges: { r0: number; r1: number; c0: number; c1: number }[] = [];
+        let s = uniq[0];
+        let p = uniq[0];
+        for (let i = 1; i < uniq.length; i++) {
+            if (uniq[i] === p + 1) {
+                p = uniq[i];
+                continue;
+            }
+            ranges.push({ r0: s, r1: p, c0: 0, c1: cLast });
+            s = p = uniq[i];
+        }
+        ranges.push({ r0: s, r1: p, c0: 0, c1: cLast });
+        return ranges;
+    }, [
+        config.enableRowSelection,
+        selectedRows,
+        orderedVisibleCols,
+        groupedDisplayData,
+        displayIndices,
+        sortedData,
+    ]);
+
     const handleCellRangeMouseDown = useCallback(
         (e: React.MouseEvent, flatRowIndex: number, col: string) => {
             if (e.button !== 0) return;
             const t = e.target as HTMLElement;
             if (t.closest('input, textarea, select, button, a')) return;
             if (shareViewParams.isShareView && shareViewParams.restrictCopy) return;
+            if (!tableCellSelectionEnabled) return;
+            const clearRowSelectionForCellRange = () => {
+                setSelectedRows((prev) => (prev.length === 0 ? prev : []));
+            };
             if (e.shiftKey && cellRangeAnchor) {
                 setCellRangeFocus({ row: flatRowIndex, col });
+                clearRowSelectionForCellRange();
                 e.preventDefault();
                 return;
             }
             setCellRangeAnchor({ row: flatRowIndex, col });
             setCellRangeFocus({ row: flatRowIndex, col });
             cellRangeDraggingRef.current = true;
+            clearRowSelectionForCellRange();
             e.preventDefault();
         },
-        [cellRangeAnchor, shareViewParams.isShareView, shareViewParams.restrictCopy],
+        [cellRangeAnchor, shareViewParams.isShareView, shareViewParams.restrictCopy, tableCellSelectionEnabled],
     );
 
     const handleCellRangeMouseEnter = useCallback((e: React.MouseEvent, flatRowIndex: number, col: string) => {
@@ -663,8 +835,84 @@ export default function ConfigurableListTemplate({
         return () => window.removeEventListener('keydown', onKey);
     }, [clearCellRangeSelection]);
 
+    const openCellRangeCopyModal = useCallback(() => {
+        if (!tableCellSelectionEnabled) return;
+        if (shareViewParams.isShareView && shareViewParams.restrictCopy) return;
+        if (!cellRangeRect) return;
+        const cols = orderedVisibleCols.slice(cellRangeRect.c0, cellRangeRect.c1 + 1);
+        const slice = flatDataRowsForRange.slice(cellRangeRect.r0, cellRangeRect.r1 + 1) as Record<string, unknown>[];
+        if (cols.length === 0 || slice.length === 0) return;
+        setCellRangeGridCopy({ rows: slice, cols });
+    }, [
+        cellRangeRect,
+        orderedVisibleCols,
+        flatDataRowsForRange,
+        shareViewParams.isShareView,
+        shareViewParams.restrictCopy,
+        tableCellSelectionEnabled,
+    ]);
+
+    const captureSelectionAsPng = useCallback(async () => {
+        if (!tableCellSelectionEnabled) return;
+        if (shareViewParams.isShareView && shareViewParams.restrictCopy) return;
+        if (!cellRangeRect) return;
+        const cols = orderedVisibleCols.slice(cellRangeRect.c0, cellRangeRect.c1 + 1);
+        const slice = flatDataRowsForRange.slice(cellRangeRect.r0, cellRangeRect.r1 + 1) as Record<string, unknown>[];
+        if (cols.length === 0 || slice.length === 0) return;
+        const { html } = buildClipboardGridPayload(slice, cols, fieldMappings);
+        const wrap = document.createElement('div');
+        wrap.style.cssText =
+            'position:fixed;left:-10000px;top:0;background:#fff;padding:10px;box-sizing:border-box;';
+        wrap.innerHTML = html;
+        document.body.appendChild(wrap);
+        try {
+            const html2canvas = (await import('html2canvas')).default;
+            const canvas = await html2canvas(wrap, { backgroundColor: '#ffffff', scale: 2, logging: false });
+            document.body.removeChild(wrap);
+            const fname = `table-selection-${new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5)}.png`;
+            await new Promise<void>((resolve, reject) => {
+                canvas.toBlob(
+                    (blob) => {
+                        if (!blob) {
+                            reject(new Error('PNG blob failed'));
+                            return;
+                        }
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = fname;
+                        a.rel = 'noopener';
+                        document.body.appendChild(a);
+                        a.click();
+                        a.remove();
+                        URL.revokeObjectURL(url);
+                        window.alert(
+                            `Screenshot saved.\n\nFile name: ${fname}\n\nYour browser saved the file to your default download folder (on most systems this is the Downloads folder). The exact folder path is chosen by your browser and is not available to web apps for security reasons.`
+                        );
+                        resolve();
+                    },
+                    'image/png',
+                    0.95
+                );
+            });
+        } catch (e) {
+            if (wrap.parentNode) document.body.removeChild(wrap);
+            console.error(e);
+            window.alert('Could not create the screenshot. Try again or use Copy instead.');
+        }
+    }, [
+        cellRangeRect,
+        orderedVisibleCols,
+        flatDataRowsForRange,
+        fieldMappings,
+        shareViewParams.isShareView,
+        shareViewParams.restrictCopy,
+        tableCellSelectionEnabled,
+    ]);
+
     useEffect(() => {
         const onCopy = (e: ClipboardEvent) => {
+            if (!tableCellSelectionEnabled) return;
             if (shareViewParams.isShareView && shareViewParams.restrictCopy) return;
             const tgt = e.target;
             if (tgt instanceof HTMLInputElement || tgt instanceof HTMLTextAreaElement) return;
@@ -673,7 +921,7 @@ export default function ConfigurableListTemplate({
             if (cols.length === 0) return;
             const slice = flatDataRowsForRange.slice(cellRangeRect.r0, cellRangeRect.r1 + 1) as Record<string, unknown>[];
             if (slice.length === 0) return;
-            const { tsv, html } = buildCellRangeClipboard(slice, cols, fieldMappings);
+            const { tsv, html } = buildClipboardGridPayload(slice, cols, fieldMappings);
             e.preventDefault();
             e.clipboardData?.setData('text/plain', tsv);
             e.clipboardData?.setData('text/html', html);
@@ -687,6 +935,7 @@ export default function ConfigurableListTemplate({
         orderedVisibleCols,
         flatDataRowsForRange,
         fieldMappings,
+        tableCellSelectionEnabled,
     ]);
 
     const sortSignature = sortCriteria.map(s => `${s.column}-${s.order}`).join(',');
@@ -1904,6 +2153,7 @@ export default function ConfigurableListTemplate({
     };
 
     const toggleRowSelection = (index: number) => {
+        clearCellRangeSelection();
         setSelectedRows((prev) =>
             prev.includes(index)
                 ? prev.filter((i) => i !== index)
@@ -1912,6 +2162,7 @@ export default function ConfigurableListTemplate({
     };
 
     const handleSelectAllRows = () => {
+        clearCellRangeSelection();
         if (selectedRows.length === data.length) {
             setSelectedRows([]);
         } else {
@@ -1956,29 +2207,37 @@ export default function ConfigurableListTemplate({
     };
 
     // Row reordering functions
-    const handleRowDragStart = (e: React.DragEvent, index: number) => {
+    const handleRowDragStart = (e: React.DragEvent, displayIndex: number) => {
         if (!config.enableRowReorder) return;
-        setDraggedRowIndex(index);
+        setRowDragOverIndex(null);
+        setDraggedRowIndex(displayIndex);
         e.dataTransfer.effectAllowed = 'move';
     };
 
-    const handleRowDragOver = (e: React.DragEvent, index: number) => {
+    const handleRowDragOver = (e: React.DragEvent, displayIndex: number) => {
         if (!config.enableRowReorder || draggedRowIndex === null) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
+        setRowDragOverIndex(displayIndex);
     };
 
-    const handleRowDrop = (e: React.DragEvent, dropIndex: number) => {
+    const handleRowDrop = (e: React.DragEvent, dropDisplayIndex: number) => {
         if (!config.enableRowReorder || draggedRowIndex === null) return;
         e.preventDefault();
-        setRowOrder(prev => {
+        setRowOrder((prev) => {
             const order = prev ?? sortedData.map((_, i) => i);
             const next = [...order];
             const [removed] = next.splice(draggedRowIndex, 1);
-            next.splice(dropIndex, 0, removed);
+            next.splice(dropDisplayIndex, 0, removed);
             return next;
         });
         setDraggedRowIndex(null);
+        setRowDragOverIndex(null);
+    };
+
+    const handleRowDragEnd = () => {
+        setDraggedRowIndex(null);
+        setRowDragOverIndex(null);
     };
 
     // Column reordering functions
@@ -1988,15 +2247,16 @@ export default function ConfigurableListTemplate({
             e.preventDefault();
             return;
         }
+        setColumnDragOverIndex(null);
         setDraggedColumnIndex(index);
         e.dataTransfer.effectAllowed = 'move';
     };
-
 
     const handleColumnDragOver = (e: React.DragEvent, index: number) => {
         if (!config.enableColumnReorder || draggedColumnIndex === null) return;
         e.preventDefault();
         e.dataTransfer.dropEffect = 'move';
+        setColumnDragOverIndex(index);
     };
 
     const handleColumnDrop = (e: React.DragEvent, dropIndex: number) => {
@@ -2007,6 +2267,7 @@ export default function ConfigurableListTemplate({
         const toIdx = dropIndex;
         if (fromIdx < 0 || fromIdx >= orderedColumns.length || toIdx < 0 || toIdx >= orderedColumns.length || fromIdx === toIdx) {
             setDraggedColumnIndex(null);
+            setColumnDragOverIndex(null);
             return;
         }
         const draggedKey = orderedColumns[fromIdx];
@@ -2024,6 +2285,12 @@ export default function ConfigurableListTemplate({
             return next;
         });
         setDraggedColumnIndex(null);
+        setColumnDragOverIndex(null);
+    };
+
+    const handleColumnDragEnd = () => {
+        setDraggedColumnIndex(null);
+        setColumnDragOverIndex(null);
     };
 
 
@@ -2361,9 +2628,9 @@ export default function ConfigurableListTemplate({
         const badgeColumnKey = resolveCustomBadgeColumnKey(orderedVisibleCols, config.customRowBadgeColumn ?? null);
         const rowAccentColumnKey = resolveRowAccentColumnKey(orderedVisibleCols, badgeColumnKey);
 
-        if (groupedData) {
+        if (groupedDisplayData) {
             let flatRowCounter = 0;
-            return Object.entries(groupedData).map(([groupValue, groupRows]) => {
+            return Object.entries(groupedDisplayData).map(([groupValue, groupRows]) => {
                 const sortSignature = sortCriteria.map(s => `${s.column}-${s.order}`).join('|');
                 
                 return (
@@ -2385,38 +2652,51 @@ export default function ConfigurableListTemplate({
                         </td>
                     </tr>
                     {groupRows.map((row, groupRowIdx) => {
-                        const actualIndex = sortedData.findIndex((r) => {
-                            const rk = getTemplateRowIdentityKey(r as Record<string, unknown>);
-                            const rowK = getTemplateRowIdentityKey(row as Record<string, unknown>);
-                            if (rk != null && rowK != null && rk === rowK) return true;
-                            if (r.id && row.id && r.id === row.id) return true;
-                            if (r === row) return true;
-                            return JSON.stringify(r) === JSON.stringify(row);
-                        });
-                        const rowIndex = actualIndex >= 0 ? actualIndex : groupRowIdx;
-                        const sortSignature = sortCriteria.map(s => `${s.column}-${s.order}`).join('|');
+                        const flatRowIndex = flatRowCounter++;
+                        const sortedIdx = findSortedIndexForRow(row as Record<string, unknown>);
+                        const displayPos = findDisplayIndexForRow(row as Record<string, unknown>);
+                        const selectionIdx = sortedIdx >= 0 ? sortedIdx : -1;
                         const rowKey =
                             getTemplateRowIdentityKey(row as Record<string, unknown>) ??
                             `${groupValue}-${groupRowIdx}-${JSON.stringify(row).substring(0, 50)}`;
                         const stableRowKey = `${rowKey}-group-${groupValue}-${groupByColumn}-${sortSignature}`;
-                        const flatRowIndex = flatRowCounter++;
-                        
+                        const rowCanDrag = config.enableRowReorder && displayPos >= 0;
+                        const stripeIdx = displayPos >= 0 ? displayPos : groupRowIdx;
+                        const rowDropHighlight =
+                            config.enableRowReorder &&
+                            rowDragOverIndex !== null &&
+                            draggedRowIndex !== null &&
+                            displayPos >= 0 &&
+                            rowDragOverIndex === displayPos &&
+                            draggedRowIndex !== displayPos;
+
                         return (
                         <tr
                             key={stableRowKey}
                             className={cn(
                                 config.enableRowHoverHighlight ? 'hover:bg-gray-100 transition-colors group' : 'group',
-                                config.enableStripedRows && rowIndex % 2 === 1 && 'bg-gray-50',
+                                config.enableStripedRows && stripeIdx % 2 === 1 && 'bg-gray-50',
                                 config.enableRowDivider ? 'border-b border-gray-200' : 'border-b-0'
                             )}
-                            draggable={config.enableRowReorder}
-                            onDragStart={(e) => handleRowDragStart(e, rowIndex)}
-                            onDragOver={(e) => handleRowDragOver(e, rowIndex)}
-                            onDrop={(e) => handleRowDrop(e, rowIndex)}
+                            style={
+                                rowDropHighlight
+                                    ? { boxShadow: `inset 0 -2px 0 0 ${inlineEditHighlightColor}` }
+                                    : undefined
+                            }
+                            draggable={rowCanDrag}
+                            onDragStart={(e) => displayPos >= 0 && handleRowDragStart(e, displayPos)}
+                            onDragOver={(e) => displayPos >= 0 && handleRowDragOver(e, displayPos)}
+                            onDrop={(e) => displayPos >= 0 && handleRowDrop(e, displayPos)}
+                            onDragEnd={handleRowDragEnd}
                         >
                             {(config.enableRowSelection || config.enableRowNumber) && (() => {
                                 const checkboxFrozen = isCheckboxColumnFrozen();
-                                const rowBg = config.enableStripedRows && rowIndex % 2 === 1 ? 'rgb(249 250 251)' : 'white';
+                                const rowBg = config.enableStripedRows && stripeIdx % 2 === 1 ? 'rgb(249 250 251)' : 'white';
+                                const rowNum = (displayPos >= 0 ? displayPos : groupRowIdx) + 1;
+                                const cbRowRange = config.enableRowSelection
+                                    ? findCheckboxRowRangeForFlatRow(flatRowIndex, checkboxSelectionRanges)
+                                    : null;
+                                const checkSelHighlight = cbRowRange != null;
                                 return (
                                 <td 
                                     className={cn(
@@ -2428,16 +2708,30 @@ export default function ConfigurableListTemplate({
                                             config.freezePaneColumnIndexNo,
                                         ),
                                         !config.enableRowDivider ? '!border-b-0' : '',
+                                        checkSelHighlight && 'relative z-[1]',
                                     )}
                                     style={{
                                         width: checkboxColumnWidth ? `${checkboxColumnWidth}px` : 'auto',
                                         boxSizing: 'border-box',
-                                        ...(checkboxFrozen ? {
-                                            position: 'sticky',
-                                            left: '0px',
-                                            zIndex: FROZEN_BODY_Z_BASE,
-                                            backgroundColor: rowBg,
-                                        } : {})
+                                        ...(checkSelHighlight && cbRowRange
+                                            ? {
+                                                  boxShadow: checkboxLeadSelectionShadow(
+                                                      cbRowRange,
+                                                      flatRowIndex,
+                                                      inlineEditHighlightColor,
+                                                      SELECTION_GRID_LINE,
+                                                  ),
+                                                  backgroundColor: 'rgb(219 234 254)',
+                                              }
+                                            : {}),
+                                        ...(checkboxFrozen
+                                            ? {
+                                                  position: 'sticky',
+                                                  left: '0px',
+                                                  zIndex: FROZEN_BODY_Z_BASE,
+                                                  ...(checkSelHighlight && cbRowRange ? {} : { backgroundColor: rowBg }),
+                                              }
+                                            : {}),
                                     }}
                                 >
                                     {config.enableRowReorder && (
@@ -2450,19 +2744,19 @@ export default function ConfigurableListTemplate({
                                             <>
                                                 <input
                                                     type="checkbox"
-                                                    checked={selectedRows.includes(rowIndex)}
-                                                    onChange={() => toggleRowSelection(rowIndex)}
+                                                    checked={selectionIdx >= 0 && selectedRows.includes(selectionIdx)}
+                                                    onChange={() => selectionIdx >= 0 && toggleRowSelection(selectionIdx)}
                                                 />
-                                                <span className="text-xs text-gray-500 tabular-nums">{rowIndex + 1}</span>
+                                                <span className="text-xs text-gray-500 tabular-nums">{rowNum}</span>
                                             </>
                                         ) : config.enableRowSelection ? (
                                             <input
                                                 type="checkbox"
-                                                checked={selectedRows.includes(rowIndex)}
-                                                onChange={() => toggleRowSelection(rowIndex)}
+                                                checked={selectionIdx >= 0 && selectedRows.includes(selectionIdx)}
+                                                onChange={() => selectionIdx >= 0 && toggleRowSelection(selectionIdx)}
                                             />
                                         ) : config.enableRowNumber ? (
-                                            <span className="text-xs text-gray-500">{rowIndex + 1}</span>
+                                            <span className="text-xs text-gray-500">{rowNum}</span>
                                         ) : null}
                                     </div>
                                 </td>
@@ -2533,7 +2827,7 @@ export default function ConfigurableListTemplate({
                                                 (config.enableRowSelection || config.enableRowNumber) &&
                                                 isCheckboxColumnFrozen() &&
                                                 freezeIndex > 1));
-                                    const rowBg = config.enableStripedRows && rowIndex % 2 === 1 ? 'rgb(249 250 251)' : 'white';
+                                    const rowBg = config.enableStripedRows && stripeIdx % 2 === 1 ? 'rgb(249 250 251)' : 'white';
                                     const leftOffset = isFrozen ? getFreezeLeftOffset(colIndex) : 0;
                                     const cellValue = row[col]?.toString() || '-';
                                     const wrapMode = getCellWrapMode(col, config, columnWrapStates);
@@ -2553,11 +2847,30 @@ export default function ConfigurableListTemplate({
                                         showCustomBadge &&
                                         config.enableInlineEdit?.includes(col) &&
                                         inlineEditActiveKey === badgeInlineEditKey;
+                                    const cbRange = findRangeForDataCell(
+                                        flatRowIndex,
+                                        col,
+                                        orderedVisibleCols,
+                                        checkboxSelectionRanges,
+                                    );
+                                    const inCheckboxRange = cbRange != null && config.enableRowSelection;
                                     const inCellRange =
                                         cellRangeRect != null &&
                                         isCellInRangeRect(flatRowIndex, col, orderedVisibleCols, cellRangeRect);
                                     const showRangeHighlight =
-                                        inCellRange && activeInlineCellKey !== badgeInlineEditKey;
+                                        (inCellRange || inCheckboxRange) && activeInlineCellKey !== badgeInlineEditKey;
+                                    const shadowRect =
+                                        inCellRange && cellRangeRect
+                                            ? cellRangeRect
+                                            : inCheckboxRange
+                                              ? cbRange
+                                              : null;
+                                    const omitLeftExterior = Boolean(
+                                        shadowRect &&
+                                            inCheckboxRange &&
+                                            config.enableRowSelection &&
+                                            colIndex === shadowRect.c0,
+                                    );
 
                                     return (
                                     <td
@@ -2570,9 +2883,15 @@ export default function ConfigurableListTemplate({
                                             'px-4 py-2 text-sm text-gray-700 text-left align-top select-none',
                                             lightColDivider &&
                                                 (!isFrozen || !nextIsFrozen) &&
+                                                !showRangeHighlight &&
                                                 'border-r border-gray-200',
                                             showFrozenLeftDivider && 'freeze-col-light-l',
                                             !config.enableRowDivider ? '!border-b-0' : '',
+                                            showRangeHighlight &&
+                                                shadowRect &&
+                                                flatRowIndex < shadowRect.r1 &&
+                                                config.enableRowDivider &&
+                                                '!border-b-0',
                                             freezeEdgeDivider && 'freeze-pane-seam',
                                             tdClipOverflow && 'overflow-hidden',
                                             activeInlineCellKey === badgeInlineEditKey && 'relative z-[2]',
@@ -2588,12 +2907,16 @@ export default function ConfigurableListTemplate({
                                                       boxShadow: `inset 0 0 0 2px ${inlineEditHighlightColor}`,
                                                       backgroundColor: 'white',
                                                   }
-                                                : showRangeHighlight
+                                                : showRangeHighlight && shadowRect
                                                   ? {
-                                                        boxShadow: `inset 0 0 0 2px ${inlineEditHighlightColor}`,
-                                                        ...(isFrozen
-                                                            ? { backgroundColor: rowBg }
-                                                            : { backgroundColor: 'rgb(219 234 254)' }),
+                                                        boxShadow: composeDataCellSelectionShadow(
+                                                            shadowRect,
+                                                            flatRowIndex,
+                                                            colIndex,
+                                                            inlineEditHighlightColor,
+                                                            omitLeftExterior,
+                                                        ),
+                                                        backgroundColor: 'rgb(219 234 254)',
                                                     }
                                                   : {}),
                                             ...(isFrozen
@@ -2775,7 +3098,13 @@ export default function ConfigurableListTemplate({
                 `row-${actualIndex}-${JSON.stringify(row).substring(0, 50)}`;
             const stableRowKey = `${rowKey}-ungrouped-${sortSignature}`;
             const rowPositionKey = `${stableRowKey}-pos${idx}`;
-            
+            const rowDropHighlightUngrouped =
+                config.enableRowReorder &&
+                rowDragOverIndex !== null &&
+                draggedRowIndex !== null &&
+                rowDragOverIndex === idx &&
+                draggedRowIndex !== idx;
+
             return (
             <tr
                 key={rowPositionKey}
@@ -2784,14 +3113,24 @@ export default function ConfigurableListTemplate({
                     config.enableStripedRows && idx % 2 === 1 && 'bg-gray-50',
                     config.enableRowDivider ? 'border-b border-gray-200' : 'border-b-0'
                 )}
+                style={
+                    rowDropHighlightUngrouped
+                        ? { boxShadow: `inset 0 -2px 0 0 ${inlineEditHighlightColor}` }
+                        : undefined
+                }
                 draggable={config.enableRowReorder}
                 onDragStart={(e) => handleRowDragStart(e, idx)}
                 onDragOver={(e) => handleRowDragOver(e, idx)}
                 onDrop={(e) => handleRowDrop(e, idx)}
+                onDragEnd={handleRowDragEnd}
             >
                 {(config.enableRowSelection || config.enableRowNumber) && (() => {
                     const checkboxFrozen = isCheckboxColumnFrozen();
                     const rowBg = config.enableStripedRows && idx % 2 === 1 ? 'rgb(249 250 251)' : 'white';
+                    const cbRowRange = config.enableRowSelection
+                        ? findCheckboxRowRangeForFlatRow(idx, checkboxSelectionRanges)
+                        : null;
+                    const checkSelHighlight = cbRowRange != null;
                     return (
                     <td 
                         className={cn(
@@ -2803,16 +3142,30 @@ export default function ConfigurableListTemplate({
                                 config.freezePaneColumnIndexNo,
                             ),
                             !config.enableRowDivider ? '!border-b-0' : '',
+                            checkSelHighlight && 'relative z-[1]',
                         )}
                         style={{
                             width: checkboxColumnWidth ? `${checkboxColumnWidth}px` : 'auto',
                             boxSizing: 'border-box',
-                            ...(checkboxFrozen ? {
-                                position: 'sticky',
-                                left: '0px',
-                                zIndex: FROZEN_BODY_Z_BASE,
-                                backgroundColor: rowBg,
-                            } : {})
+                            ...(checkSelHighlight && cbRowRange
+                                ? {
+                                      boxShadow: checkboxLeadSelectionShadow(
+                                          cbRowRange,
+                                          idx,
+                                          inlineEditHighlightColor,
+                                          SELECTION_GRID_LINE,
+                                      ),
+                                      backgroundColor: 'rgb(219 234 254)',
+                                  }
+                                : {}),
+                            ...(checkboxFrozen
+                                ? {
+                                      position: 'sticky',
+                                      left: '0px',
+                                      zIndex: FROZEN_BODY_Z_BASE,
+                                      ...(checkSelHighlight && cbRowRange ? {} : { backgroundColor: rowBg }),
+                                  }
+                                : {}),
                         }}
                     >
                         {config.enableRowReorder && (
@@ -2929,11 +3282,30 @@ export default function ConfigurableListTemplate({
                                         showCustomBadge &&
                                         config.enableInlineEdit?.includes(col) &&
                                         inlineEditActiveKey === badgeInlineEditKey;
+                                    const cbRange = findRangeForDataCell(
+                                        idx,
+                                        col,
+                                        orderedVisibleCols,
+                                        checkboxSelectionRanges,
+                                    );
+                                    const inCheckboxRange = cbRange != null && config.enableRowSelection;
                                     const inCellRange =
                                         cellRangeRect != null &&
                                         isCellInRangeRect(idx, col, orderedVisibleCols, cellRangeRect);
                                     const showRangeHighlight =
-                                        inCellRange && activeInlineCellKey !== badgeInlineEditKey;
+                                        (inCellRange || inCheckboxRange) && activeInlineCellKey !== badgeInlineEditKey;
+                                    const shadowRect =
+                                        inCellRange && cellRangeRect
+                                            ? cellRangeRect
+                                            : inCheckboxRange
+                                              ? cbRange
+                                              : null;
+                                    const omitLeftExterior = Boolean(
+                                        shadowRect &&
+                                            inCheckboxRange &&
+                                            config.enableRowSelection &&
+                                            colIndex === shadowRect.c0,
+                                    );
 
                                     return (
                                     <td
@@ -2946,9 +3318,15 @@ export default function ConfigurableListTemplate({
                                             'px-4 py-2 text-sm text-gray-700 text-left align-top select-none',
                                             lightColDivider &&
                                                 (!isFrozen || !nextIsFrozen) &&
+                                                !showRangeHighlight &&
                                                 'border-r border-gray-200',
                                             showFrozenLeftDivider && 'freeze-col-light-l',
                                             !config.enableRowDivider ? '!border-b-0' : '',
+                                            showRangeHighlight &&
+                                                shadowRect &&
+                                                idx < shadowRect.r1 &&
+                                                config.enableRowDivider &&
+                                                '!border-b-0',
                                             freezeEdgeDivider && 'freeze-pane-seam',
                                             tdClipOverflow && 'overflow-hidden',
                                             activeInlineCellKey === badgeInlineEditKey && 'relative z-[2]',
@@ -2964,12 +3342,16 @@ export default function ConfigurableListTemplate({
                                                       boxShadow: `inset 0 0 0 2px ${inlineEditHighlightColor}`,
                                                       backgroundColor: 'white',
                                                   }
-                                                : showRangeHighlight
+                                                : showRangeHighlight && shadowRect
                                                   ? {
-                                                        boxShadow: `inset 0 0 0 2px ${inlineEditHighlightColor}`,
-                                                        ...(isFrozen
-                                                            ? { backgroundColor: rowBg }
-                                                            : { backgroundColor: 'rgb(219 234 254)' }),
+                                                        boxShadow: composeDataCellSelectionShadow(
+                                                            shadowRect,
+                                                            idx,
+                                                            colIndex,
+                                                            inlineEditHighlightColor,
+                                                            omitLeftExterior,
+                                                        ),
+                                                        backgroundColor: 'rgb(219 234 254)',
                                                     }
                                                   : {}),
                                             ...(isFrozen
@@ -3414,7 +3796,7 @@ export default function ConfigurableListTemplate({
         <div className="fade-in">
             {/* Print Consent Modal */}
             {showPrintConsent && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[1000]">
                     <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
                         <h2 className="text-xl font-bold text-gray-900 mb-4">Print Confirmation</h2>
                         <p className="text-gray-700 mb-6">
@@ -3441,7 +3823,7 @@ export default function ConfigurableListTemplate({
 
             {/* Export Consent Modal */}
             {showExportConsent && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[1000]">
                     <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
                         <h2 className="text-xl font-bold text-gray-900 mb-4">Export Confirmation</h2>
                         <p className="text-gray-700 mb-6">
@@ -3468,7 +3850,7 @@ export default function ConfigurableListTemplate({
 
             {/* Email Input Modal */}
             {showEmailInput && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[1000]">
                     <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
                         <h2 className="text-xl font-bold text-gray-900 mb-4">Send to Email</h2>
                         <p className="text-gray-700 mb-4">
@@ -3502,7 +3884,7 @@ export default function ConfigurableListTemplate({
 
             {/* Connector Export Confirmation Modal */}
             {showConnectorExportConfirm && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[1000]">
                     <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
                         <h2 className="text-xl font-bold text-gray-900 mb-4">Export to Connector</h2>
                         <p className="text-gray-700 mb-6">
@@ -3528,7 +3910,7 @@ export default function ConfigurableListTemplate({
 
             {/* Connector Import Confirmation Modal */}
             {showConnectorImportConfirm && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[1000]">
                     <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
                         <h2 className="text-xl font-bold text-gray-900 mb-4">Import from Connector</h2>
                         <p className="text-gray-700 mb-6">
@@ -3554,7 +3936,7 @@ export default function ConfigurableListTemplate({
 
             {/* Import Consent Modal */}
             {showImportConsent && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[1000]">
                     <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
                         <h2 className="text-xl font-bold text-gray-900 mb-4">Import Confirmation</h2>
                         <p className="text-gray-700 mb-6">
@@ -3582,7 +3964,7 @@ export default function ConfigurableListTemplate({
 
             {/* Import Field Mapping Modal */}
             {showImportMapping && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-[1000]">
                     <div className="bg-white rounded-lg shadow-xl p-6 max-w-4xl w-full mx-4 max-h-[85vh] overflow-y-auto">
                         <h2 className="text-xl font-bold text-gray-900 mb-4">Map Import Fields</h2>
                         <p className="text-sm text-gray-600 mb-4">
@@ -3702,7 +4084,7 @@ export default function ConfigurableListTemplate({
                                             </button>
 
                                             {showPresetDropdown && (
-                                                <div className="absolute top-full right-0 mt-1 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-50">
+                                                <div className="absolute top-full right-0 mt-1 w-48 bg-white border border-gray-200 rounded-md shadow-lg z-[800]">
                                                     <div className="py-1">
                                                         {presets.map((preset) => (
                                                             <button
@@ -3732,6 +4114,33 @@ export default function ConfigurableListTemplate({
                             )}
                         </div>
                     </div>
+                </div>
+            )}
+
+            {tableCellSelectionEnabled &&
+                cellRangeRect &&
+                !(shareViewParams.isShareView && shareViewParams.restrictCopy) && (
+                <div
+                    className="pointer-events-auto fixed bottom-6 left-1/2 z-[540] flex -translate-x-1/2 items-center gap-0.5 rounded-lg border border-gray-200 bg-white/95 px-1.5 py-1 shadow-lg backdrop-blur-sm"
+                    role="toolbar"
+                    aria-label="Cell selection actions"
+                >
+                    <button
+                        type="button"
+                        className="rounded-md p-2 text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                        title="Copy selection — choose format (plain, HTML, Markdown)"
+                        onClick={() => openCellRangeCopyModal()}
+                    >
+                        <Copy size={18} strokeWidth={2} aria-hidden />
+                    </button>
+                    <button
+                        type="button"
+                        className="rounded-md p-2 text-gray-600 hover:bg-gray-100 hover:text-gray-900"
+                        title="Save selection as PNG to your downloads"
+                        onClick={() => void captureSelectionAsPng()}
+                    >
+                        <Camera size={18} strokeWidth={2} aria-hidden />
+                    </button>
                 </div>
             )}
 
@@ -4011,8 +4420,7 @@ export default function ConfigurableListTemplate({
                                                         headerCellRefs.current[col] = el;
                                                     }}
                                                     className={cn(
-                                                        "px-4 py-2 text-left cursor-pointer relative group",
-                                                        activeResizeColumn === col && 'ring-1 ring-blue-400',
+                                                        'px-4 py-2 text-left cursor-pointer relative group',
                                                         lightColDivider &&
                                                             (!isFrozen || !nextIsFrozen) &&
                                                             'border-r border-gray-200',
@@ -4036,13 +4444,26 @@ export default function ConfigurableListTemplate({
                                                             zIndex:
                                                                 tableFreezeColumnEnabled ? 27 : 28,
                                                             backgroundColor: 'rgb(249 250 251)',
-                                                        } : {})
+                                                        } : {}),
+                                                        ...(activeResizeColumn === col
+                                                            ? {
+                                                                  boxShadow: `inset -2px 0 0 0 ${inlineEditHighlightColor}`,
+                                                              }
+                                                            : config.enableColumnReorder &&
+                                                                columnDragOverIndex === colIndex &&
+                                                                draggedColumnIndex !== null &&
+                                                                draggedColumnIndex !== colIndex
+                                                              ? {
+                                                                    boxShadow: `inset 2px 0 0 0 ${inlineEditHighlightColor}`,
+                                                                }
+                                                              : {}),
                                                     }}
                                                     onClick={() => handleSort(col)}
                                                     draggable={config.enableColumnReorder && activeResizeColumn === null}
                                                     onDragStart={(e) => handleColumnDragStart(e, colIndex)}
                                                     onDragOver={(e) => handleColumnDragOver(e, colIndex)}
                                                     onDrop={(e) => handleColumnDrop(e, colIndex)}
+                                                    onDragEnd={handleColumnDragEnd}
                                                 >
                                                     <div className="flex items-center pr-6" title={config.enableTooltips === true ? (fieldMappings[col] ?? col) : undefined}>
                                                         {config.enableColumnReorder && (
@@ -4074,10 +4495,8 @@ export default function ConfigurableListTemplate({
                                                     )}
                                                     {config.enableColumnResize && (
                                                         <div
-                                                            className={cn(
-                                                                "absolute top-0 right-0 h-full w-3 cursor-col-resize z-[5]",
-                                                                activeResizeColumn === col && 'bg-blue-400/30'
-                                                            )}
+                                                            className="absolute top-0 right-0 h-full w-3 cursor-col-resize z-[5]"
+                                                            aria-hidden
                                                             onMouseDown={(e) => handleMouseDown(e, col)}
                                                         />
                                                     )}
@@ -4155,7 +4574,7 @@ export default function ConfigurableListTemplate({
                     .filter((r): r is Record<string, unknown> => r != null) as Record<string, unknown>[];
                 const bulkOl = objectLoaderCrud;
                 return (
-                <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-white border border-gray-200 rounded-lg shadow-lg p-4 z-50">
+                <div className="fixed bottom-4 left-1/2 transform -translate-x-1/2 bg-white border border-gray-200 rounded-lg shadow-lg p-4 z-[520]">
                     <div className="flex items-center space-x-4">
                         <span className="text-sm text-gray-600">
                             {selectedRows.length} item{selectedRows.length !== 1 ? 's' : ''} selected
@@ -4328,6 +4747,19 @@ export default function ConfigurableListTemplate({
                 fieldMappings={fieldMappings}
                 tableQueryState={tableQueryStateForModal}
             />
+
+            {cellRangeGridCopy && (
+                <CopyGridClipboardModal
+                    rows={cellRangeGridCopy.rows}
+                    fieldMappings={fieldMappings}
+                    columnOrder={columnOrder}
+                    visibleColumns={visibleColumns}
+                    columnKeysOverride={cellRangeGridCopy.cols}
+                    title="Copy selection"
+                    helperText="Column labels are included as the first row of the copied table. Choose a clipboard format below."
+                    onClose={() => setCellRangeGridCopy(null)}
+                />
+            )}
 
         </div>
     );

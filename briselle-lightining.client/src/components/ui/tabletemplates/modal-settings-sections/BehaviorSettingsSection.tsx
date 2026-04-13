@@ -115,9 +115,9 @@ const BehaviorSettingsSection: React.FC<BehaviorSettingsSectionProps> = ({
                 <h3 className="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">Behavior Settings</h3>
             </div>
 
-            {/* Row Selection Controls - table-like rows */}
+            {/* Selection controls (row + cell range) */}
             <CollapsibleSection
-                title="Row Selection Controls"
+                title="Selection controls"
                 open={open.selection ?? false}
                 onToggle={toggle('selection')}
                 fontSize={modalHeaderFontSize}
@@ -126,6 +126,13 @@ const BehaviorSettingsSection: React.FC<BehaviorSettingsSectionProps> = ({
                     <div className={tableRowClass}>
                         <span className="text-sm font-medium text-gray-700">Enable Row Selection</span>
                         <Toggle checked={!!config.enableRowSelection} onChange={(v) => onChange('enableRowSelection', v)} />
+                    </div>
+                    <div className={tableRowClass}>
+                        <span className="text-sm font-medium text-gray-700">Select table cells (rows and columns)</span>
+                        <Toggle
+                            checked={config.enableTableCellSelection !== false}
+                            onChange={(v) => onChange('enableTableCellSelection', v)}
+                        />
                     </div>
                     {config.enableRowSelection && (
                         <div className="grid grid-cols-[auto_auto_auto_auto_auto_auto] gap-x-3 py-1.5 items-center">

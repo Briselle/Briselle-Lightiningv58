@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useId, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ExternalLink, Edit, Copy, Trash2, ChevronDown, X } from 'lucide-react';
 import { supabase } from '../../../utils/supabase';
 import { cn } from '../../../utils/helpers';
+import { buildClipboardGridPayload } from './utils/clipboardGridTable';
 
 export interface ObjectLoaderCrudOptions {
     sourceTable: string;
@@ -143,16 +144,6 @@ export function formatDisplayValue(v: unknown): string {
     return String(v);
 }
 
-function getVisibleCopyKeys(
-    row: Record<string, unknown>,
-    visibleColumns: string[],
-    fieldMappings: Record<string, string>
-): string[] {
-    return visibleColumns.filter(
-        (k) => fieldMappings[k] != null && Object.prototype.hasOwnProperty.call(row, k)
-    );
-}
-
 export function buildCopyPlain(
     keys: string[],
     row: Record<string, unknown>,
@@ -175,50 +166,6 @@ export function buildCopyTable(
     return lines.join('\n');
 }
 
-function buildCopyPlainMulti(
-    rows: Record<string, unknown>[],
-    fieldMappings: Record<string, string>,
-    columnOrder: string[],
-    keyMode: 'visible' | 'all',
-    visibleColumns: string[],
-    idColumn: string
-): string {
-    const parts: string[] = [];
-    rows.forEach((row, i) => {
-        const id = resolveRowRecordId(row, idColumn);
-        const keys =
-            keyMode === 'visible'
-                ? getVisibleCopyKeys(row, visibleColumns, fieldMappings)
-                : getOrderedRecordKeys(row, fieldMappings, columnOrder);
-        parts.push(`--- Record ${i + 1} (${idColumn}: ${id ?? '?'}) ---`);
-        parts.push(buildCopyPlain(keys, row, fieldMappings));
-        parts.push('');
-    });
-    return parts.join('\n').trim();
-}
-
-function buildCopyTableMulti(
-    rows: Record<string, unknown>[],
-    fieldMappings: Record<string, string>,
-    columnOrder: string[],
-    keyMode: 'visible' | 'all',
-    visibleColumns: string[],
-    idColumn: string
-): string {
-    const parts: string[] = [];
-    rows.forEach((row, i) => {
-        const id = resolveRowRecordId(row, idColumn);
-        const keys =
-            keyMode === 'visible'
-                ? getVisibleCopyKeys(row, visibleColumns, fieldMappings)
-                : getOrderedRecordKeys(row, fieldMappings, columnOrder);
-        parts.push(`### Record ${i + 1} (${idColumn}: ${id ?? '?'})`);
-        parts.push(buildCopyTable(keys, row, fieldMappings));
-        parts.push('');
-    });
-    return parts.join('\n').trim();
-}
-
 function mergeReadOnlyKeys(idColumn: string, extra?: string[]): Set<string> {
     const s = new Set<string>([idColumn, ...(extra ?? [])]);
     return s;
@@ -231,53 +178,30 @@ function mergeReadOnlyKeysForEdit(crud: ObjectLoaderCrudOptions): Set<string> {
     return mergeReadOnlyKeys(crud.idColumn, extra);
 }
 
-type CopyScope = 'visible_plain' | 'visible_table' | 'all_plain' | 'all_table';
-
-function copyPayload(
-    scope: CopyScope,
-    row: Record<string, unknown>,
-    fieldMappings: Record<string, string>,
-    columnOrder: string[],
-    visibleColumns: string[]
-): { keys: string[]; text: string } {
-    const ordered = getOrderedRecordKeys(row, fieldMappings, columnOrder);
-    const allKeys = ordered;
-    const visKeys = getVisibleCopyKeys(row, visibleColumns, fieldMappings);
-    if (scope === 'visible_plain') {
-        return { keys: visKeys, text: buildCopyPlain(visKeys, row, fieldMappings) };
-    }
-    if (scope === 'visible_table') {
-        return { keys: visKeys, text: buildCopyTable(visKeys, row, fieldMappings) };
-    }
-    if (scope === 'all_plain') {
-        return { keys: allKeys, text: buildCopyPlain(allKeys, row, fieldMappings) };
-    }
-    return { keys: allKeys, text: buildCopyTable(allKeys, row, fieldMappings) };
-}
-
-function copyPayloadMulti(
-    scope: CopyScope,
-    rows: Record<string, unknown>[],
-    fieldMappings: Record<string, string>,
-    columnOrder: string[],
-    visibleColumns: string[],
-    idColumn: string
-): string {
-    if (rows.length === 0) return '';
-    if (scope === 'visible_plain') {
-        return buildCopyPlainMulti(rows, fieldMappings, columnOrder, 'visible', visibleColumns, idColumn);
-    }
-    if (scope === 'visible_table') {
-        return buildCopyTableMulti(rows, fieldMappings, columnOrder, 'visible', visibleColumns, idColumn);
-    }
-    if (scope === 'all_plain') {
-        return buildCopyPlainMulti(rows, fieldMappings, columnOrder, 'all', visibleColumns, idColumn);
-    }
-    return buildCopyTableMulti(rows, fieldMappings, columnOrder, 'all', visibleColumns, idColumn);
-}
-
 async function copyToClipboard(text: string): Promise<void> {
     await navigator.clipboard.writeText(text);
+}
+
+/** Match cell-range toolbar: TSV + HTML for rich paste (Excel, Word, mail). */
+async function copyTsvAndHtmlToClipboard(tsv: string, html: string): Promise<void> {
+    try {
+        if (typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
+            await navigator.clipboard.write([
+                new ClipboardItem({
+                    'text/plain': new Blob([tsv], { type: 'text/plain' }),
+                    'text/html': new Blob([html], { type: 'text/html' }),
+                }),
+            ]);
+            return;
+        }
+    } catch {
+        /* fall through */
+    }
+    try {
+        await navigator.clipboard.writeText(tsv);
+    } catch {
+        await copyToClipboard(html);
+    }
 }
 
 // ——— Row actions bar (replaces duplicated Link/button blocks) ———
@@ -507,7 +431,7 @@ function ModalFrame({
     onClose: () => void;
 }) {
     return (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/40" role="dialog" aria-modal="true">
+        <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/40" role="dialog" aria-modal="true">
             <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] flex flex-col border border-gray-200">
                 <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
                     <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
@@ -569,16 +493,12 @@ export function ObjectLoaderRecordModals({
 
     if (state.type === 'copy' || state.type === 'bulk_copy') {
         const rows = state.type === 'copy' ? [state.row] : state.rows;
-        const primaryRow = rows[0] ?? {};
         return (
-            <CopyModalBody
-                row={primaryRow}
+            <CopyGridClipboardModal
                 rows={rows}
-                isBulk={state.type === 'bulk_copy'}
                 fieldMappings={fieldMappings}
                 columnOrder={columnOrder}
                 visibleColumns={visibleColumns}
-                idColumn={crud.idColumn}
                 onClose={onClose}
             />
         );
@@ -751,38 +671,66 @@ function RecordViewTable({
     );
 }
 
-function CopyModalBody({
-    row,
-    rows,
-    isBulk,
-    fieldMappings,
-    columnOrder,
-    visibleColumns,
-    idColumn,
-    onClose,
-}: {
-    row: Record<string, unknown>;
+type GridCopyFormat = 'plain' | 'html' | 'markdown';
+
+export type CopyGridClipboardModalProps = {
     rows: Record<string, unknown>[];
-    isBulk: boolean;
     fieldMappings: Record<string, string>;
     columnOrder: string[];
     visibleColumns: string[];
-    idColumn: string;
+    /** When set (e.g. rectangular cell selection), these keys define columns in order. */
+    columnKeysOverride?: string[];
+    title?: string;
+    helperText?: string;
     onClose: () => void;
-}) {
-    const [scope, setScope] = useState<CopyScope>('visible_plain');
+};
+
+/**
+ * Grid copy UI: plain TSV, HTML+TSV clipboard, or Markdown — shared by row/bulk copy and cell-range toolbar.
+ */
+export function CopyGridClipboardModal({
+    rows,
+    fieldMappings,
+    columnOrder,
+    visibleColumns,
+    columnKeysOverride,
+    title: titleProp,
+    helperText,
+    onClose,
+}: CopyGridClipboardModalProps) {
+    const formatRadioName = useId();
+    const [gridFormat, setGridFormat] = useState<GridCopyFormat>('plain');
     const [copied, setCopied] = useState(false);
 
-    const preview = useMemo(() => {
-        if (isBulk) {
-            return copyPayloadMulti(scope, rows, fieldMappings, columnOrder, visibleColumns, idColumn);
+    const gridCols = useMemo(() => {
+        if (columnKeysOverride && columnKeysOverride.length > 0) {
+            return columnKeysOverride.filter((c) => fieldMappings[c] != null);
         }
-        return copyPayload(scope, row, fieldMappings, columnOrder, visibleColumns).text;
-    }, [isBulk, scope, row, rows, fieldMappings, columnOrder, visibleColumns, idColumn]);
+        return columnOrder.filter((c) => visibleColumns.includes(c) && fieldMappings[c] != null);
+    }, [columnKeysOverride, columnOrder, visibleColumns, fieldMappings]);
+
+    const gridPayload = useMemo(() => {
+        if (rows.length === 0 || gridCols.length === 0) return null;
+        return buildClipboardGridPayload(rows, gridCols, fieldMappings);
+    }, [rows, gridCols, fieldMappings]);
+
+    const preview = useMemo(() => {
+        if (!gridPayload) return '';
+        if (gridFormat === 'plain') return gridPayload.tsv;
+        if (gridFormat === 'html') return gridPayload.html;
+        return gridPayload.markdown;
+    }, [gridPayload, gridFormat]);
 
     const handleCopy = async () => {
+        if (!gridPayload) return;
         try {
-            await copyToClipboard(preview);
+            if (gridFormat === 'html') {
+                await copyTsvAndHtmlToClipboard(gridPayload.tsv, gridPayload.html);
+            } else if (gridFormat === 'markdown') {
+                await copyToClipboard(gridPayload.markdown);
+            } else {
+                await copyToClipboard(gridPayload.tsv);
+            }
             setCopied(true);
             setTimeout(() => setCopied(false), 2000);
         } catch {
@@ -790,9 +738,16 @@ function CopyModalBody({
         }
     };
 
+    const title =
+        titleProp ?? (rows.length === 1 ? 'Copy record' : `Copy ${rows.length} records`);
+
+    const blurb =
+        helperText ??
+        'Visible columns only, same grid as cell selection copy (headers included). Choose format:';
+
     return (
         <ModalFrame
-            title={isBulk ? `Copy ${rows.length} records` : 'Copy record'}
+            title={title}
             onClose={onClose}
             footer={
                 <>
@@ -801,8 +756,9 @@ function CopyModalBody({
                     </button>
                     <button
                         type="button"
-                        className="px-4 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700"
+                        className="px-4 py-2 text-sm rounded-md bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-40"
                         onClick={handleCopy}
+                        disabled={!gridPayload}
                     >
                         {copied ? 'Copied!' : 'Copy to clipboard'}
                     </button>
@@ -810,44 +766,54 @@ function CopyModalBody({
             }
         >
             <div className="space-y-4 text-sm text-gray-800">
+                <p className="text-xs text-gray-600">{blurb}</p>
                 <fieldset className="space-y-2">
-                    <legend className="font-semibold text-gray-900 mb-2">Visible fields</legend>
+                    <legend className="font-semibold text-gray-900 mb-2">Format</legend>
                     <label className="flex items-center gap-2 cursor-pointer">
                         <input
                             type="radio"
-                            name="copyScope"
-                            checked={scope === 'visible_plain'}
-                            onChange={() => setScope('visible_plain')}
+                            name={formatRadioName}
+                            checked={gridFormat === 'plain'}
+                            onChange={() => setGridFormat('plain')}
                         />
-                        Plain text
+                        Option 1 — Plain text (tab-separated)
                     </label>
-                    <label className="flex items-center gap-2 cursor-pointer ml-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
                         <input
                             type="radio"
-                            name="copyScope"
-                            checked={scope === 'visible_table'}
-                            onChange={() => setScope('visible_table')}
+                            name={formatRadioName}
+                            checked={gridFormat === 'html'}
+                            onChange={() => setGridFormat('html')}
                         />
-                        Table (markdown)
+                        Option 2 — HTML table (TSV + HTML on clipboard for Excel / Word / email)
                     </label>
-                </fieldset>
-                <fieldset className="space-y-2 pt-2 border-t border-gray-100">
-                    <legend className="font-semibold text-gray-900 mb-2">All fields</legend>
-                    <p className="text-xs text-gray-500 mb-2">Everything on the loaded row{isBulk ? 's' : ''}, including columns hidden in the grid.</p>
                     <label className="flex items-center gap-2 cursor-pointer">
-                        <input type="radio" name="copyScope" checked={scope === 'all_plain'} onChange={() => setScope('all_plain')} />
-                        Plain text
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer ml-4">
-                        <input type="radio" name="copyScope" checked={scope === 'all_table'} onChange={() => setScope('all_table')} />
-                        Table (markdown)
+                        <input
+                            type="radio"
+                            name={formatRadioName}
+                            checked={gridFormat === 'markdown'}
+                            onChange={() => setGridFormat('markdown')}
+                        />
+                        Option 3 — Table (Markdown)
                     </label>
                 </fieldset>
+                {!gridPayload && (
+                    <p className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded px-3 py-2">
+                        No visible columns to copy. Show at least one column in the grid.
+                    </p>
+                )}
                 <div>
                     <div className="text-xs font-medium text-gray-500 mb-1">Preview</div>
-                    <pre className="text-xs bg-gray-50 border border-gray-200 rounded p-3 max-h-48 overflow-auto whitespace-pre-wrap">
-                        {preview}
-                    </pre>
+                    {gridFormat === 'html' && gridPayload ? (
+                        <div
+                            className="copy-grid-html-preview text-xs bg-white border border-gray-200 rounded p-3 max-h-48 overflow-auto [&_table]:border-collapse [&_table]:w-full [&_td]:border [&_td]:border-gray-200 [&_td]:p-2 [&_th]:border [&_th]:border-gray-200 [&_th]:p-2 [&_th]:bg-gray-50"
+                            dangerouslySetInnerHTML={{ __html: gridPayload.html }}
+                        />
+                    ) : (
+                        <pre className="text-xs bg-gray-50 border border-gray-200 rounded p-3 max-h-48 overflow-auto whitespace-pre-wrap">
+                            {preview}
+                        </pre>
+                    )}
                 </div>
             </div>
         </ModalFrame>

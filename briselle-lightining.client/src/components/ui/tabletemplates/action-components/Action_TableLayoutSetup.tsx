@@ -89,6 +89,7 @@ const Action_TableLayoutSetup: React.FC<Action_TableLayoutSetupProps> = ({
     const setColumnHover = (v: boolean) => update({ enableColumnHover: v });
     const setRowNumber = (v: boolean) => update({ enableRowNumber: v });
     const setRowSelection = (v: boolean) => update({ enableRowSelection: v });
+    const setTableCellSelection = (v: boolean) => update({ enableTableCellSelection: v });
     const setRowActions = (v: boolean) => update({ enableRowActions: v });
     const setTableView = (value: string) => update({ tableView: value });
     const setTableBackgroundColor = (value: string) => update({ tableBackgroundColor: value });
@@ -147,6 +148,13 @@ const Action_TableLayoutSetup: React.FC<Action_TableLayoutSetupProps> = ({
                             {matrixRow('Hover Highlight', <Toggle checked={!!cfg.enableRowHoverHighlight} onChange={setRowHover} />, <Toggle checked={!!cfg.enableColumnHover} onChange={setColumnHover} />)}
                             {matrixRow('Row Numbers', <Toggle checked={!!cfg.enableRowNumber} onChange={setRowNumber} />)}
                             {matrixRow('Row Selection', <Toggle checked={!!cfg.enableRowSelection} onChange={setRowSelection} />)}
+                            {matrixRow(
+                                'Cell selection (range)',
+                                <Toggle
+                                    checked={cfg.enableTableCellSelection !== false}
+                                    onChange={setTableCellSelection}
+                                />,
+                            )}
                             {matrixRow('Row Actions', <Toggle checked={!!cfg.enableRowActions} onChange={setRowActions} />)}
                             {matrixRow('Table Background', tableBgToggle)}
                             {cfg.tableBackground && (

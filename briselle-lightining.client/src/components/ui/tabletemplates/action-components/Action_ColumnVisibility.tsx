@@ -5,7 +5,7 @@ import { cn } from '../../../../utils/helpers';
 const MIN_COL_PX = 80;
 const MAX_COL_PX = 4000;
 
-/** Lets users type multi-digit widths; commits valid range on change when complete, clamps on blur. */
+/** Width in px; placeholder “Auto” when empty. Unit “px” to the right of the input. */
 const ColumnWidthPxInput: React.FC<{
     colKey: string;
     widthPx?: number;
@@ -18,46 +18,57 @@ const ColumnWidthPxInput: React.FC<{
     }, [widthPx, colKey]);
 
     return (
-        <input
-            type="number"
-            min={MIN_COL_PX}
-            max={MAX_COL_PX}
-            placeholder="Auto"
-            className="w-[4.25rem] border border-gray-300 rounded px-1 py-0.5 text-xs text-gray-800"
-            value={text}
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) => {
-                e.stopPropagation();
-                const v = e.target.value;
-                setText(v);
-                const t = v.trim();
-                if (t === '') {
-                    onCommit(null);
-                    return;
-                }
-                const n = Number(t);
-                if (Number.isFinite(n) && n >= MIN_COL_PX && n <= MAX_COL_PX) {
-                    onCommit(Math.round(n));
-                }
-            }}
-            onBlur={() => {
-                const t = text.trim();
-                if (!t) {
-                    onCommit(null);
-                    setText('');
-                    return;
-                }
-                const n = Number(t);
-                if (!Number.isFinite(n)) {
-                    setText(widthPx != null ? String(widthPx) : '');
-                    return;
-                }
-                const c = Math.min(MAX_COL_PX, Math.max(MIN_COL_PX, Math.round(n)));
-                setText(String(c));
-                onCommit(c);
-            }}
-            title="Column width in pixels; leave empty for auto"
-        />
+        <div className="flex flex-row items-center gap-0.5 shrink-0">
+            <input
+                type="number"
+                min={MIN_COL_PX}
+                max={MAX_COL_PX}
+                placeholder="Auto"
+                className={cn(
+                    'h-[1.375rem] w-[2.592rem] min-w-[2.592rem] shrink-0 rounded border border-gray-300 bg-white px-1 py-0',
+                    'text-xs tabular-nums text-gray-800 text-center outline-none ring-0 focus:border-gray-400 focus:ring-1 focus:ring-gray-300',
+                    'placeholder:text-gray-400 placeholder:font-normal',
+                    '[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
+                )}
+                value={text}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                    e.stopPropagation();
+                    const v = e.target.value;
+                    setText(v);
+                    const t = v.trim();
+                    if (t === '') {
+                        onCommit(null);
+                        return;
+                    }
+                    const n = Number(t);
+                    if (Number.isFinite(n) && n >= MIN_COL_PX && n <= MAX_COL_PX) {
+                        onCommit(Math.round(n));
+                    }
+                }}
+                onBlur={() => {
+                    const t = text.trim();
+                    if (!t) {
+                        onCommit(null);
+                        setText('');
+                        return;
+                    }
+                    const n = Number(t);
+                    if (!Number.isFinite(n)) {
+                        setText(widthPx != null ? String(widthPx) : '');
+                        return;
+                    }
+                    const c = Math.min(MAX_COL_PX, Math.max(MIN_COL_PX, Math.round(n)));
+                    setText(String(c));
+                    onCommit(c);
+                }}
+                title="Automatic column width when empty. Or enter pixels (80–4000)."
+                aria-label="Column width in pixels; leave empty for automatic width"
+            />
+            <span className="text-xs text-gray-600 whitespace-nowrap leading-none" title="pixels">
+                px
+            </span>
+        </div>
     );
 };
 
@@ -71,6 +82,8 @@ interface Action_ColumnVisibilityProps {
     visibleColumns: string[];
     onActiveColumnsChange: (columns: string[]) => void;
     onVisibleColumnsChange: (columns: string[]) => void;
+    columnWidths: Record<string, number>;
+    onColumnWidthsChange: Dispatch<SetStateAction<Record<string, number>>>;
 }
 
 const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
@@ -251,7 +264,7 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
             {showColumnDropdown && (
                 <div
                     className={cn(
-                        "absolute top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-72",
+                        'absolute top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-[22.4rem] max-w-[95vw]',
                         columnVisibilityButtonAlign === 'left' ? 'left-0' : 'right-0'
                     )}
                     onMouseDown={(e) => e.stopPropagation()}
@@ -326,24 +339,21 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
                                     return (
                                         <div
                                             key={key}
-                                            className="flex items-center gap-2 p-2 bg-blue-50 rounded min-w-0"
+                                            className="flex items-start gap-2 p-2 bg-blue-50 rounded min-w-0"
                                         >
-                                            <span className="text-sm text-blue-700 flex-1 min-w-0 truncate shrink">
+                                            <span className="text-sm text-blue-700 min-w-0 flex-1 break-words [overflow-wrap:anywhere] leading-snug pr-1">
                                                 {fieldMappings[key] ?? key}
                                             </span>
 
-                                            <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                                            <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end self-start pt-0.5">
                                                 {isVisible ? (
-                                                    <label className="flex items-center gap-0.5 text-xs text-gray-600 whitespace-nowrap">
-                                                        <span>px</span>
-                                                        <ColumnWidthPxInput
-                                                            colKey={key}
-                                                            widthPx={columnWidths[key]}
-                                                            onCommit={(px) => commitWidthForKey(key, px)}
-                                                        />
-                                                    </label>
+                                                    <ColumnWidthPxInput
+                                                        colKey={key}
+                                                        widthPx={columnWidths[key]}
+                                                        onCommit={(px) => commitWidthForKey(key, px)}
+                                                    />
                                                 ) : (
-                                                    <span className="text-xs text-gray-400 w-[4.25rem] text-center">
+                                                    <span className="text-xs text-gray-400 w-[3.42rem] shrink-0 text-center leading-[1.375rem]">
                                                         —
                                                     </span>
                                                 )}

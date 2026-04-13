@@ -186,6 +186,13 @@ const LayoutSettingsSection: React.FC<LayoutSettingsSectionProps> = ({
                     {matrixRow('Hover Highlight', <Toggle checked={!!config.enableRowHoverHighlight} onChange={(v) => onChange('enableRowHoverHighlight', v)} />, <Toggle checked={!!config.enableColumnHover} onChange={(v) => onChange('enableColumnHover', v)} />)}
                     {matrixRow('Row Numbers', <Toggle checked={!!config.enableRowNumber} onChange={(v) => onChange('enableRowNumber', v)} />)}
                     {matrixRow('Row Selection', <Toggle checked={!!config.enableRowSelection} onChange={(v) => onChange('enableRowSelection', v)} />)}
+                    {matrixRow(
+                        'Cell selection (range)',
+                        <Toggle
+                            checked={config.enableTableCellSelection !== false}
+                            onChange={(v) => onChange('enableTableCellSelection', v)}
+                        />,
+                    )}
                     {matrixRow('Row Actions', <Toggle checked={!!config.enableRowActions} onChange={(v) => onChange('enableRowActions', v)} />)}
                     {matrixRow('Table Background', <Toggle checked={!!config.tableBackground} onChange={(v) => onChange('tableBackground', v)} />)}
                     {config.tableBackground && (
