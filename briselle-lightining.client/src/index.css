@@ -301,6 +301,15 @@
     @apply text-xs;
   }
 
+  .data-table.max-compact {
+    @apply text-[11px];
+  }
+
+  .data-table.max-compact th,
+  .data-table.max-compact td {
+    @apply px-1 py-0.5;
+  }
+
   .data-table.compact th,
   .data-table.compact td {
     @apply px-2 py-1;

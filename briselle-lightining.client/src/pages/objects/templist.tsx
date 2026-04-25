@@ -2,6 +2,7 @@ import ConfigurableListTemplate, { TableConfig } from "../../components/ui/table
 import { resolveObjectLoaderCrudDefaults } from "../../components/ui/tabletemplates/objectLoaderRecordModals";
 import { supabase } from '../../utils/supabase';
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
     buildDobjFieldMappings,
     buildDobjObjectLoaderCrud,
@@ -197,8 +198,47 @@ export default function TempList() {
         }
         setLoading(false);
     };
-</think>
 
+    const navigate = useNavigate();
 
-<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>
-Read
+    useEffect(() => {
+        void fetchEntities();
+    }, []);
+
+    useEffect(() => {
+        const savedConfig = localStorage.getItem("tableConfig");
+        if (savedConfig) {
+            try {
+                const parsedConfig = JSON.parse(savedConfig) as Partial<TableConfig>;
+                setConfig({ ...defaultConfig, ...parsedConfig });
+            } catch (e) {
+                console.error("Error loading saved config:", e);
+            }
+        }
+    }, []);
+
+    const handleConfigChange = (newConfig: TableConfig) => {
+        setConfig(newConfig);
+        localStorage.setItem("tableConfig", JSON.stringify(newConfig));
+    };
+
+    const handleRefresh = () => {
+        void fetchEntities();
+    };
+
+    return (
+        <ConfigurableListTemplate
+            title="Objects"
+            data={data}
+            fieldMappings={fieldMappings}
+            config={config}
+            loading={loading}
+            onConfigChange={handleConfigChange}
+            onRefresh={handleRefresh}
+            baseUrl="/objects"
+            error={error}
+            objectLoaderCrud={objectLoaderCrud}
+            onNewButtonClick={() => navigate("/objects/new")}
+        />
+    );
+}

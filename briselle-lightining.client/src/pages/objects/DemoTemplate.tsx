@@ -105,6 +105,7 @@ export default function TempList() {
             config={config}
             loading={loading}
             onConfigChange={handleConfigChange}
+            onDataChange={setData}
             baseUrl="/objects"
         />
     );

@@ -170,11 +170,12 @@ const LayoutSettingsSection: React.FC<LayoutSettingsSectionProps> = ({
                     {matrixRow('Table Row View', (
                         <select
                             className="text-sm border border-gray-300 rounded px-2 py-1 w-full max-w-[140px]"
-                            value={(config.density as string) || 'standard'}
-                            onChange={(e) => onChange('density', e.target.value)}
+                            value={(config.tableView as string) || 'default'}
+                            onChange={(e) => onChange('tableView', e.target.value)}
                         >
+                            <option value="default">Default</option>
+                            <option value="max-compact">Max-compact</option>
                             <option value="compact">Compact</option>
-                            <option value="standard">Default</option>
                             <option value="comfortable">Comfortable</option>
                             <option value="spacious">Spacious</option>
                         </select>

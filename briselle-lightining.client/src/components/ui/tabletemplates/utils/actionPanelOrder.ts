@@ -44,7 +44,7 @@ export const BUTTON_DEFINITIONS: Record<string, Omit<ButtonDefinition, 'key'>> =
     sort: { label: 'Sort', typeKey: 'sortButtonType', alignKey: 'sortButtonAlign', enableKey: 'enableSort' },
     filter: { label: 'Filter', typeKey: 'filterButtonType', alignKey: 'filterButtonAlign', enableKey: 'enableFilter' },
     group: { label: 'Group', typeKey: 'groupButtonType', alignKey: 'groupButtonAlign', enableKey: 'enableGroup' },
-    columnVisibility: { label: 'Hide Fields', typeKey: 'columnVisibilityButtonType', alignKey: 'columnVisibilityButtonAlign', enableKey: 'enableColumnVisibility' },
+    columnVisibility: { label: 'Column Visibilty', typeKey: 'columnVisibilityButtonType', alignKey: 'columnVisibilityButtonAlign', enableKey: 'enableColumnVisibility' },
     freezePane: {
         label: 'Freeze Pane',
         typeKey: 'freezePaneType',

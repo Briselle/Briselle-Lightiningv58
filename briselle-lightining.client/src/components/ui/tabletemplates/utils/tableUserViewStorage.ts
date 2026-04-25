@@ -15,6 +15,8 @@ export interface TableQueryState {
     columnOrder: string[];
     /** Fixed widths in px for visible columns only; keyed by field/column key (not label). Omitted = auto. */
     columnWidthsPx: Record<string, number>;
+    /** Per-column text mode in grid cells. */
+    columnWrapStates?: Record<string, 'wrap' | 'clip'>;
 }
 
 const STORAGE_VERSION = 'v1';
@@ -68,6 +70,21 @@ function sanitizeColumnWidthsPx(
     return out;
 }
 
+function sanitizeColumnWrapStates(
+    raw: unknown,
+    validKeys: Set<string>,
+    activeKeys: string[]
+): Record<string, 'wrap' | 'clip'> {
+    const active = new Set(activeKeys);
+    if (!raw || typeof raw !== 'object') return {};
+    const out: Record<string, 'wrap' | 'clip'> = {};
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+        if (!validKeys.has(k) || !active.has(k)) continue;
+        if (v === 'wrap' || v === 'clip') out[k] = v;
+    }
+    return out;
+}
+
 export function sanitizeTableQueryState(
     partial: Partial<TableQueryState> | null | undefined,
     validKeys: string[]
@@ -108,6 +125,11 @@ export function sanitizeTableQueryState(
     }
 
     const columnWidthsPx = sanitizeColumnWidthsPx(partial?.columnWidthsPx, set, visibleColumns);
+    const columnWrapStates = sanitizeColumnWrapStates(
+        (partial as { columnWrapStates?: unknown } | undefined)?.columnWrapStates,
+        set,
+        activeColumns
+    );
 
     return {
         searchTerm: typeof partial?.searchTerm === 'string' ? partial.searchTerm : '',
@@ -118,6 +140,7 @@ export function sanitizeTableQueryState(
         visibleColumns,
         columnOrder,
         columnWidthsPx,
+        columnWrapStates,
     };
 }
 

@@ -136,6 +136,7 @@ const Action_TableLayoutSetup: React.FC<Action_TableLayoutSetupProps> = ({
                                     onChange={(e) => setTableView(e.target.value)}
                                 >
                                     <option value="default">Default</option>
+                                    <option value="max-compact">Max-compact</option>
                                     <option value="compact">Compact</option>
                                     <option value="comfortable">Comfortable</option>
                                     <option value="spacious">Spacious</option>

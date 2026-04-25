@@ -2,6 +2,18 @@
 
 const CLIPBOARD_TABLE_BORDER = '#e5e7eb';
 
+function formatClipboardCellValue(v: unknown): string {
+    if (v == null) return '';
+    if (typeof v === 'object') {
+        try {
+            return JSON.stringify(v);
+        } catch {
+            return '[object]';
+        }
+    }
+    return String(v);
+}
+
 export function escapeHtmlForClipboard(s: string): string {
     return s
         .replace(/&/g, '&amp;')
@@ -31,7 +43,7 @@ export function buildClipboardGridPayload(
         ...rows.map((row) =>
             cols
                 .map((c) =>
-                    String(row[c] ?? '')
+                    formatClipboardCellValue(row[c])
                         .replace(/\r?\n/g, ' ')
                         .replace(/\t/g, ' '),
                 )
@@ -46,7 +58,7 @@ export function buildClipboardGridPayload(
     const trs = rows
         .map((row) => {
             const tds = cols
-                .map((c) => `<td style="${cellStyle}">${escapeHtmlForClipboard(String(row[c] ?? ''))}</td>`)
+                .map((c) => `<td style="${cellStyle}">${escapeHtmlForClipboard(formatClipboardCellValue(row[c]))}</td>`)
                 .join('');
             return `<tr>${tds}</tr>`;
         })
@@ -56,7 +68,7 @@ export function buildClipboardGridPayload(
     const mdHeader = '| ' + headers.map((h) => escapeMarkdownCell(h)).join(' | ') + ' |';
     const mdSep = '| ' + headers.map(() => '---').join(' | ') + ' |';
     const mdRows = rows.map(
-        (row) => '| ' + cols.map((c) => escapeMarkdownCell(String(row[c] ?? ''))).join(' | ') + ' |',
+        (row) => '| ' + cols.map((c) => escapeMarkdownCell(formatClipboardCellValue(row[c]))).join(' | ') + ' |',
     );
     const markdown = [mdHeader, mdSep, ...mdRows].join('\n');
 

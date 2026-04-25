@@ -33,6 +33,19 @@ export interface ConfigJsonPayload {
     activeTabId?: string;
     /** Tab strip + tab chrome: single source for all presets on this object */
     objectTabBar?: Record<string, unknown>;
+    /** Opaque share-link settings keyed by short token. */
+    shareLinks?: Record<string, {
+        restrictCopy: boolean;
+        panelAllowed: boolean;
+        scope?: string;
+        createdAt?: string;
+        linkName?: string;
+        presetId?: string;
+        lockedPresetId?: string;
+        lockedTabId?: string;
+        requireCredentials?: boolean;
+        allowedEmailOrDomain?: string;
+    }>;
     presets: PresetJsonEntry[];
 }
 
@@ -495,3 +508,147 @@ export async function savePresetOrderToDB(
 // Shorter aliases (same behavior as append/remove preset helpers)
 export const savePresetToDB = appendPresetToDB;
 export const deletePresetFromDB = removePresetFromDB;
+
+export async function upsertShareLinkSettingsInDB(
+    token: string,
+    settings: {
+        restrictCopy: boolean;
+        panelAllowed: boolean;
+        scope?: string;
+        linkName?: string;
+        presetId?: string;
+        lockedPresetId?: string;
+        lockedTabId?: string;
+        requireCredentials?: boolean;
+        allowedEmailOrDomain?: string;
+    },
+    entityId: number = DB_ENTITY_ID,
+    dobjId: number = DB_DOBJ_ID,
+    userId: string = '1',
+): Promise<{ success: boolean; error: string | null }> {
+    const { payload, error } = await fetchRawDocument(entityId, dobjId);
+    if (error || !payload) return { success: false, error: error || 'No data' };
+    const p = payload as ConfigJsonPayload;
+    p.shareLinks = {
+        ...(p.shareLinks ?? {}),
+        [token]: {
+            restrictCopy: Boolean(settings.restrictCopy),
+            panelAllowed: Boolean(settings.panelAllowed),
+            scope: settings.scope ?? 'title-to-footer',
+            linkName: settings.linkName?.trim() || undefined,
+            presetId: settings.presetId,
+            lockedPresetId: settings.lockedPresetId,
+            lockedTabId: settings.lockedTabId,
+            requireCredentials: Boolean(settings.requireCredentials),
+            allowedEmailOrDomain: settings.allowedEmailOrDomain?.trim() || undefined,
+            createdAt: new Date().toISOString(),
+        },
+    };
+    return writeRawDocument(entityId, dobjId, p, userId);
+}
+
+export async function resolveShareLinkSettingsFromDB(
+    token: string,
+    entityId: number = DB_ENTITY_ID,
+    dobjId: number = DB_DOBJ_ID,
+): Promise<{
+    settings: {
+        restrictCopy: boolean;
+        panelAllowed: boolean;
+        scope?: string;
+        linkName?: string;
+        presetId?: string;
+        lockedPresetId?: string;
+        lockedTabId?: string;
+        requireCredentials?: boolean;
+        allowedEmailOrDomain?: string;
+    } | null;
+    error: string | null;
+}> {
+    const { payload, error } = await fetchRawDocument(entityId, dobjId);
+    if (error || !payload) return { settings: null, error: error || 'No data' };
+    const p = payload as ConfigJsonPayload;
+    const entry = p.shareLinks?.[token];
+    if (!entry) return { settings: null, error: null };
+    return {
+        settings: {
+            restrictCopy: Boolean(entry.restrictCopy),
+            panelAllowed: Boolean(entry.panelAllowed),
+            scope: entry.scope ?? 'title-to-footer',
+            linkName: entry.linkName,
+            presetId: entry.presetId,
+            lockedPresetId: entry.lockedPresetId,
+            lockedTabId: entry.lockedTabId,
+            requireCredentials: Boolean(entry.requireCredentials),
+            allowedEmailOrDomain: entry.allowedEmailOrDomain,
+        },
+        error: null,
+    };
+}
+
+export async function listShareLinksForPresetFromDB(
+    presetId: string,
+    entityId: number = DB_ENTITY_ID,
+    dobjId: number = DB_DOBJ_ID,
+): Promise<{
+    links: Array<{
+        token: string;
+        linkName: string;
+        createdAt?: string;
+        lockedTabId?: string;
+        panelAllowed: boolean;
+        restrictCopy: boolean;
+    }>;
+    error: string | null;
+}> {
+    const { payload, error } = await fetchRawDocument(entityId, dobjId);
+    if (error || !payload) return { links: [], error: error || 'No data' };
+    const p = payload as ConfigJsonPayload;
+    const links = Object.entries(p.shareLinks ?? {})
+        .filter(([, v]) => (v.presetId ?? v.lockedPresetId ?? 'default') === presetId)
+        .map(([token, v]) => ({
+            token,
+            linkName: v.linkName?.trim() || `Link ${token.slice(0, 6)}`,
+            createdAt: v.createdAt,
+            lockedTabId: v.lockedTabId,
+            panelAllowed: Boolean(v.panelAllowed),
+            restrictCopy: Boolean(v.restrictCopy),
+        }))
+        .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
+    return { links, error: null };
+}
+
+export async function deleteShareLinkFromDB(
+    token: string,
+    entityId: number = DB_ENTITY_ID,
+    dobjId: number = DB_DOBJ_ID,
+    userId: string = '1',
+): Promise<{ success: boolean; error: string | null }> {
+    const { payload, error } = await fetchRawDocument(entityId, dobjId);
+    if (error || !payload) return { success: false, error: error || 'No data' };
+    const p = payload as ConfigJsonPayload;
+    if (!p.shareLinks?.[token]) return { success: true, error: null };
+    const next = { ...(p.shareLinks ?? {}) };
+    delete next[token];
+    p.shareLinks = next;
+    return writeRawDocument(entityId, dobjId, p, userId);
+}
+
+export async function deleteShareLinksForPresetFromDB(
+    presetId: string,
+    entityId: number = DB_ENTITY_ID,
+    dobjId: number = DB_DOBJ_ID,
+    userId: string = '1',
+): Promise<{ success: boolean; error: string | null; deletedCount: number }> {
+    const { payload, error } = await fetchRawDocument(entityId, dobjId);
+    if (error || !payload) return { success: false, error: error || 'No data', deletedCount: 0 };
+    const p = payload as ConfigJsonPayload;
+    const entries = Object.entries(p.shareLinks ?? {});
+    const keep = Object.fromEntries(
+        entries.filter(([, v]) => (v.presetId ?? v.lockedPresetId ?? 'default') !== presetId),
+    );
+    const deletedCount = entries.length - Object.keys(keep).length;
+    p.shareLinks = keep;
+    const saved = await writeRawDocument(entityId, dobjId, p, userId);
+    return { success: saved.success, error: saved.error, deletedCount };
+}

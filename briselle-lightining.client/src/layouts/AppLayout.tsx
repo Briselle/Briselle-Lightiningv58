@@ -10,6 +10,7 @@ interface AppLayoutProps {
 function AppLayout({ children }: AppLayoutProps) {
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const location = useLocation();
+  const isShareRoute = new URLSearchParams(location.search).has('share');
 
   const toggleSidebar = () => {
     setIsSidebarOpen(!isSidebarOpen);
@@ -17,12 +18,12 @@ function AppLayout({ children }: AppLayoutProps) {
 
   return (
     <div className="app-container flex h-screen overflow-hidden">
-      <Sidebar isOpen={isSidebarOpen} currentPath={location.pathname} />
+      {!isShareRoute && <Sidebar isOpen={isSidebarOpen} currentPath={location.pathname} />}
       
       <div className="flex flex-col flex-1 overflow-hidden">
-        <Header toggleSidebar={toggleSidebar} isSidebarOpen={isSidebarOpen} />
+        {!isShareRoute && <Header toggleSidebar={toggleSidebar} isSidebarOpen={isSidebarOpen} />}
         
-        <main className="flex-1 overflow-auto bg-[#f3f3f3] p-6">
+        <main className={`flex-1 overflow-auto bg-[#f3f3f3] ${isShareRoute ? 'p-0' : 'p-6'}`}>
           {children}
         </main>
       </div>

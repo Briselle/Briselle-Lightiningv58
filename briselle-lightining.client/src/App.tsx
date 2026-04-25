@@ -9,6 +9,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'));
 const EntityList = lazy(() => import('./pages/entity/EntityList'));
 const EntityDetail = lazy(() => import('./pages/entity/EntityDetail'));
 const ObjectsList = lazy(() => import('./pages/objects/ObjectsList'));
+const ObjectAdd = lazy(() => import('./pages/objects/ObjectAdd'));
 const ObjectDetail = lazy(() => import('./pages/objects/ObjectDetail'));
 const ObjectConfig = lazy(() => import('./pages/objects/ObjectConfig'));
 const RecordsList = lazy(() => import('./pages/records/RecordsList'));
@@ -46,6 +47,7 @@ function App() {
 
             {/* Objects routes */}
             <Route path="/objects" element={<ObjectsList />} />
+            <Route path="/objects/new" element={<ObjectAdd />} />
             <Route path="/objects/:id" element={<ObjectDetail />} />
             <Route path="/objects/:id/config" element={<ObjectConfig />} />
 

@@ -118,6 +118,7 @@ function TableBodyOptionsSection({
                             <span className="text-sm text-gray-700">Table Row View</span>
                             <select className="input text-sm border border-gray-300 rounded w-40" value={config.tableView || 'default'} onChange={(e) => onChange('tableView', e.target.value)}>
                                 <option value="default">Default</option>
+                                <option value="max-compact">Max-compact</option>
                                 <option value="compact">Compact</option>
                                 <option value="comfortable">Comfortable</option>
                                 <option value="spacious">Spacious</option>

@@ -2,6 +2,7 @@ import ConfigurableListTemplate, { TableConfig } from "../../components/ui/table
 import { resolveObjectLoaderCrudDefaults } from "../../components/ui/tabletemplates/objectLoaderRecordModals";
 import { supabase } from '../../utils/supabase';
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
     buildDobjFieldMappings,
     buildDobjObjectLoaderCrud,
@@ -170,6 +171,7 @@ const defaultConfig: TableConfig = {
 };
 
 export default function TempList2() {
+    const navigate = useNavigate();
     const [data, setData] = useState<Record<string, unknown>[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -240,6 +242,7 @@ export default function TempList2() {
             baseUrl="/objects"
             error={error}
             objectLoaderCrud={objectLoaderCrud}
+            onNewButtonClick={() => navigate('/objects/new')}
         />
     );
 }

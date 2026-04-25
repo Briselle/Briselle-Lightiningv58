@@ -16,7 +16,7 @@ import {
     Bookmark,
     Star,
 } from 'lucide-react';
-import { useLocation, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { cn } from '../../../utils/helpers';
 import TableSettingsModal from "./TableSettingsModal";
 import TableTitlePanel from "./table-components/TableTitlePanel";
@@ -39,11 +39,21 @@ import { FilterCriteria } from "./action-components/Action_Filter";
 import { TablePreset } from "./action-components/Action_Preset";
 import { loadTableConfig, loadTablePresets } from "./utils/loadTableConfig";
 import { DEFAULT_PRESETS, getDefaultPreset, loadCustomPresetsFromStorage, saveCustomPresetsToStorage } from "./utils/presets";
-import { fetchPresetsFromDB, persistActiveContextToDB } from "./utils/configService";
+import {
+    deleteShareLinksForPresetFromDB,
+    deleteShareLinkFromDB,
+    fetchPresetsFromDB,
+    listShareLinksForPresetFromDB,
+    persistActiveContextToDB,
+    saveTableSettingsToDB,
+    resolveShareLinkSettingsFromDB,
+    upsertShareLinkSettingsInDB,
+} from "./utils/configService";
 import { mergePresetWithPreservedTabState, mergeObjectTabBarIntoConfig } from "./utils/mergePresetConfig";
 import { injectCanonicalDefaultTab } from "./utils/canonicalObjectLoaderDefaults";
 import { normalizeTabMenuStyle, resolveTabShowUnderline, sanitizeTabListPresetIds } from "./utils/tabBarNormalize";
 import { useAuthStore } from "../../../stores/authStore";
+import { supabase } from '../../../utils/supabase';
 import {
     computeTemplateId,
     loadTableQueryState,
@@ -306,6 +316,12 @@ export interface TableConfig {
     enableRowSelection?: boolean;
     /** Drag to select a rectangle of body cells (copy / screenshot toolbar). When omitted, treated as on. */
     enableTableCellSelection?: boolean;
+    /** Plain + footer row to append new editable rows (per group when grouped). When omitted, treated as on. */
+    enableQuickAddRow?: boolean;
+    /** Optional mandatory keys used by quick-add row Save validation. */
+    requiredColumns?: string[];
+    /** Backward-compatible alias for requiredColumns. */
+    mandatoryFields?: string[];
     enableMassSelection?: boolean;
     enableRowHoverHighlight?: boolean;
     enableStripedRows?: boolean;
@@ -418,7 +434,7 @@ export interface TableConfig {
 
     // Theme and Styling
     theme?: 'default' | 'professional' | 'modern' | 'minimal' | 'executive' | 'corporate' | 'finance' | 'tech' | 'classic' | 'neutral';
-    tableView?: 'default' | 'compact' | 'comfortable' | 'spacious';
+    tableView?: 'default' | 'max-compact' | 'compact' | 'comfortable' | 'spacious';
 
     // Action Settings
     rowActionsPosition?: 'left' | 'right';
@@ -508,13 +524,25 @@ interface Props {
     onRefresh?: () => void;
     /** When set, row actions open dynamic view/edit/copy/delete modals and call Supabase on the given table. */
     objectLoaderCrud?: ObjectLoaderCrudOptions | null;
+    /** If provided, new quick-add rows are merged by the parent (e.g. persist). If omitted, rows are kept in template state only until refresh. */
+    onDataChange?: (rows: any[]) => void;
+    /** Optional handler for title-panel New button action. */
+    onNewButtonClick?: () => void;
 }
 
 /** Stable row identity for React keys and findIndex — avoid entity_id alone when many rows share one tenant. */
 function getTemplateRowIdentityKey(row: Record<string, unknown>): string | number | undefined {
+    const qa = row.__quickAddId;
+    if (qa !== undefined && qa !== null) return String(qa);
     const v = row.sys_id ?? row.dobj_id ?? row.id ?? row.entity_id;
     if (v !== undefined && v !== null) return v as string | number;
     return undefined;
+}
+
+const QUICK_ADD_DRAFT_KEY = '__quickAddDraft';
+
+function isQuickAddDraftRow(row: Record<string, unknown>): boolean {
+    return row[QUICK_ADD_DRAFT_KEY] === true;
 }
 
 function rowsLooselyEqual(a: Record<string, unknown>, b: Record<string, unknown>): boolean {
@@ -538,10 +566,13 @@ export default function ConfigurableListTemplate({
     onConfigChange,
     baseUrl = '/data',
     onRefresh,
-    objectLoaderCrud = null
+    objectLoaderCrud = null,
+    onDataChange,
+    onNewButtonClick,
 }: Props) {
     // Initialize selectedRows as a proper Set to fix the .has() error
 
+    const navigate = useNavigate();
     const configRef = useRef(config);
     configRef.current = config;
 
@@ -568,9 +599,12 @@ export default function ConfigurableListTemplate({
         cols: string[];
     } | null>(null);
     const [groupByColumn, setGroupByColumn] = useState<string | null>(null);
+    /** Rows created via quick-add when parent does not supply `onDataChange`. */
+    const [localDataAppendix, setLocalDataAppendix] = useState<Record<string, unknown>[]>([]);
     const [presets, setPresets] = useState<TablePreset[]>([]);
     const [activePresetId, setActivePresetId] = useState<string>('default');
     const location = useLocation();
+    const isShareRoute = useMemo(() => new URLSearchParams(location.search).has('share'), [location.search]);
     const [, setSearchParams] = useSearchParams();
     const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
     const [checkboxColumnWidth, setCheckboxColumnWidth] = useState<number | null>(null);
@@ -610,16 +644,199 @@ export default function ConfigurableListTemplate({
         const merged = [...mergedSystem, ...uniqueCustom];
         setPresets(merged);
     }, []);
-    const [shareViewParams, setShareViewParams] = useState<{ isShareView: boolean; restrictCopy: boolean; panelAllowed: boolean }>({ isShareView: false, restrictCopy: false, panelAllowed: false });
+    const initialShareToken =
+        typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('share') : null;
+    const [shareViewParams, setShareViewParams] = useState<{
+        isShareView: boolean;
+        shareToken: string | null;
+        restrictCopy: boolean;
+        panelAllowed: boolean;
+        lockedPresetId?: string;
+        lockedTabId?: string;
+        requireCredentials?: boolean;
+        allowedEmailOrDomain?: string;
+    }>({
+        isShareView: Boolean(initialShareToken),
+        shareToken: initialShareToken,
+        restrictCopy: false,
+        panelAllowed: false,
+    });
+    const [shareParamsResolved, setShareParamsResolved] = useState<boolean>(!initialShareToken);
+    const [shareGeneratedLinks, setShareGeneratedLinks] = useState<
+        Array<{ token: string; linkName: string; url: string; createdAt?: string }>
+    >([]);
+    const [shareConsentAccepted, setShareConsentAccepted] = useState(false);
+    const [shareCredentialUser, setShareCredentialUser] = useState('');
+    const [shareCredentialPassword, setShareCredentialPassword] = useState('');
+    const [shareCredentialError, setShareCredentialError] = useState<string | null>(null);
+    const [shareCredentialAuthed, setShareCredentialAuthed] = useState(false);
+    const copyRestrictedByShare = shareViewParams.isShareView && shareViewParams.restrictCopy;
+    const toShareOnlyParams = useCallback((prev: URLSearchParams): URLSearchParams => {
+        const token = prev.get('share') || shareViewParams.shareToken;
+        const only = new URLSearchParams();
+        if (token) only.set('share', token);
+        return only;
+    }, [shareViewParams.shareToken]);
 
     useEffect(() => {
         if (typeof window === 'undefined') return;
-        const q = new URLSearchParams(window.location.search);
-        const isShare = q.has('share');
-        const restrict = q.get('restrictCopy') === '1';
-        const panel = q.get('panelAllowed') === '1';
-        setShareViewParams({ isShareView: !!isShare, restrictCopy: restrict, panelAllowed: panel });
+        let cancelled = false;
+        const resolveShareParams = async () => {
+            const q = new URLSearchParams(window.location.search);
+            const rawShare = q.get('share');
+            const isShare = Boolean(rawShare);
+            const rawRestrict = q.get('restrictCopy');
+            const rawPanel = q.get('panelAllowed');
+            let restrict = rawRestrict === '1';
+            let panel = rawPanel === '1';
+
+            let resolvedFromDb = false;
+            let dbLookupError: string | null = null;
+            let lockedPresetId: string | undefined;
+            let lockedTabId: string | undefined;
+            let requireCredentials = false;
+            let allowedEmailOrDomain: string | undefined;
+            if (isShare && (rawRestrict == null || rawPanel == null)) {
+                const { settings, error } = await resolveShareLinkSettingsFromDB(String(rawShare));
+                dbLookupError = error;
+                if (settings) {
+                    restrict = Boolean(settings.restrictCopy);
+                    panel = Boolean(settings.panelAllowed);
+                    lockedPresetId = settings.lockedPresetId;
+                    lockedTabId = settings.lockedTabId;
+                    requireCredentials = Boolean(settings.requireCredentials);
+                    allowedEmailOrDomain = settings.allowedEmailOrDomain;
+                    resolvedFromDb = true;
+                }
+            }
+            if (cancelled) return;
+            setShareViewParams({
+                isShareView: isShare,
+                shareToken: rawShare,
+                restrictCopy: restrict,
+                panelAllowed: panel,
+                lockedPresetId,
+                lockedTabId,
+                requireCredentials,
+                allowedEmailOrDomain,
+            });
+            setShareParamsResolved(true);
+        };
+        void resolveShareParams();
+        return () => {
+            cancelled = true;
+        };
     }, []);
+
+    const handleCreateShareTokenSettings = useCallback(
+        async (
+            token: string,
+            settings: {
+                restrictCopy: boolean;
+                panelAllowed: boolean;
+                scope?: string;
+                linkName?: string;
+                presetId?: string;
+                lockedPresetId?: string;
+                lockedTabId?: string;
+                requireCredentials?: boolean;
+                allowedEmailOrDomain?: string;
+            }
+        ): Promise<boolean> => {
+            const { success } = await upsertShareLinkSettingsInDB(token, settings);
+            return success;
+        },
+        [],
+    );
+
+    const currentTabIdForShare = useMemo(() => {
+        const q = new URLSearchParams(location.search);
+        return q.get(TABLE_TAB_URL_PARAM) ?? undefined;
+    }, [location.search]);
+
+    const loadShareLinksForPreset = useCallback(async (presetId: string) => {
+        const { links } = await listShareLinksForPresetFromDB(presetId);
+        const base = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : '';
+        setShareGeneratedLinks(
+            links.map((l) => ({
+                token: l.token,
+                linkName: l.linkName,
+                createdAt: l.createdAt,
+                url: `${base}?share=${encodeURIComponent(l.token)}`,
+            })),
+        );
+    }, []);
+
+    useEffect(() => {
+        void loadShareLinksForPreset(activePresetId);
+    }, [activePresetId, loadShareLinksForPreset, config?.shareLinkUrl]);
+
+    const handleDeleteShareToken = useCallback(
+        async (token: string): Promise<boolean> => {
+            const { success } = await deleteShareLinkFromDB(token);
+            if (success) {
+                await loadShareLinksForPreset(activePresetId);
+            }
+            return success;
+        },
+        [activePresetId, loadShareLinksForPreset],
+    );
+
+    const handleDeleteAllShareTokens = useCallback(async (): Promise<boolean> => {
+        const { success } = await deleteShareLinksForPresetFromDB(activePresetId);
+        if (success) {
+            await loadShareLinksForPreset(activePresetId);
+        }
+        return success;
+    }, [activePresetId, loadShareLinksForPreset]);
+
+    useEffect(() => {
+        if (typeof window === 'undefined') return;
+        if (!shareViewParams.isShareView || !shareViewParams.shareToken) {
+            setShareConsentAccepted(false);
+            setShareCredentialAuthed(false);
+            return;
+        }
+        const consentKey = `share-consent-${shareViewParams.shareToken}`;
+        const authKey = `share-auth-${shareViewParams.shareToken}`;
+        setShareConsentAccepted(sessionStorage.getItem(consentKey) === '1');
+        setShareCredentialAuthed(sessionStorage.getItem(authKey) === '1');
+    }, [shareViewParams.isShareView, shareViewParams.shareToken]);
+
+    useEffect(() => {
+        if (!shareViewParams.isShareView || !shareViewParams.shareToken) return;
+        setSearchParams((prev) => {
+            const next = new URLSearchParams();
+            next.set('share', shareViewParams.shareToken!);
+            const prevStr = prev.toString();
+            const nextStr = next.toString();
+            return next;
+        }, { replace: true });
+    }, [setSearchParams, shareViewParams.isShareView, shareViewParams.shareToken]);
+
+    const requiresCredentialGate = shareViewParams.isShareView && Boolean(shareViewParams.requireCredentials);
+    const shareContentUnlocked =
+        !shareViewParams.isShareView
+            ? true
+            : shareParamsResolved && shareConsentAccepted && (!requiresCredentialGate || shareCredentialAuthed);
+
+    const submitShareCredentials = useCallback(() => {
+        const allowed = shareViewParams.allowedEmailOrDomain?.trim().toLowerCase() || '';
+        const candidate = shareCredentialUser.trim().toLowerCase();
+        const passwordOk = shareCredentialPassword === 'Admin@1212';
+        const identityOk = !allowed
+            || candidate === allowed
+            || (allowed.startsWith('@') ? candidate.endsWith(allowed) : candidate.endsWith(`@${allowed}`));
+        if (!passwordOk || !identityOk) {
+            setShareCredentialError('Invalid username/email domain or password.');
+            return;
+        }
+        if (shareViewParams.shareToken) {
+            sessionStorage.setItem(`share-auth-${shareViewParams.shareToken}`, '1');
+        }
+        setShareCredentialError(null);
+        setShareCredentialAuthed(true);
+    }, [shareCredentialPassword, shareCredentialUser, shareViewParams.allowedEmailOrDomain, shareViewParams.shareToken]);
 
     const allColumns = Object.keys(fieldMappings);
     const [activeColumns, setActiveColumns] = useState<string[]>(allColumns);
@@ -641,8 +858,27 @@ export default function ConfigurableListTemplate({
     const isResizingColumnRef = useRef(false);
     const [activeResizeColumn, setActiveResizeColumn] = useState<string | null>(null);
     const [activeInlineCellKey, setActiveInlineCellKey] = useState<string | null>(null);
+    const [activeQuickAddCellKey, setActiveQuickAddCellKey] = useState<string | null>(null);
+    const [quickAddInlineErrors, setQuickAddInlineErrors] = useState<Record<string, string>>({});
     const inlineEditHighlightColor =
         config.tabCustomSelection && config.tabSelectionColor ? config.tabSelectionColor : '#2563eb';
+
+    const navigateToRowDetail = useCallback((row: Record<string, unknown>) => {
+        const rowId =
+            objectLoaderCrud != null
+                ? resolveRowRecordId(row, objectLoaderCrud.idColumn) ?? resolveTableRowKey(row)
+                : resolveTableRowKey(row);
+        if (rowId == null) return;
+        navigate(`${baseUrl}/${encodeURIComponent(String(rowId))}`);
+    }, [baseUrl, navigate, objectLoaderCrud]);
+
+    const isObjectManagerLinkCell = useCallback(
+        (rowIsDraft: boolean, col: string) =>
+            !rowIsDraft &&
+            baseUrl === '/objects' &&
+            (col === 'dobj_name_display' || col === 'sys_id'),
+        [baseUrl],
+    );
 
     // Checkbox column width only (data columns use auto layout unless `columnWidths` has explicit px)
     useEffect(() => {
@@ -653,15 +889,47 @@ export default function ConfigurableListTemplate({
                 setCheckboxColumnWidth(checkboxWidth);
             }
         }
-    }, [visibleColumns, data.length]);
+    }, [visibleColumns, data.length, localDataAppendix.length]);
 
     /* =======================
       UI & DATA HELPERS
       ======================= */
 
+    const mergedTableSource = useMemo(
+        () => (onDataChange ? data : [...data, ...localDataAppendix]),
+        [data, localDataAppendix, onDataChange],
+    );
+
+    const dateColumnKeys = useMemo(() => {
+        const keys = Object.keys(fieldMappings);
+        const dateKeyRegex = /(timestamp|time|date|created|updated|modified|_ts$|_date$|_at$|_time$)/i;
+        const candidates = keys.filter((k) => dateKeyRegex.test(k));
+        if (!candidates.length) return [];
+
+        const sampleRows = mergedTableSource.slice(0, 30);
+        const parseableRatio = (colKey: string) => {
+            let total = 0;
+            let ok = 0;
+            for (const r of sampleRows) {
+                const raw = (r as Record<string, unknown> | undefined)?.[colKey];
+                if (raw == null) continue;
+                const s = String(raw).trim();
+                if (!s) continue;
+                total += 1;
+                const t = Date.parse(s);
+                if (!Number.isNaN(t)) ok += 1;
+                if (total >= 20) break;
+            }
+            if (total === 0) return 0;
+            return ok / total;
+        };
+
+        return candidates.filter((k) => parseableRatio(k) >= 0.6);
+    }, [fieldMappings, mergedTableSource]);
+
     // Use the reusable data processing hook
     const { filteredEntities, sortedData } = useTableData(
-        data,
+        mergedTableSource,
         searchTerm,
         sortCriteria,
         filterCriteria,
@@ -721,6 +989,12 @@ export default function ConfigurableListTemplate({
         if (!cellRangeAnchor || !cellRangeFocus) return null;
         return normalizeCellRangeRect(orderedVisibleCols, cellRangeAnchor, cellRangeFocus);
     }, [cellRangeAnchor, cellRangeFocus, orderedVisibleCols]);
+
+    const cellRangeHasDraftRows = useMemo(() => {
+        if (!cellRangeRect) return false;
+        const slice = flatDataRowsForRange.slice(cellRangeRect.r0, cellRangeRect.r1 + 1) as Record<string, unknown>[];
+        return slice.some((r) => isQuickAddDraftRow(r));
+    }, [cellRangeRect, flatDataRowsForRange]);
 
     const clearCellRangeSelection = useCallback(() => {
         setCellRangeAnchor(null);
@@ -841,6 +1115,7 @@ export default function ConfigurableListTemplate({
         if (!cellRangeRect) return;
         const cols = orderedVisibleCols.slice(cellRangeRect.c0, cellRangeRect.c1 + 1);
         const slice = flatDataRowsForRange.slice(cellRangeRect.r0, cellRangeRect.r1 + 1) as Record<string, unknown>[];
+        if (slice.some((r) => isQuickAddDraftRow(r))) return;
         if (cols.length === 0 || slice.length === 0) return;
         setCellRangeGridCopy({ rows: slice, cols });
     }, [
@@ -858,6 +1133,7 @@ export default function ConfigurableListTemplate({
         if (!cellRangeRect) return;
         const cols = orderedVisibleCols.slice(cellRangeRect.c0, cellRangeRect.c1 + 1);
         const slice = flatDataRowsForRange.slice(cellRangeRect.r0, cellRangeRect.r1 + 1) as Record<string, unknown>[];
+        if (slice.some((r) => isQuickAddDraftRow(r))) return;
         if (cols.length === 0 || slice.length === 0) return;
         const { html } = buildClipboardGridPayload(slice, cols, fieldMappings);
         const wrap = document.createElement('div');
@@ -920,6 +1196,7 @@ export default function ConfigurableListTemplate({
             const cols = orderedVisibleCols.slice(cellRangeRect.c0, cellRangeRect.c1 + 1);
             if (cols.length === 0) return;
             const slice = flatDataRowsForRange.slice(cellRangeRect.r0, cellRangeRect.r1 + 1) as Record<string, unknown>[];
+            if (slice.some((r) => isQuickAddDraftRow(r))) return;
             if (slice.length === 0) return;
             const { tsv, html } = buildClipboardGridPayload(slice, cols, fieldMappings);
             e.preventDefault();
@@ -1107,6 +1384,9 @@ export default function ConfigurableListTemplate({
                 pushConfigRef.current(withCanonicalTabs);
 
                 setSearchParams((sp) => {
+                    if (isShareRoute || shareViewParams.isShareView) {
+                        return toShareOnlyParams(sp);
+                    }
                     const next = new URLSearchParams(sp);
                     if (!sp.get('preset')) {
                         next.set('preset', resolvedActiveId);
@@ -1122,7 +1402,7 @@ export default function ConfigurableListTemplate({
 
         loadPresets();
         return () => { cancelled = true; };
-    }, []); // Only run on mount - presets are updated via setPresets from onPresetsChange
+    }, [isShareRoute, setSearchParams, shareViewParams.isShareView, shareViewParams.shareToken, toShareOnlyParams]); // Only run on mount - presets are updated via setPresets from onPresetsChange
 
     // Close preset dropdown when clicking outside (used when table panel is disabled and dropdown is in title bar)
     useEffect(() => {
@@ -1758,7 +2038,7 @@ export default function ConfigurableListTemplate({
         // Implement share logic
     };
 
-    const handleTableViewChange = (view: 'default' | 'compact' | 'comfortable' | 'spacious') => {
+    const handleTableViewChange = (view: 'default' | 'max-compact' | 'compact' | 'comfortable' | 'spacious') => {
         console.log("Table view changed to:", view);
         pushConfig({
             ...config,
@@ -1784,6 +2064,50 @@ export default function ConfigurableListTemplate({
             [column]: prev[column] === 'wrap' ? 'clip' : 'wrap'
         }));
     }, []);
+
+    const handlePersistColumnSettings = useCallback(
+        async (payload: {
+            activeColumns: string[];
+            visibleColumns: string[];
+            columnWidths: Record<string, number>;
+            columnWrapStates: Record<string, 'wrap' | 'clip'>;
+        }) => {
+            const presetId = activePresetId || 'default';
+            const keys = Object.keys(fieldMappingsRef.current);
+            const nextQueryState = sanitizeTableQueryState(
+                {
+                    searchTerm,
+                    sortCriteria,
+                    filterCriteria,
+                    groupByColumn,
+                    activeColumns: payload.activeColumns,
+                    visibleColumns: payload.visibleColumns,
+                    columnOrder: payload.activeColumns,
+                    columnWidthsPx: payload.columnWidths,
+                    columnWrapStates: payload.columnWrapStates,
+                },
+                keys,
+            );
+            const { success, error } = await saveTableSettingsToDB(
+                presetId,
+                configRef.current as Record<string, unknown>,
+                undefined,
+                undefined,
+                undefined,
+                {
+                    allowDefaultPresetBodyOverwrite: true,
+                    savedQueryState: nextQueryState as unknown as Record<string, unknown>,
+                },
+            );
+        },
+        [
+            activePresetId,
+            searchTerm,
+            sortCriteria,
+            filterCriteria,
+            groupByColumn,
+        ],
+    );
 
     // Presets are loaded from database on mount. Resets to code default when DB fetch is unavailable.
     const setDefaultPresets = () => {
@@ -2437,13 +2761,16 @@ export default function ConfigurableListTemplate({
         void persistActiveContextToDB(preset.id, tabId);
 
         setSearchParams((prevParams) => {
+            if (isShareRoute || shareViewParams.isShareView) {
+                return toShareOnlyParams(prevParams);
+            }
             const next = new URLSearchParams(prevParams);
             next.set('preset', preset.id);
             if (tabId) next.set(TABLE_TAB_URL_PARAM, tabId);
             else next.delete(TABLE_TAB_URL_PARAM);
             return next;
         });
-    }, [setSearchParams]);
+    }, [isShareRoute, setSearchParams, shareViewParams.isShareView, shareViewParams.shareToken, toShareOnlyParams]);
 
     /** Per-user + per-template + per-preset query state: hydrate before paint when preset/template/user changes */
     useLayoutEffect(() => {
@@ -2467,6 +2794,7 @@ export default function ConfigurableListTemplate({
         setVisibleColumns(sanitized.visibleColumns);
         setColumnOrder(sanitized.columnOrder);
         setColumnWidths(sanitized.columnWidthsPx ?? {});
+        setColumnWrapStates(sanitized.columnWrapStates ?? {});
     }, [activePresetId, templateId, tableUserId, presets.length]);
 
     /** Debounced persist of current query state (local JSON via localStorage) */
@@ -2490,6 +2818,7 @@ export default function ConfigurableListTemplate({
                 visibleColumns,
                 columnOrder,
                 columnWidthsPx,
+                columnWrapStates,
             };
             const sanitized = sanitizeTableQueryState(state, keys);
             saveTableQueryState(tableUserId, templateId, p.id, sanitized);
@@ -2504,6 +2833,7 @@ export default function ConfigurableListTemplate({
         visibleColumns,
         columnOrder,
         columnWidths,
+        columnWrapStates,
         tableUserId,
         templateId,
         activePresetId,
@@ -2518,6 +2848,9 @@ export default function ConfigurableListTemplate({
                 applyPreset(p, tabId);
             } else {
                 setSearchParams((prev) => {
+                    if (isShareRoute || shareViewParams.isShareView) {
+                        return toShareOnlyParams(prev);
+                    }
                     const next = new URLSearchParams(prev);
                     next.set('preset', presetId);
                     next.set(TABLE_TAB_URL_PARAM, tabId);
@@ -2525,7 +2858,7 @@ export default function ConfigurableListTemplate({
                 });
             }
         },
-        [presets, applyPreset, setSearchParams]
+        [isShareRoute, presets, applyPreset, setSearchParams, shareViewParams.isShareView, shareViewParams.shareToken, toShareOnlyParams]
     );
 
     const applyPresetRef = useRef(applyPreset);
@@ -2538,8 +2871,10 @@ export default function ConfigurableListTemplate({
         const presetId = params.get('preset');
         if (!presetId) return;
         const p = presets.find((pr) => pr.id === presetId || pr.presetId === presetId);
-        if (p) applyPresetRef.current(p, params.get(TABLE_TAB_URL_PARAM));
-    }, [location.search, presets]);
+        if (p) {
+            applyPresetRef.current(p, params.get(TABLE_TAB_URL_PARAM));
+        }
+    }, [location.search, presets, shareViewParams.isShareView, shareViewParams.shareToken]);
 
     // If a preset is removed from the master list, retarget tabs to the default (or first) preset
     useEffect(() => {
@@ -2617,20 +2952,225 @@ export default function ConfigurableListTemplate({
     // which uses individual action components from the action-components folder
     // No old inline button code remains in this file
 
+    const createQuickAddRow = useCallback(
+        (groupLabel: string | null): Record<string, unknown> => {
+            const row: Record<string, unknown> = {
+                [QUICK_ADD_DRAFT_KEY]: true,
+                __quickAddId: `qa-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
+            };
+            if (groupByColumn && groupLabel != null && groupLabel !== '') {
+                row[groupByColumn] = groupLabel;
+            }
+            return row;
+        },
+        [groupByColumn],
+    );
+
+    const handleQuickAddRow = useCallback(
+        (groupLabel: string | null) => {
+            if (config.enableQuickAddRow === false) return;
+            const nr = createQuickAddRow(groupLabel);
+            const groupKey = groupLabel ?? '__ungrouped__';
+            setQuickAddInlineErrors((prev) => {
+                if (!prev[groupKey]) return prev;
+                const next = { ...prev };
+                delete next[groupKey];
+                return next;
+            });
+            if (onDataChange) {
+                onDataChange([...data, nr]);
+            } else {
+                setLocalDataAppendix((p) => [...p, nr]);
+            }
+            setActiveQuickAddCellKey(null);
+        },
+        [createQuickAddRow, data, onDataChange, config.enableQuickAddRow],
+    );
+
+    const updateQuickAddDraftField = useCallback(
+        (draftId: string, col: string, value: string) => {
+            const rows = (onDataChange ? data : localDataAppendix) as Record<string, unknown>[];
+            const draftRow = rows.find((r) => String(r.__quickAddId) === draftId);
+            const draftGroupKey =
+                draftRow && groupByColumn && String(draftRow[groupByColumn] ?? '').trim() !== ''
+                    ? String(draftRow[groupByColumn])
+                    : '__ungrouped__';
+            const apply = (rows: Record<string, unknown>[]) =>
+                rows.map((r) => (String(r.__quickAddId) === draftId ? { ...r, [col]: value } : r));
+            if (onDataChange) {
+                onDataChange(apply(data as Record<string, unknown>[]));
+            } else {
+                setLocalDataAppendix((p) => apply(p));
+            }
+            setQuickAddInlineErrors((prev) => {
+                if (!prev[draftGroupKey]) return prev;
+                const next = { ...prev };
+                delete next[draftGroupKey];
+                return next;
+            });
+        },
+        [data, onDataChange, localDataAppendix, groupByColumn],
+    );
+
+    const hasQuickAddDraftValues = useCallback(
+        (row: Record<string, unknown>) =>
+            orderedVisibleCols.some((col) => String(row[col] ?? '').trim() !== ''),
+        [orderedVisibleCols],
+    );
+
+    const finalizeQuickAddDraftRow = useCallback(
+        async (draftId: string) => {
+            const requiredColsRaw = Array.isArray(config.requiredColumns)
+                ? (config.requiredColumns as string[])
+                : Array.isArray(config.mandatoryFields)
+                  ? (config.mandatoryFields as string[])
+                  : [];
+            const requiredCols = requiredColsRaw.filter((c) => orderedVisibleCols.includes(c));
+            const rows = (onDataChange ? data : localDataAppendix) as Record<string, unknown>[];
+            const draftRow = rows.find((r) => String(r.__quickAddId) === draftId);
+            if (!draftRow) return;
+            const draftGroupKey =
+                groupByColumn && String(draftRow[groupByColumn] ?? '').trim() !== ''
+                    ? String(draftRow[groupByColumn])
+                    : '__ungrouped__';
+
+            const missing = requiredCols.filter((c) => String(draftRow[c] ?? '').trim() === '');
+            if (missing.length > 0) {
+                const missingLabels = missing.map((c) => {
+                    const fromMap = fieldMappings[c];
+                    if (fromMap && String(fromMap).trim() !== '') return String(fromMap);
+                    return c
+                        .replace(/^[_\s]+|[_\s]+$/g, '')
+                        .replace(/_/g, ' ')
+                        .replace(/\b\w/g, (ch) => ch.toUpperCase());
+                });
+                setQuickAddInlineErrors((prev) => ({
+                    ...prev,
+                    [draftGroupKey]: `Please complete the required fields: ${missingLabels.join(', ')}.`,
+                }));
+                return;
+            }
+
+            const payload: Record<string, unknown> = { ...draftRow };
+            delete payload[QUICK_ADD_DRAFT_KEY];
+            delete payload.__quickAddId;
+
+            let persistedRow: Record<string, unknown> = payload;
+            if (objectLoaderCrud?.sourceTable) {
+                const { data: inserted, error: insertError } = await supabase
+                    .from(objectLoaderCrud.sourceTable)
+                    .insert(payload)
+                    .select()
+                    .single();
+                if (insertError) {
+                    const rawMsg = String(insertError.message ?? '');
+                    const notNullMatch = rawMsg.match(/null value in column "([^"]+)"/i);
+                    const constraintCol = notNullMatch?.[1];
+                    const displayFieldLabel = constraintCol
+                        ? (fieldMappings[constraintCol] ??
+                          constraintCol
+                              .replace(/^[_\s]+|[_\s]+$/g, '')
+                              .replace(/_/g, ' ')
+                              .replace(/\b\w/g, (ch) => ch.toUpperCase()))
+                        : null;
+                    const friendlyMessage = displayFieldLabel
+                        ? `Could not save yet. Please fill the required field: ${displayFieldLabel}.`
+                        : 'Could not save this row yet. Please review required fields and try again.';
+                    setQuickAddInlineErrors((prev) => ({
+                        ...prev,
+                        [draftGroupKey]: friendlyMessage,
+                    }));
+                    return;
+                }
+                persistedRow = (inserted as Record<string, unknown>) ?? payload;
+            }
+
+            const applySaved = (input: Record<string, unknown>[]) =>
+                input.map((r) => (String(r.__quickAddId) === draftId ? persistedRow : r));
+            if (onDataChange) onDataChange(applySaved(data as Record<string, unknown>[]));
+            else setLocalDataAppendix((p) => applySaved(p));
+            setQuickAddInlineErrors((prev) => {
+                if (!prev[draftGroupKey]) return prev;
+                const next = { ...prev };
+                delete next[draftGroupKey];
+                return next;
+            });
+            setActiveQuickAddCellKey(null);
+        },
+        [
+            config.requiredColumns,
+            config.mandatoryFields,
+            orderedVisibleCols,
+            fieldMappings,
+            onDataChange,
+            data,
+            localDataAppendix,
+            objectLoaderCrud,
+            groupByColumn,
+        ],
+    );
+
     // Get checkbox state for header
     const getHeaderCheckboxState = () => {
         if (selectedRows.length === 0) return 'unchecked';
-        if (selectedRows.length === data.length) return 'checked';
+        if (selectedRows.length === sortedData.length) return 'checked';
         return 'indeterminate';
     };
 
     const renderTableRows = () => {
         const badgeColumnKey = resolveCustomBadgeColumnKey(orderedVisibleCols, config.customRowBadgeColumn ?? null);
         const rowAccentColumnKey = resolveRowAccentColumnKey(orderedVisibleCols, badgeColumnKey);
+        const quickAddEnabled = config.enableQuickAddRow !== false;
+        const hasLeadColumn = config.enableRowSelection || config.enableRowNumber;
+        const bodyColumnsCount =
+            visibleColumns.length +
+            (config.enableRowActions ? 1 : 0) +
+            (hasLeadColumn ? 0 : 1);
+
+        const renderQuickAddStrip = (groupLabel: string | null, stripKey: string) => {
+            if (!quickAddEnabled) return null;
+            const gutterW =
+                config.enableRowSelection || config.enableRowNumber ? checkboxColumnWidth ?? 48 : 48;
+            const groupKey = groupLabel ?? '__ungrouped__';
+            const inlineError = quickAddInlineErrors[groupKey];
+            const iconSize = 14;
+            const btnSizeClass = 'h-6 w-6';
+            return (
+                <tr key={`qa-strip-${stripKey}`} data-quick-add-strip="true" className="bg-white [&>td]:border-0">
+                    <td
+                        className="px-4 py-2 text-sm text-gray-700 !border-0 border-t border-gray-100 bg-gray-50/50 align-middle"
+                        style={{ width: gutterW, minWidth: gutterW, maxWidth: gutterW }}
+                    >
+                        <div className="flex items-center justify-center">
+                            <button
+                                type="button"
+                                className={`inline-flex ${btnSizeClass} items-center justify-center rounded-md border border-dashed border-gray-300 text-gray-600 hover:bg-white hover:border-gray-400`}
+                                onClick={() => handleQuickAddRow(groupLabel)}
+                                aria-label="Add row"
+                            >
+                                <Plus size={iconSize} />
+                            </button>
+                        </div>
+                    </td>
+                    <td
+                        colSpan={bodyColumnsCount}
+                        className="px-4 py-2 text-sm text-gray-700 !border-0 border-t border-gray-100 bg-gray-50/50 align-middle"
+                    >
+                        <div className="flex items-center">
+                            {inlineError ? (
+                                <div className="w-full rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-sm text-red-700">
+                                    {inlineError}
+                                </div>
+                            ) : null}
+                        </div>
+                    </td>
+                </tr>
+            );
+        };
 
         if (groupedDisplayData) {
             let flatRowCounter = 0;
-            return Object.entries(groupedDisplayData).map(([groupValue, groupRows]) => {
+            return Object.entries(groupedDisplayData).map(([groupValue, groupRows], groupIdx) => {
                 const sortSignature = sortCriteria.map(s => `${s.column}-${s.order}`).join('|');
                 
                 return (
@@ -2656,11 +3196,13 @@ export default function ConfigurableListTemplate({
                         const sortedIdx = findSortedIndexForRow(row as Record<string, unknown>);
                         const displayPos = findDisplayIndexForRow(row as Record<string, unknown>);
                         const selectionIdx = sortedIdx >= 0 ? sortedIdx : -1;
+                        const rowIsDraft = isQuickAddDraftRow(row as Record<string, unknown>);
+                        const draftId = rowIsDraft ? String((row as Record<string, unknown>).__quickAddId ?? '') : '';
                         const rowKey =
                             getTemplateRowIdentityKey(row as Record<string, unknown>) ??
                             `${groupValue}-${groupRowIdx}-${JSON.stringify(row).substring(0, 50)}`;
                         const stableRowKey = `${rowKey}-group-${groupValue}-${groupByColumn}-${sortSignature}`;
-                        const rowCanDrag = config.enableRowReorder && displayPos >= 0;
+                        const rowCanDrag = config.enableRowReorder && displayPos >= 0 && !rowIsDraft;
                         const stripeIdx = displayPos >= 0 ? displayPos : groupRowIdx;
                         const rowDropHighlight =
                             config.enableRowReorder &&
@@ -2673,16 +3215,17 @@ export default function ConfigurableListTemplate({
                         return (
                         <tr
                             key={stableRowKey}
+                            data-row-kind={rowIsDraft ? 'draft' : 'data'}
                             className={cn(
                                 config.enableRowHoverHighlight ? 'hover:bg-gray-100 transition-colors group' : 'group',
                                 config.enableStripedRows && stripeIdx % 2 === 1 && 'bg-gray-50',
-                                config.enableRowDivider ? 'border-b border-gray-200' : 'border-b-0'
+                                config.enableRowDivider ? 'border-b border-gray-200' : 'border-b-0',
                             )}
-                            style={
-                                rowDropHighlight
+                            style={{
+                                ...(rowDropHighlight
                                     ? { boxShadow: `inset 0 -2px 0 0 ${inlineEditHighlightColor}` }
-                                    : undefined
-                            }
+                                    : {}),
+                            }}
                             draggable={rowCanDrag}
                             onDragStart={(e) => displayPos >= 0 && handleRowDragStart(e, displayPos)}
                             onDragOver={(e) => displayPos >= 0 && handleRowDragOver(e, displayPos)}
@@ -2734,11 +3277,12 @@ export default function ConfigurableListTemplate({
                                             : {}),
                                     }}
                                 >
-                                    {config.enableRowReorder && (
+                                    {config.enableRowReorder && !rowIsDraft && (
                                         <div className="absolute left-1 top-1/2 transform -translate-y-1/2 cursor-move opacity-0 group-hover:opacity-100 transition-opacity">
                                             <GripVertical size={14} className="text-gray-400" />
                                         </div>
                                     )}
+                                    {rowIsDraft ? null : (
                                     <div className="flex items-center justify-center gap-2">
                                         {config.enableRowSelection && config.enableRowNumber ? (
                                             <>
@@ -2759,12 +3303,36 @@ export default function ConfigurableListTemplate({
                                             <span className="text-xs text-gray-500">{rowNum}</span>
                                         ) : null}
                                     </div>
+                                    )}
                                 </td>
                                 );
                             })()}
 
-                            {config.enableRowActions && config.rowActionsPosition === 'left' && (() => {
-                                const enabledActions = config.enabledRowActions ?? ['view', 'edit', 'copy', 'delete'];
+                            {config.enableRowActions && config.rowActionsPosition === 'left' &&
+                                (rowIsDraft ? (
+                                    <td
+                                        className={cn(
+                                            'px-4 py-2 text-sm text-gray-700 relative',
+                                            !config.enableRowDivider ? '!border-b-0' : '',
+                                            config.enableColumnDivider ? 'border-r border-gray-200' : '',
+                                        )}
+                                    >
+                                        {hasQuickAddDraftValues(row as Record<string, unknown>) && (
+                                            <button
+                                                type="button"
+                                                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 inline-flex h-5 items-center rounded border border-gray-300 px-1.5 text-[10px] leading-none font-medium hover:bg-gray-50"
+                                                onClick={() => void finalizeQuickAddDraftRow(draftId)}
+                                            >
+                                                Save
+                                            </button>
+                                        )}
+                                    </td>
+                                ) : (
+                                    (() => {
+                                const enabledActionsBase = config.enabledRowActions ?? ['view', 'edit', 'copy', 'delete'];
+                                const enabledActions = copyRestrictedByShare
+                                    ? enabledActionsBase.filter((a) => a !== 'copy')
+                                    : enabledActionsBase;
                                 const actionStyleIsMenu = config.actionStyle === 'menu' || config.actionStyle === 'dropdown';
                                 const rowLinkId =
                                     objectLoaderCrud != null
@@ -2802,7 +3370,7 @@ export default function ConfigurableListTemplate({
                                         )}
                                     />
                                 );
-                            })()}
+                            })()))}
                             {columnOrder
                                 .filter(col => visibleColumns.includes(col))
                                 .map((col, colIndex, arr) => {
@@ -2829,7 +3397,22 @@ export default function ConfigurableListTemplate({
                                                 freezeIndex > 1));
                                     const rowBg = config.enableStripedRows && stripeIdx % 2 === 1 ? 'rgb(249 250 251)' : 'white';
                                     const leftOffset = isFrozen ? getFreezeLeftOffset(colIndex) : 0;
-                                    const cellValue = row[col]?.toString() || '-';
+                                    const rawCellValue = row[col];
+                                    const cellValue =
+                                        rawCellValue == null
+                                            ? '-'
+                                            : typeof rawCellValue === 'object'
+                                              ? (() => {
+                                                    try {
+                                                        const compact = JSON.stringify(rawCellValue);
+                                                        return compact.length > 220
+                                                            ? `${compact.slice(0, 220)}...`
+                                                            : compact;
+                                                    } catch {
+                                                        return '[object]';
+                                                    }
+                                                })()
+                                              : String(rawCellValue);
                                     const wrapMode = getCellWrapMode(col, config, columnWrapStates);
                                     const clipMode = wrapMode === 'clip';
                                     const isAccentCol = col === rowAccentColumnKey;
@@ -2843,6 +3426,7 @@ export default function ConfigurableListTemplate({
                                     const tdClipOverflow =
                                         clipMode && !(showCustomBadge && badgeLayoutKind === 'wrap');
                                     const badgeInlineEditKey = `${stableRowKey}__${col}`;
+                                    const quickAddCellKey = `${draftId}__${col}`;
                                     const isBadgeColumnEditing =
                                         showCustomBadge &&
                                         config.enableInlineEdit?.includes(col) &&
@@ -2858,7 +3442,9 @@ export default function ConfigurableListTemplate({
                                         cellRangeRect != null &&
                                         isCellInRangeRect(flatRowIndex, col, orderedVisibleCols, cellRangeRect);
                                     const showRangeHighlight =
-                                        (inCellRange || inCheckboxRange) && activeInlineCellKey !== badgeInlineEditKey;
+                                        !rowIsDraft &&
+                                        (inCellRange || inCheckboxRange) &&
+                                        activeInlineCellKey !== badgeInlineEditKey;
                                     const shadowRect =
                                         inCellRange && cellRangeRect
                                             ? cellRangeRect
@@ -2877,8 +3463,8 @@ export default function ConfigurableListTemplate({
                                         key={`${stableRowKey}-${col}`}
                                         data-cell-row={flatRowIndex}
                                         data-cell-col={col}
-                                        onMouseDown={(e) => handleCellRangeMouseDown(e, flatRowIndex, col)}
-                                        onMouseEnter={(e) => handleCellRangeMouseEnter(e, flatRowIndex, col)}
+                                        onMouseDown={rowIsDraft ? undefined : (e) => handleCellRangeMouseDown(e, flatRowIndex, col)}
+                                        onMouseEnter={rowIsDraft ? undefined : (e) => handleCellRangeMouseEnter(e, flatRowIndex, col)}
                                         className={cn(
                                             'px-4 py-2 text-sm text-gray-700 text-left align-top select-none',
                                             lightColDivider &&
@@ -2902,6 +3488,12 @@ export default function ConfigurableListTemplate({
                                             minWidth: columnWidths[col] ? `${columnWidths[col]}px` : undefined,
                                             maxWidth: columnWidths[col] ? `${columnWidths[col]}px` : undefined,
                                             boxSizing: 'border-box',
+                                            ...(rowIsDraft && activeQuickAddCellKey === quickAddCellKey
+                                                ? {
+                                                      boxShadow: `inset 0 0 0 2px ${inlineEditHighlightColor}`,
+                                                      backgroundColor: 'white',
+                                                  }
+                                                : {}),
                                             ...(activeInlineCellKey === badgeInlineEditKey
                                                 ? {
                                                       boxShadow: `inset 0 0 0 2px ${inlineEditHighlightColor}`,
@@ -2930,8 +3522,20 @@ export default function ConfigurableListTemplate({
                                                   }
                                                 : {}),
                                         }}
-                                        title={config.enableTooltips === true ? cellValue : undefined}
+                                        title={config.enableTooltips === true && !rowIsDraft ? cellValue : undefined}
                                         >
+                                        {rowIsDraft ? (
+                                            <input
+                                                type="text"
+                                                value={String(row[col] ?? '')}
+                                                onChange={(e) => updateQuickAddDraftField(draftId, col, e.target.value)}
+                                                onFocus={() => {
+                                                    setActiveQuickAddCellKey(quickAddCellKey);
+                                                }}
+                                                onBlur={() => setActiveQuickAddCellKey((prev) => (prev === quickAddCellKey ? null : prev))}
+                                                className="min-w-0 border-none bg-transparent focus:bg-transparent focus:outline-none px-1 py-0.5 rounded w-full max-w-full select-text"
+                                            />
+                                        ) : (
                                         <div
                                             className={cn(
                                                 showCustomBadge
@@ -3030,7 +3634,20 @@ export default function ConfigurableListTemplate({
                                                     )}
                                                     title={config.enableTooltips === true ? cellValue : undefined}
                                                 >
-                                                    {cellValue}
+                                                    {isObjectManagerLinkCell(rowIsDraft, col) ? (
+                                                        <button
+                                                            type="button"
+                                                            className="text-left text-primary hover:underline"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                navigateToRowDetail(row as Record<string, unknown>);
+                                                            }}
+                                                        >
+                                                            {cellValue}
+                                                        </button>
+                                                    ) : (
+                                                        cellValue
+                                                    )}
                                                 </span>
                                             )}
                                             {showCustomBadge && !isBadgeColumnEditing && (
@@ -3039,12 +3656,36 @@ export default function ConfigurableListTemplate({
                                                 </span>
                                             )}
                                         </div>
+                                        )}
                                     </td>
                                     );
                                 })}
 
-                            {config.enableRowActions && config.rowActionsPosition !== 'left' && (() => {
-                                const enabledActions = config.enabledRowActions ?? ['view', 'edit', 'copy', 'delete'];
+                            {config.enableRowActions && config.rowActionsPosition !== 'left' &&
+                                (rowIsDraft ? (
+                                    <td
+                                        className={cn(
+                                            'px-4 py-2 text-sm text-gray-700 relative',
+                                            !config.enableRowDivider ? '!border-b-0' : '',
+                                            config.enableColumnDivider ? 'border-l border-gray-200' : '',
+                                        )}
+                                    >
+                                        {hasQuickAddDraftValues(row as Record<string, unknown>) && (
+                                            <button
+                                                type="button"
+                                                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 inline-flex h-5 items-center rounded border border-gray-300 px-1.5 text-[10px] leading-none font-medium hover:bg-gray-50"
+                                                onClick={() => void finalizeQuickAddDraftRow(draftId)}
+                                            >
+                                                Save
+                                            </button>
+                                        )}
+                                    </td>
+                                ) : (
+                                    (() => {
+                                const enabledActionsBase = config.enabledRowActions ?? ['view', 'edit', 'copy', 'delete'];
+                                const enabledActions = copyRestrictedByShare
+                                    ? enabledActionsBase.filter((a) => a !== 'copy')
+                                    : enabledActionsBase;
                                 const actionStyleIsMenu = config.actionStyle === 'menu' || config.actionStyle === 'dropdown';
                                 const rowLinkId =
                                     objectLoaderCrud != null
@@ -3082,15 +3723,18 @@ export default function ConfigurableListTemplate({
                                         )}
                                     />
                                 );
-                            })()}
+                            })()))}
                         </tr>
                     )})}
+                    {renderQuickAddStrip(groupValue, `g-${groupIdx}`)}
                 </React.Fragment>
                 );
             });
         }
 
-        return displayRows.map((row, idx) => {
+        return (
+ <>
+                {displayRows.map((row, idx) => {
             const actualIndex = displayIndices[idx];
             const sortSignature = sortCriteria.map(s => `${s.column}-${s.order}`).join('|');
             const rowKey =
@@ -3098,6 +3742,8 @@ export default function ConfigurableListTemplate({
                 `row-${actualIndex}-${JSON.stringify(row).substring(0, 50)}`;
             const stableRowKey = `${rowKey}-ungrouped-${sortSignature}`;
             const rowPositionKey = `${stableRowKey}-pos${idx}`;
+            const rowIsDraft = isQuickAddDraftRow(row as Record<string, unknown>);
+            const draftId = rowIsDraft ? String((row as Record<string, unknown>).__quickAddId ?? '') : '';
             const rowDropHighlightUngrouped =
                 config.enableRowReorder &&
                 rowDragOverIndex !== null &&
@@ -3108,17 +3754,18 @@ export default function ConfigurableListTemplate({
             return (
             <tr
                 key={rowPositionKey}
+                data-row-kind={rowIsDraft ? 'draft' : 'data'}
                 className={cn(
                     config.enableRowHoverHighlight ? 'hover:bg-gray-100 transition-colors group' : 'group',
                     config.enableStripedRows && idx % 2 === 1 && 'bg-gray-50',
-                    config.enableRowDivider ? 'border-b border-gray-200' : 'border-b-0'
+                    config.enableRowDivider ? 'border-b border-gray-200' : 'border-b-0',
                 )}
-                style={
-                    rowDropHighlightUngrouped
+                style={{
+                    ...(rowDropHighlightUngrouped
                         ? { boxShadow: `inset 0 -2px 0 0 ${inlineEditHighlightColor}` }
-                        : undefined
-                }
-                draggable={config.enableRowReorder}
+                        : {}),
+                }}
+                draggable={config.enableRowReorder && !rowIsDraft}
                 onDragStart={(e) => handleRowDragStart(e, idx)}
                 onDragOver={(e) => handleRowDragOver(e, idx)}
                 onDrop={(e) => handleRowDrop(e, idx)}
@@ -3168,11 +3815,12 @@ export default function ConfigurableListTemplate({
                                 : {}),
                         }}
                     >
-                        {config.enableRowReorder && (
+                        {config.enableRowReorder && !rowIsDraft && (
                             <div className="absolute left-1 top-1/2 transform -translate-y-1/2 cursor-move opacity-0 group-hover:opacity-100 transition-opacity">
                                 <GripVertical size={14} className="text-gray-400" />
                             </div>
                         )}
+                        {rowIsDraft ? null : (
                         <div className="flex items-center justify-center gap-2">
                             {config.enableRowSelection && config.enableRowNumber ? (
                                 <>
@@ -3193,12 +3841,36 @@ export default function ConfigurableListTemplate({
                                 <span className="text-xs text-gray-500 tabular-nums">{idx + 1}</span>
                             ) : null}
                         </div>
+                        )}
                     </td>
                     );
                 })()}
 
-                            {config.enableRowActions && config.rowActionsPosition === 'left' && (() => {
-                                const enabledActions = config.enabledRowActions ?? ['view', 'edit', 'copy', 'delete'];
+                            {config.enableRowActions && config.rowActionsPosition === 'left' &&
+                                (rowIsDraft ? (
+                                    <td
+                                        className={cn(
+                                            'px-4 py-2 text-sm text-gray-700 relative',
+                                            !config.enableRowDivider ? '!border-b-0' : '',
+                                            config.enableColumnDivider ? 'border-r border-gray-200' : '',
+                                        )}
+                                    >
+                                        {hasQuickAddDraftValues(row as Record<string, unknown>) && (
+                                            <button
+                                                type="button"
+                                                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 inline-flex h-5 items-center rounded border border-gray-300 px-1.5 text-[10px] leading-none font-medium hover:bg-gray-50"
+                                                onClick={() => void finalizeQuickAddDraftRow(draftId)}
+                                            >
+                                                Save
+                                            </button>
+                                        )}
+                                    </td>
+                                ) : (
+                                    (() => {
+                                const enabledActionsBase = config.enabledRowActions ?? ['view', 'edit', 'copy', 'delete'];
+                                const enabledActions = copyRestrictedByShare
+                                    ? enabledActionsBase.filter((a) => a !== 'copy')
+                                    : enabledActionsBase;
                                 const actionStyleIsMenu = config.actionStyle === 'menu' || config.actionStyle === 'dropdown';
                                 const rowLinkId =
                                     objectLoaderCrud != null
@@ -3236,7 +3908,7 @@ export default function ConfigurableListTemplate({
                                         )}
                                     />
                                 );
-                            })()}
+                            })()))}
                             {columnOrder
                                 .filter(col => visibleColumns.includes(col))
                                 .map((col, colIndex, arr) => {
@@ -3263,8 +3935,23 @@ export default function ConfigurableListTemplate({
                                                 freezeIndex > 1));
                                     const rowBg = config.enableStripedRows && idx % 2 === 1 ? 'rgb(249 250 251)' : 'white';
                                     const leftOffset = isFrozen ? getFreezeLeftOffset(colIndex) : 0;
-                                    const cellValue = row[col]?.toString() || '-';
-                                    const cellKey = `${rowPositionKey}-${col}-${(cellValue || '').slice(0, 30)}`;
+                                    const rawCellValue = row[col];
+                                    const cellValue =
+                                        rawCellValue == null
+                                            ? '-'
+                                            : typeof rawCellValue === 'object'
+                                              ? (() => {
+                                                    try {
+                                                        const compact = JSON.stringify(rawCellValue);
+                                                        return compact.length > 220
+                                                            ? `${compact.slice(0, 220)}...`
+                                                            : compact;
+                                                    } catch {
+                                                        return '[object]';
+                                                    }
+                                                })()
+                                              : String(rawCellValue);
+                                    const cellKey = `${rowPositionKey}-${col}`;
                                     const wrapMode = getCellWrapMode(col, config, columnWrapStates);
                                     const clipMode = wrapMode === 'clip';
                                     const isAccentCol = col === rowAccentColumnKey;
@@ -3278,6 +3965,7 @@ export default function ConfigurableListTemplate({
                                     const tdClipOverflow =
                                         clipMode && !(showCustomBadge && badgeLayoutKind === 'wrap');
                                     const badgeInlineEditKey = `${rowPositionKey}__${col}`;
+                                    const quickAddCellKey = `${draftId}__${col}`;
                                     const isBadgeColumnEditing =
                                         showCustomBadge &&
                                         config.enableInlineEdit?.includes(col) &&
@@ -3293,7 +3981,9 @@ export default function ConfigurableListTemplate({
                                         cellRangeRect != null &&
                                         isCellInRangeRect(idx, col, orderedVisibleCols, cellRangeRect);
                                     const showRangeHighlight =
-                                        (inCellRange || inCheckboxRange) && activeInlineCellKey !== badgeInlineEditKey;
+                                        !rowIsDraft &&
+                                        (inCellRange || inCheckboxRange) &&
+                                        activeInlineCellKey !== badgeInlineEditKey;
                                     const shadowRect =
                                         inCellRange && cellRangeRect
                                             ? cellRangeRect
@@ -3312,8 +4002,8 @@ export default function ConfigurableListTemplate({
                                         key={cellKey}
                                         data-cell-row={idx}
                                         data-cell-col={col}
-                                        onMouseDown={(e) => handleCellRangeMouseDown(e, idx, col)}
-                                        onMouseEnter={(e) => handleCellRangeMouseEnter(e, idx, col)}
+                                        onMouseDown={rowIsDraft ? undefined : (e) => handleCellRangeMouseDown(e, idx, col)}
+                                        onMouseEnter={rowIsDraft ? undefined : (e) => handleCellRangeMouseEnter(e, idx, col)}
                                         className={cn(
                                             'px-4 py-2 text-sm text-gray-700 text-left align-top select-none',
                                             lightColDivider &&
@@ -3337,6 +4027,12 @@ export default function ConfigurableListTemplate({
                                             minWidth: columnWidths[col] ? `${columnWidths[col]}px` : undefined,
                                             maxWidth: columnWidths[col] ? `${columnWidths[col]}px` : undefined,
                                             boxSizing: 'border-box',
+                                            ...(rowIsDraft && activeQuickAddCellKey === quickAddCellKey
+                                                ? {
+                                                      boxShadow: `inset 0 0 0 2px ${inlineEditHighlightColor}`,
+                                                      backgroundColor: 'white',
+                                                  }
+                                                : {}),
                                             ...(activeInlineCellKey === badgeInlineEditKey
                                                 ? {
                                                       boxShadow: `inset 0 0 0 2px ${inlineEditHighlightColor}`,
@@ -3365,8 +4061,20 @@ export default function ConfigurableListTemplate({
                                                   }
                                                 : {}),
                                         }}
-                                        title={config.enableTooltips === true ? cellValue : undefined}
+                                                                               title={config.enableTooltips === true && !rowIsDraft ? cellValue : undefined}
                                         >
+                                        {rowIsDraft ? (
+                                            <input
+                                                type="text"
+                                                value={String(row[col] ?? '')}
+                                                onChange={(e) => updateQuickAddDraftField(draftId, col, e.target.value)}
+                                                onFocus={() => {
+                                                    setActiveQuickAddCellKey(quickAddCellKey);
+                                                }}
+                                                onBlur={() => setActiveQuickAddCellKey((prev) => (prev === quickAddCellKey ? null : prev))}
+                                                className="min-w-0 border-none bg-transparent focus:bg-transparent focus:outline-none px-1 py-0.5 rounded w-full max-w-full select-text"
+                                            />
+                                        ) : (
                                         <div
                                             className={cn(
                                                 showCustomBadge
@@ -3465,7 +4173,20 @@ export default function ConfigurableListTemplate({
                                                     )}
                                                     title={config.enableTooltips === true ? cellValue : undefined}
                                                 >
-                                                    {cellValue}
+                                                    {isObjectManagerLinkCell(rowIsDraft, col) ? (
+                                                        <button
+                                                            type="button"
+                                                            className="text-left text-primary hover:underline"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                navigateToRowDetail(row as Record<string, unknown>);
+                                                            }}
+                                                        >
+                                                            {cellValue}
+                                                        </button>
+                                                    ) : (
+                                                        cellValue
+                                                    )}
                                                 </span>
                                             )}
                                             {showCustomBadge && !isBadgeColumnEditing && (
@@ -3474,12 +4195,36 @@ export default function ConfigurableListTemplate({
                                                 </span>
                                             )}
                                         </div>
+                                        )}
                                     </td>
                                     );
                                 })}
 
-                            {config.enableRowActions && config.rowActionsPosition !== 'left' && (() => {
-                                const enabledActions = config.enabledRowActions ?? ['view', 'edit', 'copy', 'delete'];
+                            {config.enableRowActions && config.rowActionsPosition !== 'left' &&
+                                (rowIsDraft ? (
+                                    <td
+                                        className={cn(
+                                            'px-4 py-2 text-sm text-gray-700 relative',
+                                            !config.enableRowDivider ? '!border-b-0' : '',
+                                            config.enableColumnDivider ? 'border-l border-gray-200' : '',
+                                        )}
+                                    >
+                                        {hasQuickAddDraftValues(row as Record<string, unknown>) && (
+                                            <button
+                                                type="button"
+                                                className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 inline-flex h-5 items-center rounded border border-gray-300 px-1.5 text-[10px] leading-none font-medium hover:bg-gray-50"
+                                                onClick={() => void finalizeQuickAddDraftRow(draftId)}
+                                            >
+                                                Save
+                                            </button>
+                                        )}
+                                    </td>
+                                ) : (
+                                    (() => {
+                                const enabledActionsBase = config.enabledRowActions ?? ['view', 'edit', 'copy', 'delete'];
+                                const enabledActions = copyRestrictedByShare
+                                    ? enabledActionsBase.filter((a) => a !== 'copy')
+                                    : enabledActionsBase;
                                 const actionStyleIsMenu = config.actionStyle === 'menu' || config.actionStyle === 'dropdown';
                                 const rowLinkId =
                                     objectLoaderCrud != null
@@ -3517,10 +4262,13 @@ export default function ConfigurableListTemplate({
                                         )}
                                     />
                                 );
-                            })()}
+                            })()))}
             </tr>
             );
-        });
+        })}
+            {renderQuickAddStrip(null, 'ungrouped')}
+        </>
+        );
     };
 
     // ===== ORPHANED CODE BLOCK REMOVED (was lines 1110-2409) =====
@@ -3660,12 +4408,13 @@ export default function ConfigurableListTemplate({
 
         const viewClasses: Record<string, string> = {
             default: '',
+            'max-compact': 'max-compact',
             compact: 'compact',
             comfortable: 'comfortable',
             spacious: 'spacious'
         };
 
-        return `
+        const composed = `
         ${baseClasses}
         ${themeClasses[config.theme || 'default']}
         ${viewClasses[config.tableView || 'default']}
@@ -3673,6 +4422,7 @@ export default function ConfigurableListTemplate({
         ${config.enableStripedRows ? 'striped' : ''}
         ${tableFreezeHeaderEnabled ? 'freeze-header' : ''}
     `;
+        return composed;
     }
 
     /** Invalid saved values (e.g. confused with tabOrientation) hid both tab strips */
@@ -3683,9 +4433,14 @@ export default function ConfigurableListTemplate({
 
     const effectiveTabList: TabItem[] = useMemo(() => {
         const raw = config.tabList ?? [];
+        const applyShareTabLock = (tabs: TabItem[]): TabItem[] => {
+            if (!shareViewParams.isShareView || !shareViewParams.lockedTabId) return tabs;
+            const one = tabs.find((t) => t.id === shareViewParams.lockedTabId);
+            return one ? [one] : tabs.slice(0, 1);
+        };
         if (!config.enableTabs) return raw;
         if (raw.length > 0) {
-            return raw.map((t) => {
+            const normalized = raw.map((t) => {
                 const emoji = t.customIcon?.trim();
                 let iconKey = t.iconKey || 'list';
                 if (emoji && iconKey !== TAB_ICON_CUSTOM_KEY) {
@@ -3697,16 +4452,17 @@ export default function ConfigurableListTemplate({
                     customIcon: iconKey === TAB_ICON_CUSTOM_KEY ? emoji || undefined : undefined,
                 };
             });
+            return applyShareTabLock(normalized);
         }
-        return [
+        return applyShareTabLock([
             {
                 id: 'tab-default-ui',
                 label: 'Default',
                 presetId: 'default',
                 iconKey: 'list',
             },
-        ];
-    }, [config.enableTabs, config.tabList]);
+        ]);
+    }, [config.enableTabs, config.tabList, shareViewParams.isShareView, shareViewParams.lockedTabId]);
 
     const showTabBar = !!config.enableTabs && effectiveTabList.length > 0;
     const tabLabelW =
@@ -3780,6 +4536,7 @@ export default function ConfigurableListTemplate({
             visibleColumns,
             columnOrder,
             columnWidthsPx,
+            columnWrapStates,
         };
     }, [
         searchTerm,
@@ -3790,6 +4547,7 @@ export default function ConfigurableListTemplate({
         visibleColumns,
         columnOrder,
         columnWidths,
+        columnWrapStates,
     ]);
 
     return (
@@ -4016,7 +4774,76 @@ export default function ConfigurableListTemplate({
                 </div>
             )}
             
+            {shareViewParams.isShareView && !shareContentUnlocked && (
+                <div className="fixed inset-0 z-[1200] bg-black/35 flex items-center justify-center p-4">
+                    <div className="w-full max-w-md rounded-lg bg-white shadow-xl border border-gray-200 p-5">
+                        {!shareConsentAccepted ? (
+                            <>
+                                <h3 className="text-base font-semibold text-gray-900">Shared Data Consent</h3>
+                                <p className="text-sm text-gray-600 mt-2">
+                                    This shared dataset may contain sensitive information. Continue only if you are authorized.
+                                </p>
+                                <div className="mt-4 flex justify-end gap-2">
+                                    <button
+                                        type="button"
+                                        className="px-3 py-1.5 rounded border border-gray-300 text-gray-700"
+                                        onClick={() => {
+                                            if (shareViewParams.shareToken) {
+                                                sessionStorage.setItem(`share-consent-${shareViewParams.shareToken}`, '1');
+                                            }
+                                            setShareConsentAccepted(true);
+                                        }}
+                                    >
+                                        I Accept
+                                    </button>
+                                </div>
+                            </>
+                        ) : (
+                            <>
+                                <h3 className="text-base font-semibold text-gray-900">Restricted Share Access</h3>
+                                <p className="text-sm text-gray-600 mt-2">
+                                    Enter username/email and password to open this shared view.
+                                </p>
+                                <div className="mt-3 space-y-2">
+                                    <input
+                                        type="text"
+                                        value={shareCredentialUser}
+                                        onChange={(e) => {
+                                            setShareCredentialUser(e.target.value);
+                                            setShareCredentialError(null);
+                                        }}
+                                        className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm"
+                                        placeholder="Username or email"
+                                    />
+                                    <input
+                                        type="password"
+                                        value={shareCredentialPassword}
+                                        onChange={(e) => {
+                                            setShareCredentialPassword(e.target.value);
+                                            setShareCredentialError(null);
+                                        }}
+                                        className="w-full border border-gray-300 rounded px-2 py-1.5 text-sm"
+                                        placeholder="Password"
+                                    />
+                                    {shareCredentialError && <p className="text-xs text-red-600">{shareCredentialError}</p>}
+                                </div>
+                                <div className="mt-4 flex justify-end">
+                                    <button
+                                        type="button"
+                                        className="px-3 py-1.5 rounded bg-primary text-white"
+                                        onClick={submitShareCredentials}
+                                    >
+                                        Unlock
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                </div>
+            )}
+
             {/* Main content: table + optional chart panel */}
+            {shareContentUnlocked && (
             <div className={cn(chartPanelOpen && "flex flex-row")}>
             <div
                 id="printable-table-content"
@@ -4057,7 +4884,7 @@ export default function ConfigurableListTemplate({
                         </div>
                         <div className="flex items-center space-x-2">
                             {config.enableNewButton && (
-                                <button className="btn btn-primary">
+                                <button className="btn btn-primary" onClick={onNewButtonClick}>
                                     {config.newButtonType === 'icon' ? (
                                         <Plus size={16} />
                                     ) : (
@@ -4068,7 +4895,7 @@ export default function ConfigurableListTemplate({
                                 </button>
                             )}
                             {/* Settings and Preset when Table Panel is disabled */}
-                            {!config.enableTablePanel && (
+                            {!config.enableTablePanel && !shareViewParams.isShareView && (
                                 <>
                                     {config.enablePresetSelector && (
                                         <div className="relative z-[110]" ref={dropdownRef}>
@@ -4119,6 +4946,7 @@ export default function ConfigurableListTemplate({
 
             {tableCellSelectionEnabled &&
                 cellRangeRect &&
+                !cellRangeHasDraftRows &&
                 !(shareViewParams.isShareView && shareViewParams.restrictCopy) && (
                 <div
                     className="pointer-events-auto fixed bottom-6 left-1/2 z-[540] flex -translate-x-1/2 items-center gap-0.5 rounded-lg border border-gray-200 bg-white/95 px-1.5 py-1 shadow-lg backdrop-blur-sm"
@@ -4148,11 +4976,8 @@ export default function ConfigurableListTemplate({
             {tabStripBetween}
 
             {/* Table Panel - outside card so transparent background shows page (same as Title Panel) */}
-                {config.enableTablePanel && (
-                    <div style={{
-                        ...(shareViewParams.isShareView && !shareViewParams.panelAllowed ? { pointerEvents: 'none' as const, opacity: 0.85 } : {}),
-                        marginBottom: `${config.tablePanelSpacing ?? 0}px`
-                    }}>
+                {config.enableTablePanel && (!shareViewParams.isShareView || shareViewParams.panelAllowed) && (
+                    <div style={{ marginBottom: `${config.tablePanelSpacing ?? 0}px` }}>
                     <TableActionPanel
                         enableTablePanel={config.enableTablePanel}
                         tablePanelBackground={config.tablePanelBackground || false}
@@ -4176,6 +5001,7 @@ export default function ConfigurableListTemplate({
                         filterButtonAlign={config.filterButtonAlign || 'right'}
                         filterCriteria={filterCriteria}
                         onFilterCriteriaChange={setFilterCriteria}
+                        dateColumnKeys={dateColumnKeys}
                         // Group
                         enableGroup={config.enableGroup || false}
                         groupButtonType={config.groupButtonType || 'icon'}
@@ -4204,6 +5030,9 @@ export default function ConfigurableListTemplate({
                         onVisibleColumnsChange={setVisibleColumns}
                         columnWidths={columnWidths}
                         onColumnWidthsChange={setColumnWidths}
+                        columnWrapStates={columnWrapStates}
+                        onToggleColumnWrapClip={handleWrapClipToggle}
+                        onApplyColumnSettings={handlePersistColumnSettings}
                         // Freeze Pane
                         freezePaneType={config.freezePaneType || 'icon'}
                         freezePaneAlign={config.freezePaneAlign || 'right'}
@@ -4246,6 +5075,11 @@ export default function ConfigurableListTemplate({
                         shareButtonType={config.shareButtonType || 'icon'}
                         shareButtonAlign={config.shareButtonAlign || 'right'}
                         onShareClick={handleShareClick}
+                        onCreateShareTokenSettings={handleCreateShareTokenSettings}
+                        onDeleteShareToken={handleDeleteShareToken}
+                        onDeleteAllShareTokens={handleDeleteAllShareTokens}
+                        shareGeneratedLinks={shareGeneratedLinks}
+                        activeTabIdForShare={currentTabIdForShare}
                         // Preset
                         enablePresetSelector={config.enablePresetSelector || false}
                         presetButtonType={config.presetButtonType || 'icon'}
@@ -4476,23 +5310,7 @@ export default function ConfigurableListTemplate({
                                                             <span>{sortCriteria.find(s => s.column === col)?.order === 'asc' ? ' ↑' : ' ↓'}</span>
                                                         )}
                                                     </div>
-                                                    {config.enableWrapClipOption && (
-                                                        <div className="absolute right-8 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity z-[1]">
-                                                            <button
-                                                                type="button"
-                                                                className="text-gray-400 hover:text-gray-600 p-1 rounded"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    handleWrapClipToggle(col);
-                                                                }}
-                                                                title={`${getCellWrapMode(col, config, columnWrapStates) === 'wrap' ? 'Clip' : 'Wrap'} text`}
-                                                            >
-                                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-                                                                    <path d="M3 6h18M3 12h15a3 3 0 1 1 0 6h-4" />
-                                                                </svg>
-                                                            </button>
-                                                        </div>
-                                                    )}
+                                                    {/* Wrap/clip is controlled via Column Visibility dropdown (per-column settings). */}
                                                     {config.enableColumnResize && (
                                                         <div
                                                             className="absolute top-0 right-0 h-full w-3 cursor-col-resize z-[5]"
@@ -4540,7 +5358,7 @@ export default function ConfigurableListTemplate({
                             />
                         </table>
 
-                        {sortedData.length === 0 && (
+                        {sortedData.length === 0 && config.enableQuickAddRow === false && (
                             <div className="py-8 text-center">
                                 <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-gray-100 mb-4">
                                     <AlertTriangle size={24} className="text-gray-400" />
@@ -4566,6 +5384,7 @@ export default function ConfigurableListTemplate({
                 />
             )}
             </div>
+            )}
 
             {/* Bulk Actions Bar - Outside printable content so it doesn't print */}
             {config.enableBulkActions && selectedRows.length > 0 && (() => {
@@ -4599,7 +5418,7 @@ export default function ConfigurableListTemplate({
                                     >
                                         Edit
                                     </button>
-                                    {bulkOl && (
+                                    {bulkOl && !copyRestrictedByShare && (
                                         <button
                                             type="button"
                                             className="px-3 py-1 text-sm border border-gray-300 rounded hover:bg-gray-50"
@@ -4649,8 +5468,8 @@ export default function ConfigurableListTemplate({
                                         type="button"
                                         className="p-2 text-gray-500 hover:text-primary border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-40"
                                         title="Copy"
-                                        disabled={!bulkOl}
-                                        onClick={() => bulkOl && setObjectLoaderModal({ type: 'bulk_copy', rows: selectedRecords })}
+                                        disabled={!bulkOl || copyRestrictedByShare}
+                                        onClick={() => bulkOl && !copyRestrictedByShare && setObjectLoaderModal({ type: 'bulk_copy', rows: selectedRecords })}
                                     >
                                         <Copy size={16} />
                                     </button>

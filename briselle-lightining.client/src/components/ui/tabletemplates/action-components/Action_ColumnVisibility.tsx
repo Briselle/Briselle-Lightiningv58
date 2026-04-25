@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
-import { Eye, EyeOff, ChevronUp, ChevronDown, X } from 'lucide-react';
+import { Eye, EyeOff, ChevronUp, ChevronDown, X, WrapText } from 'lucide-react';
 import { cn } from '../../../../utils/helpers';
 
 const MIN_COL_PX = 80;
@@ -84,6 +84,14 @@ interface Action_ColumnVisibilityProps {
     onVisibleColumnsChange: (columns: string[]) => void;
     columnWidths: Record<string, number>;
     onColumnWidthsChange: Dispatch<SetStateAction<Record<string, number>>>;
+    columnWrapStates: Record<string, 'wrap' | 'clip'>;
+    onToggleColumnWrapClip: (column: string) => void;
+    onApplyColumnSettings?: (payload: {
+        activeColumns: string[];
+        visibleColumns: string[];
+        columnWidths: Record<string, number>;
+        columnWrapStates: Record<string, 'wrap' | 'clip'>;
+    }) => void | Promise<void>;
 }
 
 const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
@@ -98,6 +106,9 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
     onVisibleColumnsChange,
     columnWidths,
     onColumnWidthsChange,
+    columnWrapStates,
+    onToggleColumnWrapClip,
+    onApplyColumnSettings,
 }) => {
     const [showColumnDropdown, setShowColumnDropdown] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
@@ -172,6 +183,11 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
         if (!Number.isFinite(num)) return;
         const clamped = Math.min(MAX_PX, Math.max(MIN_PX, Math.round(num)));
         onColumnWidthsChange((prev) => ({ ...prev, [key]: clamped }));
+    };
+
+    const commitWidthForKey = (key: string, px: number | null) => {
+        const raw = px == null ? '' : String(px);
+        commitColumnWidthPx(key, raw);
     };
 
     const addColumn = (key: string) => {
@@ -256,7 +272,7 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
             >
                 {getButtonContent(
                     <Eye size={16} />,
-                    'Columns',
+                    'Column Visibilty',
                     columnVisibilityButtonType || 'icon'
                 )}
             </button>
@@ -264,7 +280,7 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
             {showColumnDropdown && (
                 <div
                     className={cn(
-                        'absolute top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-[22.4rem] max-w-[95vw]',
+                        'absolute top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-[24.7rem] max-w-[95vw]',
                         columnVisibilityButtonAlign === 'left' ? 'left-0' : 'right-0'
                     )}
                     onMouseDown={(e) => e.stopPropagation()}
@@ -274,7 +290,7 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
                         {/* Header */}
                         <div className="flex items-center justify-between mb-3">
                             <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                                Columns
+                                Column Visibilty
                             </div>
 
                             {/* Actions */}
@@ -323,6 +339,12 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
                                         e.stopPropagation();
                                         onActiveColumnsChange(activeColumns);
                                         onVisibleColumnsChange(visibleColumns);
+                                        void onApplyColumnSettings?.({
+                                            activeColumns,
+                                            visibleColumns,
+                                            columnWidths,
+                                            columnWrapStates,
+                                        });
                                         setShowColumnDropdown(false);
                                     }}
                                     className="text-xs px-2 py-1 bg-primary text-white rounded hover:opacity-90"
@@ -357,23 +379,6 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
                                                         —
                                                     </span>
                                                 )}
-
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        removeColumn(key);
-                                                    }}
-                                                    disabled={isOnlyOne}
-                                                    className={cn(
-                                                        isOnlyOne
-                                                            ? 'text-gray-300 cursor-not-allowed'
-                                                            : 'text-blue-600 hover:text-blue-800'
-                                                    )}
-                                                    title="Remove column"
-                                                    type="button"
-                                                >
-                                                    <X size={14} />
-                                                </button>
 
                                                 <button
                                                     onClick={(e) => {
@@ -416,6 +421,39 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
                                                     type="button"
                                                 >
                                                     <ChevronDown size={14} />
+                                                </button>
+
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onToggleColumnWrapClip(key);
+                                                    }}
+                                                    className={cn(
+                                                        columnWrapStates[key] === 'wrap'
+                                                            ? 'text-blue-700 hover:text-blue-800'
+                                                            : 'text-gray-500 hover:text-primary'
+                                                    )}
+                                                    title={columnWrapStates[key] === 'wrap' ? 'Wrap enabled (switch to clip)' : 'Clip enabled (switch to wrap)'}
+                                                    type="button"
+                                                >
+                                                    <WrapText size={14} />
+                                                </button>
+
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        removeColumn(key);
+                                                    }}
+                                                    disabled={isOnlyOne}
+                                                    className={cn(
+                                                        isOnlyOne
+                                                            ? 'text-gray-300 cursor-not-allowed'
+                                                            : 'text-blue-600 hover:text-blue-800'
+                                                    )}
+                                                    title="Remove column"
+                                                    type="button"
+                                                >
+                                                    <X size={14} />
                                                 </button>
                                             </div>
                                         </div>

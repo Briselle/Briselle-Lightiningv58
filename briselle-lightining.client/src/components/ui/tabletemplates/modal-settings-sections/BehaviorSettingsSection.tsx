@@ -134,6 +134,13 @@ const BehaviorSettingsSection: React.FC<BehaviorSettingsSectionProps> = ({
                             onChange={(v) => onChange('enableTableCellSelection', v)}
                         />
                     </div>
+                    <div className={tableRowClass}>
+                        <span className="text-sm font-medium text-gray-700">Quick add row (+ at bottom / per group)</span>
+                        <Toggle
+                            checked={config.enableQuickAddRow !== false}
+                            onChange={(v) => onChange('enableQuickAddRow', v)}
+                        />
+                    </div>
                     {config.enableRowSelection && (
                         <div className="grid grid-cols-[auto_auto_auto_auto_auto_auto] gap-x-3 py-1.5 items-center">
                             <span className="text-sm font-medium text-gray-700 whitespace-nowrap">Enable Mass Selection</span>
