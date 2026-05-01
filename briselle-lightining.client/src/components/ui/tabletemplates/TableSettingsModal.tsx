@@ -36,6 +36,9 @@ import {
     persistActiveContextToDB,
     resetDefaultToCodeInDB,
     pruneObjectLoaderToDefaultOnlyInDB,
+    DB_ENTITY_ID,
+    DB_DOBJ_ID,
+    type PlatformConfigScope,
 } from './utils/configService';
 
 export interface TableSettingsModalProps {
@@ -53,6 +56,8 @@ export interface TableSettingsModalProps {
     fieldMappings?: Record<string, string>;
     /** Current runtime filter/sort/group/columns/search — embedded in new presets as `savedQueryState` */
     tableQueryState?: TableQueryState | null;
+    /** `platform_config` row scope for all ObjectLoader DB writes from this modal */
+    platformConfigScope?: PlatformConfigScope;
 }
 
 const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
@@ -67,6 +72,7 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
     onPresetSelect,
     fieldMappings,
     tableQueryState = null,
+    platformConfigScope = { entityId: DB_ENTITY_ID, dobjId: DB_DOBJ_ID },
 }) => {
     const [activeTab, setActiveTab] = useState('display');
     const [modalConfig, setModalConfig] = useState<TableConfig>(currentConfig);
@@ -317,8 +323,8 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
         const { success, error: dbError, didSkipDefaultPresetBody } = await saveTableSettingsToDB(
             targetId,
             savedConfigNormalized as Record<string, unknown>,
-            undefined,
-            undefined,
+            platformConfigScope.entityId,
+            platformConfigScope.dobjId,
             undefined,
             {
                 activeTabIdOverride: modalDraftActiveTabId,
@@ -408,7 +414,12 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
         const tabs = modalConfig.tabList ?? [];
         const tabForPreset = tabs.find((t) => t.presetId === presetId);
         const tabId = tabForPreset?.id ?? tabs[0]?.id ?? null;
-        persistActiveContextToDB(presetId, tabId).then(({ error }) => {
+        persistActiveContextToDB(
+            presetId,
+            tabId,
+            platformConfigScope.entityId,
+            platformConfigScope.dobjId,
+        ).then(({ error }) => {
             if (error) console.warn('[TableSettings] DB active preset/tab update failed:', error);
         });
 
@@ -465,7 +476,11 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
             },
         };
 
-        const { success, error: dbError } = await appendPresetToDB(newPreset);
+        const { success, error: dbError } = await appendPresetToDB(
+            newPreset,
+            platformConfigScope.entityId,
+            platformConfigScope.dobjId,
+        );
         if (!success) {
             console.error('[TableSettings] DB append failed:', dbError);
             alert(
@@ -487,7 +502,7 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
             setCustomPresets(updatedPresets);
 
             // Remove from DB document
-            removePresetFromDB(presetId).then(({ error }) => {
+            removePresetFromDB(presetId, platformConfigScope.entityId, platformConfigScope.dobjId).then(({ error }) => {
                 if (error) console.warn('[TableSettings] DB delete failed:', error);
             });
 
@@ -520,13 +535,20 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
         if (eraseTheTrace) {
             try {
                 const codeDefault = getDefaultPreset();
-                const { success, error } = await resetDefaultToCodeInDB(codeDefault);
+                const { success, error } = await resetDefaultToCodeInDB(
+                    codeDefault,
+                    platformConfigScope.entityId,
+                    platformConfigScope.dobjId,
+                );
                 if (!success) {
                     const retryDb = window.confirm(
                         `System Code Default Preset could not be written (${error || 'unknown'}).\n\nRetry with Database Default Reset (keep only the default preset)?`
                     );
                     if (!retryDb) return;
-                    const pr = await pruneObjectLoaderToDefaultOnlyInDB();
+                    const pr = await pruneObjectLoaderToDefaultOnlyInDB(
+                        platformConfigScope.entityId,
+                        platformConfigScope.dobjId,
+                    );
                     if (!pr.success) {
                         alert(`Database Default Reset failed: ${pr.error || 'unknown'}.`);
                         return;
@@ -540,7 +562,10 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
                     `System Code Default Preset is in an error (${e instanceof Error ? e.message : String(e)}).\n\nRetry with Database Default Reset?`
                 );
                 if (!retryDb) return;
-                const pr = await pruneObjectLoaderToDefaultOnlyInDB();
+                const pr = await pruneObjectLoaderToDefaultOnlyInDB(
+                    platformConfigScope.entityId,
+                    platformConfigScope.dobjId,
+                );
                 if (!pr.success) {
                     alert(`Database Default Reset failed: ${pr.error || 'Unknown error'}.`);
                     return;
@@ -550,12 +575,19 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
             return;
         }
 
-        const pr = await pruneObjectLoaderToDefaultOnlyInDB();
+        const pr = await pruneObjectLoaderToDefaultOnlyInDB(
+            platformConfigScope.entityId,
+            platformConfigScope.dobjId,
+        );
         if (!pr.success) {
             alert(
                 `Database Default Reset failed: ${pr.error || 'Unknown error'}. Falling back to code default in the database.`
             );
-            const { success, error } = await resetDefaultToCodeInDB(getDefaultPreset());
+            const { success, error } = await resetDefaultToCodeInDB(
+                getDefaultPreset(),
+                platformConfigScope.entityId,
+                platformConfigScope.dobjId,
+            );
             if (!success) {
                 alert(`Could not apply code default to the database: ${error || 'unknown'}.`);
                 return;
@@ -1064,6 +1096,7 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
                                             currentConfig={modalConfig}
                                             currentTableQueryState={tableQueryState}
                                         onPresetSelect={onPresetSelect}
+                                            platformConfigScope={platformConfigScope}
                                         />
                                     )}
 

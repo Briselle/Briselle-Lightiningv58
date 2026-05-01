@@ -77,6 +77,7 @@ interface Action_ColumnVisibilityProps {
     columnVisibilityButtonType: 'icon' | 'button';
     columnVisibilityButtonAlign: 'left' | 'right';
     fieldMappings: Record<string, string>;
+    preferredColumns?: string[];
     allColumns: string[];
     activeColumns: string[];
     visibleColumns: string[];
@@ -99,6 +100,7 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
     columnVisibilityButtonType,
     columnVisibilityButtonAlign,
     fieldMappings,
+    preferredColumns,
     allColumns,
     activeColumns,
     visibleColumns,
@@ -209,6 +211,9 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
     };
 
     const getPreferredColumns = () => {
+        if (Array.isArray(preferredColumns) && preferredColumns.length > 0) {
+            return preferredColumns.filter((key) => allColumns.includes(key));
+        }
         return Object.entries(fieldMappings)
             .filter(([, value]) => typeof value === 'object' && (value as any).preferred)
             .map(([key]) => key);

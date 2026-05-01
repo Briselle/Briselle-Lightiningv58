@@ -1,20 +1,877 @@
-import React from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
+import ConfigurableListTemplate, { type TableConfig } from '../../components/ui/tabletemplates/ConfigurableListTemplate';
+import { type ObjectLoaderCrudOptions } from '../../components/ui/tabletemplates/objectLoaderRecordModals';
+import { supabase } from '../../utils/supabase';
+import { OBJECT_COUNTER_CONFIG_TYPE } from '../../components/ui/tabletemplates/utils/configService';
+import { defaultConfig as objectsDefaultTableConfig } from '../objects/templist2';
 
-function RecordsList() {
-  const { objectId } = useParams();
+type DbObjectSchemaField = {
+    label?: unknown;
+    apiName?: unknown;
+    dataType?: unknown;
+    required?: unknown;
+    attributes?: unknown;
+};
 
-  return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">Records for Object {objectId}</h1>
-      <div className="bg-white rounded-lg shadow">
-        <div className="p-4">
-          {/* Placeholder content - replace with actual records list */}
-          <p className="text-gray-500">No records found</p>
-        </div>
-      </div>
-    </div>
-  );
+type DbObjectRow = {
+    sys_id: number;
+    dobj_id?: number | null;
+    dobj_name_display?: string | null;
+    dobj_name_system?: string | null;
+    object_type?: string | null;
+    dobj_configuration?: unknown;
+};
+
+type DdataRow = {
+    ddata_id: number;
+    dobj_id: number;
+    entity_id: number;
+    ddata_values: Record<string, unknown> | null;
+};
+type HierarchyCreateMode = 'root' | 'child';
+
+function safeParseConfig(raw: unknown): Record<string, unknown> {
+    if (raw == null) return {};
+    if (typeof raw === 'string') {
+        try {
+            const parsed = JSON.parse(raw) as unknown;
+            return typeof parsed === 'object' && parsed != null ? (parsed as Record<string, unknown>) : {};
+        } catch {
+            return {};
+        }
+    }
+    return typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
 }
 
-export default RecordsList;
+type ObjectType = 'list' | 'transaction' | 'hierarchy';
+
+/** Reads object type from `dobj_configuration`; defaults to list for legacy objects. */
+function parseObjectType(config: Record<string, unknown>): ObjectType {
+    const rawType =
+        config.objectType ??
+        config.object_type ??
+        config.ObjectType ??
+        config['Object Type'];
+    if (typeof rawType === 'string') {
+        const v = rawType.trim().toLowerCase();
+        if (v === 'transaction') return 'transaction';
+        if (v === 'hierarchy' || v === 'parent_child' || v === 'parent&child') return 'hierarchy';
+    }
+    return 'list';
+}
+
+function parseObjectTypeFromRow(data: DbObjectRow, config: Record<string, unknown>): ObjectType {
+    const fromCol = String(data.object_type ?? '').trim().toLowerCase();
+    if (fromCol === 'transaction') return 'transaction';
+    if (fromCol === 'hierarchy') return 'hierarchy';
+    if (fromCol === 'list') return 'list';
+    return parseObjectType(config);
+}
+
+function generateHierarchyNodeId(): string {
+    const token =
+        typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : `${Date.now()}-${Math.floor(Math.random() * 1_000_000)}`;
+    return `NODE-${token}`;
+}
+
+function toSchemaFieldMappings(config: Record<string, unknown>): Record<string, string> {
+    const raw = Array.isArray(config.fields) ? (config.fields as DbObjectSchemaField[]) : [];
+    const mappings: Record<string, string> = {};
+    for (const field of raw) {
+        const key = String(field.apiName ?? '').trim();
+        const label = String(field.label ?? '').trim();
+        if (!key) continue;
+        mappings[key] = label || key;
+    }
+    return mappings;
+}
+
+function toSchemaPreferredColumns(config: Record<string, unknown>): string[] {
+    const raw = Array.isArray(config.fields) ? (config.fields as DbObjectSchemaField[]) : [];
+    const preferred: string[] = [];
+    const toBool = (value: unknown): boolean => {
+        if (value === true || value === 1) return true;
+        if (typeof value === 'string') {
+            const v = value.trim().toLowerCase();
+            return v === 'true' || v === '1' || v === 'yes' || v === 'y' || v === 'on';
+        }
+        return false;
+    };
+    for (const field of raw) {
+        const key = String(field.apiName ?? '').trim();
+        if (!key) continue;
+        const attrs = getFieldAttributes(field);
+        const preferredRaw = attrs.preferredInView ?? attrs.preferred_in_view ?? attrs.preferred;
+        if (toBool(preferredRaw)) {
+            preferred.push(key);
+        }
+    }
+    return preferred;
+}
+
+function buildRecordsTemplateConfig(): TableConfig {
+    const base = (() => {
+        try {
+            return structuredClone(objectsDefaultTableConfig);
+        } catch {
+            return JSON.parse(JSON.stringify(objectsDefaultTableConfig)) as TableConfig;
+        }
+    })();
+    return {
+        ...base,
+        enableNewButton: true,
+        newButtonType: 'button',
+        enableImport: false,
+        enableExport: false,
+        enableRowActions: true,
+        enableBulkActions: false,
+        enableInlineEdit: [],
+        customRowBadgeColumn: '',
+    };
+}
+
+function toSchemaFields(config: Record<string, unknown>): DbObjectSchemaField[] {
+    return Array.isArray(config.fields) ? (config.fields as DbObjectSchemaField[]) : [];
+}
+
+function getFieldApiName(field: DbObjectSchemaField): string {
+    return String(field.apiName ?? '').trim();
+}
+
+function getFieldDefaultString(field: DbObjectSchemaField): string {
+    const attrs = typeof field.attributes === 'object' && field.attributes != null ? (field.attributes as Record<string, unknown>) : {};
+    const raw = attrs.defaultValue;
+    return raw == null ? '' : String(raw);
+}
+
+function getFieldAttributes(field: DbObjectSchemaField): Record<string, unknown> {
+    return typeof field.attributes === 'object' && field.attributes != null ? (field.attributes as Record<string, unknown>) : {};
+}
+
+function isRequiredField(field: DbObjectSchemaField): boolean {
+    return field.required === 1 || field.required === true;
+}
+
+function isAutoNumberField(field: DbObjectSchemaField): boolean {
+    return String(field.dataType ?? '') === 'autoNumber';
+}
+
+function isPicklistField(field: DbObjectSchemaField): boolean {
+    return String(field.dataType ?? '') === 'picklist';
+}
+
+function isPicklistMultiField(field: DbObjectSchemaField): boolean {
+    return String(field.dataType ?? '') === 'picklistMulti';
+}
+
+function getPicklistOptions(field: DbObjectSchemaField): string[] {
+    const attrs = getFieldAttributes(field);
+    const raw = attrs.picklistValues;
+    let options: string[] = [];
+    if (Array.isArray(raw)) {
+        options = raw.map((v) => String(v).trim()).filter(Boolean);
+    } else if (typeof raw === 'string') {
+        options = raw
+            .split(/\r?\n|,/)
+            .map((v) => v.trim())
+            .filter(Boolean);
+    }
+    const fallbackDefault = String(attrs.defaultValue ?? '').trim();
+    if (options.length === 0 && fallbackDefault) options = [fallbackDefault];
+    if (attrs.picklistDisplayAlphabetically === true) {
+        options = [...options].sort((a, b) => a.localeCompare(b));
+    }
+    return [...new Set(options)];
+}
+
+function splitPhoneValue(raw: string): { code: string; number: string } {
+    const value = String(raw ?? '').trim();
+    if (!value) return { code: '', number: '' };
+    const [left, ...rest] = value.split('-');
+    if (rest.length === 0) {
+        return left.startsWith('+') ? { code: left, number: '' } : { code: '', number: left };
+    }
+    return { code: left, number: rest.join('-') };
+}
+
+function composePhoneValue(code: string, number: string): string {
+    const c = String(code ?? '').trim();
+    const n = String(number ?? '').trim();
+    if (!c && !n) return '';
+    if (!c) return n;
+    if (!n) return c;
+    return `${c}-${n}`;
+}
+
+function validateEmailValue(value: string): string | null {
+    if (!value) return null;
+    const emailRegex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+    if (!emailRegex.test(value)) return 'Enter a valid email address (example: user@domain.com).';
+    return null;
+}
+
+function validateUrlValue(value: string): string | null {
+    if (!value) return null;
+    const urlRegex =
+        /^(https?:\/\/)?(www\.)?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+([\/?#][^\s]*)?$/i;
+    if (!urlRegex.test(value)) return 'Enter a valid URL (example: https://www.domain.com).';
+    return null;
+}
+
+function validatePhoneValue(value: string): string | null {
+    if (!value) return null;
+    const phoneRegex = /^\+\d{1,4}-[0-9][0-9\s-]{4,19}$/;
+    if (!phoneRegex.test(value)) return 'Enter phone as +<countrycode>-<number> (example: +91-289889832).';
+    return null;
+}
+
+/** Next value shown in UI — reads `platform_config` ObjectCounter row only (does not consume a number). */
+async function peekNextAutoNumberFromPlatformConfig(
+    entityId: number,
+    dobjId: number,
+    field: DbObjectSchemaField,
+): Promise<{ value: string; error: string | null }> {
+    const key = getFieldApiName(field);
+    const attrs = getFieldAttributes(field);
+    const prefix = String(attrs.displayFormat ?? '').trim();
+    const startingNumberRaw = Number(attrs.startingNumber ?? 1);
+    const startingNumber = Number.isFinite(startingNumberRaw) && startingNumberRaw > 0 ? startingNumberRaw : 1;
+    if (!key) return { value: `${prefix}${startingNumber}`, error: null };
+
+    const { data, error } = await supabase
+        .from('platform_config')
+        .select('config_json')
+        .eq('entity_id', entityId)
+        .eq('dobj_id', dobjId)
+        .eq('config_type', OBJECT_COUNTER_CONFIG_TYPE)
+        .maybeSingle();
+
+    if (error) return { value: `${prefix}${startingNumber}`, error: error.message };
+
+    const root =
+        data?.config_json != null && typeof data.config_json === 'object'
+            ? (data.config_json as Record<string, unknown>)
+            : {};
+    const countersRaw = root.counters;
+    const counters =
+        countersRaw != null && typeof countersRaw === 'object' ? (countersRaw as Record<string, unknown>) : {};
+    const rawLast = counters[key];
+    let lastAllocated = startingNumber - 1;
+    if (rawLast != null && rawLast !== '') {
+        if (typeof rawLast === 'number' && Number.isFinite(rawLast)) {
+            lastAllocated = rawLast;
+        } else {
+            const n = Number(rawLast);
+            if (Number.isFinite(n)) lastAllocated = n;
+        }
+    }
+    const nextNumeric = Math.max(startingNumber, lastAllocated + 1);
+    return { value: `${prefix}${nextNumeric}`, error: null };
+}
+
+async function allocateAutoNumberFromLedger(
+    entityId: number,
+    dobjId: number,
+    field: DbObjectSchemaField,
+): Promise<{ value: string | null; error: string | null }> {
+    const key = getFieldApiName(field);
+    if (!key) return { value: null, error: 'Invalid auto-number field key.' };
+    const attrs = getFieldAttributes(field);
+    const prefix = String(attrs.displayFormat ?? '').trim();
+    const startingNumberRaw = Number(attrs.startingNumber ?? 1);
+    const startingNumber = Number.isFinite(startingNumberRaw) && startingNumberRaw > 0 ? startingNumberRaw : 1;
+    const { data, error } = await supabase.rpc('next_object_autonumber', {
+        p_entity_id: entityId,
+        p_dobj_id: dobjId,
+        p_field_key: key,
+        p_starting_number: startingNumber,
+    });
+    if (error) return { value: null, error: error.message || 'Failed to allocate auto number.' };
+    const n = Number(data);
+    if (!Number.isFinite(n) || n < startingNumber) {
+        return { value: null, error: 'Auto-number allocator returned an invalid value.' };
+    }
+    return { value: `${prefix}${n}`, error: null };
+}
+
+const FIXED_ENTITY_ID = 1000000000;
+const FIXED_USER_ID = 1212;
+
+export default function RecordsList() {
+    const { objectId } = useParams<{ objectId: string }>();
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [objectLabel, setObjectLabel] = useState('Object');
+    const [resolvedDobjId, setResolvedDobjId] = useState<number | null>(null);
+    const [schemaFields, setSchemaFields] = useState<DbObjectSchemaField[]>([]);
+    const [fieldMappings, setFieldMappings] = useState<Record<string, string>>({});
+    const [preferredColumns, setPreferredColumns] = useState<string[]>([]);
+    const [config, setConfig] = useState<TableConfig>(() => buildRecordsTemplateConfig());
+    const [rows, setRows] = useState<Record<string, unknown>[]>([]);
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [createValues, setCreateValues] = useState<Record<string, string>>({});
+    const [creating, setCreating] = useState(false);
+    const [createError, setCreateError] = useState<string | null>(null);
+    const [authBootstrapTried, setAuthBootstrapTried] = useState(false);
+    /** From `dobj_configuration.objectType`; default list. */
+    const [objectType, setObjectType] = useState<ObjectType>('list');
+    /** After counter allocated + insert failed on a transaction object — freeze Save / Retry / edits. */
+    const [createSubmissionFrozen, setCreateSubmissionFrozen] = useState(false);
+    const [hierarchyMode, setHierarchyMode] = useState<HierarchyCreateMode>('root');
+    const [hierarchyParentId, setHierarchyParentId] = useState('');
+    const fieldTypeByKey = useMemo<Record<string, string>>(
+        () =>
+            schemaFields.reduce<Record<string, string>>((acc, field) => {
+                const key = getFieldApiName(field);
+                if (key) acc[key] = String(field.dataType ?? '');
+                return acc;
+            }, {}),
+        [schemaFields],
+    );
+
+    const recordsPlatformScope = useMemo(
+        () =>
+            resolvedDobjId == null
+                ? null
+                : { entityId: FIXED_ENTITY_ID, dobjId: resolvedDobjId },
+        [resolvedDobjId],
+    );
+
+    useEffect(() => {
+        const run = async () => {
+            setLoading(true);
+            setError(null);
+            const numericObjectId = Number(objectId ?? 0);
+            let query = supabase
+                .from('dobj')
+                .select('sys_id,dobj_id,dobj_name_display,dobj_name_system,object_type,dobj_configuration')
+                .limit(1);
+            if (Number.isFinite(numericObjectId) && numericObjectId > 0) {
+                query = query.or(`sys_id.eq.${numericObjectId},dobj_id.eq.${numericObjectId}`);
+            } else if (objectId) {
+                query = query.or(`dobj_name_system.eq.${objectId},dobj_name_display.eq.${objectId}`);
+            }
+            const { data, error: fetchError } = await query.maybeSingle<DbObjectRow>();
+            if (fetchError) {
+                setError(fetchError.message || 'Unable to load object schema.');
+                setFieldMappings({});
+                setLoading(false);
+                return;
+            }
+            if (!data) {
+                setError(`Object not found for id: ${objectId ?? 'unknown'}`);
+                setFieldMappings({});
+                setLoading(false);
+                return;
+            }
+            const schema = safeParseConfig(data.dobj_configuration);
+            const mappings = toSchemaFieldMappings(schema);
+            const preferred = toSchemaPreferredColumns(schema);
+            const fields = toSchemaFields(schema);
+            setObjectType(parseObjectTypeFromRow(data, schema));
+            setObjectLabel(String(data.dobj_name_display ?? data.dobj_name_system ?? 'Object'));
+            setResolvedDobjId(Number(data.dobj_id ?? data.sys_id));
+            setSchemaFields(fields);
+            setFieldMappings(mappings);
+            setPreferredColumns(preferred);
+            setLoading(false);
+        };
+        void run();
+    }, [objectId]);
+
+    useEffect(() => {
+        if (resolvedDobjId == null) return;
+        const run = async () => {
+            const { data, error: fetchError } = await supabase
+                .from('ddata')
+                .select('ddata_id,dobj_id,entity_id,ddata_values')
+                .eq('dobj_id', resolvedDobjId)
+                .eq('entity_id', FIXED_ENTITY_ID)
+                .eq('ddata_status', 1)
+                .order('ddata_id', { ascending: true });
+            if (fetchError) {
+                setError(fetchError.message || 'Unable to load object records.');
+                setRows([]);
+                return;
+            }
+            const normalized = ((data ?? []) as DdataRow[]).map((row) => ({
+                id: row.ddata_id,
+                ddata_id: row.ddata_id,
+                ...(row.ddata_values ?? {}),
+            }));
+            setRows(normalized);
+        };
+        void run();
+    }, [resolvedDobjId]);
+
+    const title = useMemo(() => objectLabel, [objectLabel]);
+    const objectLoaderCrud = useMemo<ObjectLoaderCrudOptions | null>(() => {
+        if (resolvedDobjId == null) return null;
+        return {
+            sourceTable: 'ddata',
+            idColumn: 'ddata_id',
+            softDelete: true,
+            sysStatusColumn: 'ddata_status',
+            sysStatusActiveValue: 1,
+            sysStatusInactiveValue: 0,
+            queryActiveOnly: true,
+            readOnlyKeys: ['ddata_id', 'entity_id', 'dobj_id', 'ddata_created_at', 'ddata_updated_at', 'ddata_created_by_id', 'ddata_modified_by_id'],
+            jsonValueColumn: 'ddata_values',
+            fieldTypeByKey,
+        };
+    }, [fieldTypeByKey, resolvedDobjId]);
+
+    const reloadRows = async () => {
+        if (resolvedDobjId == null) return;
+        const { data, error: fetchError } = await supabase
+            .from('ddata')
+            .select('ddata_id,dobj_id,entity_id,ddata_values')
+            .eq('dobj_id', resolvedDobjId)
+            .eq('entity_id', FIXED_ENTITY_ID)
+            .eq('ddata_status', 1)
+            .order('ddata_id', { ascending: true });
+        if (fetchError) {
+            setError(fetchError.message || 'Unable to load object records.');
+            setRows([]);
+            return;
+        }
+        const normalized = ((data ?? []) as DdataRow[]).map((row) => ({
+            id: row.ddata_id,
+            ddata_id: row.ddata_id,
+            ...(row.ddata_values ?? {}),
+        }));
+        setRows(normalized);
+    };
+
+    const handleConfigChange = (next: TableConfig) => {
+        setConfig(next);
+    };
+
+    const closeCreateModal = () => {
+        setShowCreateModal(false);
+        setCreateSubmissionFrozen(false);
+        setCreateError(null);
+    };
+
+    const openCreateModal = async () => {
+        setCreateSubmissionFrozen(false);
+        setCreateError(null);
+        setHierarchyMode('root');
+        setHierarchyParentId('');
+        const defaults: Record<string, string> = {};
+        for (const field of schemaFields) {
+            const key = getFieldApiName(field);
+            if (!key) continue;
+            if (isAutoNumberField(field)) {
+                if (resolvedDobjId == null) {
+                    defaults[key] = '';
+                    continue;
+                }
+                const peeked = await peekNextAutoNumberFromPlatformConfig(
+                    FIXED_ENTITY_ID,
+                    resolvedDobjId,
+                    field,
+                );
+                defaults[key] = peeked.value;
+            } else if (isPicklistField(field)) {
+                const attrs = getFieldAttributes(field);
+                const options = getPicklistOptions(field);
+                if (attrs.picklistUseFirstAsDefault === true && options.length > 0) {
+                    defaults[key] = options[0];
+                } else {
+                    defaults[key] = getFieldDefaultString(field);
+                }
+            } else if (isPicklistMultiField(field)) {
+                defaults[key] = getFieldDefaultString(field);
+            } else {
+                defaults[key] = getFieldDefaultString(field);
+            }
+        }
+        setCreateValues(defaults);
+        if (objectType === 'hierarchy') {
+            defaults.parent_id_u = '';
+            defaults.child_id_u = defaults.child_id_u || '';
+        }
+        setShowCreateModal(true);
+    };
+
+    const handleNewRecordClick = () => {
+        void openCreateModal();
+    };
+
+    const handleSaveNewRecord = async () => {
+        if (resolvedDobjId == null) return;
+        const missingRequired = schemaFields.filter((f) => {
+            if (!isRequiredField(f)) return false;
+            const key = getFieldApiName(f);
+            if (!key) return false;
+            return String(createValues[key] ?? '').trim() === '';
+        });
+        if (missingRequired.length > 0) {
+            setCreateError('Please fill all required fields.');
+            return;
+        }
+        for (const field of schemaFields) {
+            const key = getFieldApiName(field);
+            if (!key) continue;
+            const dt = String(field.dataType ?? '');
+            const value = String(createValues[key] ?? '').trim();
+            const validationError =
+                dt === 'email'
+                    ? validateEmailValue(value)
+                    : dt === 'url'
+                      ? validateUrlValue(value)
+                      : dt === 'phone'
+                        ? validatePhoneValue(value)
+                        : null;
+            if (validationError) {
+                setCreateError(`${String(field.label ?? key)}: ${validationError}`);
+                return;
+            }
+        }
+        const ddataValues = schemaFields.reduce<Record<string, unknown>>((acc, field) => {
+            const key = getFieldApiName(field);
+            if (!key) return acc;
+            acc[key] = String(createValues[key] ?? '');
+            return acc;
+        }, {});
+        if (objectType === 'hierarchy') {
+            const hasParentField = schemaFields.some((f) => getFieldApiName(f) === 'parent_id_u');
+            const hasChildField = schemaFields.some((f) => getFieldApiName(f) === 'child_id_u');
+            if (!hasParentField || !hasChildField) {
+                setCreateError(
+                    'Hierarchy object requires Parent ID and Child ID fields. Re-save object schema to auto-create them.',
+                );
+                return;
+            }
+            if (hierarchyMode === 'child' && !hierarchyParentId.trim()) {
+                setCreateError('Select a parent record to create a child record.');
+                return;
+            }
+            ddataValues.parent_id_u = hierarchyMode === 'child' ? hierarchyParentId.trim() : '';
+            const existingChild = String(ddataValues.child_id_u ?? '').trim();
+            ddataValues.child_id_u = existingChild || generateHierarchyNodeId();
+        }
+        for (const field of schemaFields) {
+            if (!isAutoNumberField(field)) continue;
+            const key = getFieldApiName(field);
+            if (!key) continue;
+            const allocated = await allocateAutoNumberFromLedger(FIXED_ENTITY_ID, resolvedDobjId, field);
+            if (allocated.error || !allocated.value) {
+                setCreateError(
+                    `${String(field.label ?? key)}: ${allocated.error ?? 'Unable to allocate a unique auto number.'}`,
+                );
+                return;
+            }
+            ddataValues[key] = allocated.value;
+        }
+        setCreating(true);
+        setCreateError(null);
+        const nowIso = new Date().toISOString();
+        let { data: authSessionData } = await supabase.auth.getSession();
+        if (!authSessionData.session && !authBootstrapTried) {
+            setAuthBootstrapTried(true);
+            const { data: anonData } = await supabase.auth.signInAnonymously();
+            authSessionData = { session: anonData.session };
+        }
+        const authUser = authSessionData.session?.user ?? null;
+        const candidateActorId =
+            authUser?.user_metadata?.user_id ??
+            authUser?.app_metadata?.user_id ??
+            authUser?.user_metadata?.id ??
+            authUser?.app_metadata?.id ??
+            null;
+        const actorIdNum = Number(candidateActorId);
+        const actorId = Number.isFinite(actorIdNum) && actorIdNum > 0 ? actorIdNum : FIXED_USER_ID;
+        const { error: insertError } = await supabase.from('ddata').insert({
+            entity_id: FIXED_ENTITY_ID,
+            dobj_id: resolvedDobjId,
+            ddata_values: ddataValues,
+            ddata_status: 1,
+            ddata_created_at: nowIso,
+            ddata_updated_at: nowIso,
+            ddata_created_by_id: actorId,
+            ddata_modified_by_id: actorId,
+        });
+        if (insertError) {
+            setCreating(false);
+            setCreateError(insertError.message || 'Unable to save record.');
+            if (objectType === 'transaction') {
+                setCreateSubmissionFrozen(true);
+                setCreateValues((prev) => {
+                    const next = { ...prev };
+                    for (const field of schemaFields) {
+                        if (!isAutoNumberField(field)) continue;
+                        const key = getFieldApiName(field);
+                        if (!key) continue;
+                        const v = ddataValues[key];
+                        if (v != null && v !== '') next[key] = String(v);
+                    }
+                    return next;
+                });
+            }
+            return;
+        }
+        await reloadRows();
+        setCreating(false);
+        setCreateSubmissionFrozen(false);
+        closeCreateModal();
+    };
+
+    return (
+        <>
+            {recordsPlatformScope ? (
+            <ConfigurableListTemplate
+                title={title}
+                data={rows}
+                fieldMappings={fieldMappings}
+                preferredColumns={preferredColumns}
+                config={config}
+                loading={loading}
+                error={error}
+                onConfigChange={handleConfigChange}
+                baseUrl={`/objects/${objectId}/records`}
+                onNewButtonClick={handleNewRecordClick}
+                onRefresh={() => void reloadRows()}
+                objectLoaderCrud={objectLoaderCrud}
+                platformConfigScope={recordsPlatformScope}
+            />
+            ) : (
+                <div className="card p-6 text-center text-gray-600">
+                    {loading ? 'Loading…' : error ?? 'Object not found.'}
+                </div>
+            )}
+            {showCreateModal && (
+                <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/40" role="dialog" aria-modal="true">
+                    <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] flex flex-col border border-gray-200">
+                        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
+                            <h2 className="text-lg font-semibold text-gray-900">New {objectLabel}</h2>
+                            <button
+                                type="button"
+                                className="p-1 rounded hover:bg-gray-100 text-gray-500 disabled:opacity-40 disabled:pointer-events-none"
+                                onClick={() => closeCreateModal()}
+                                disabled={creating && !createSubmissionFrozen}
+                                aria-label="Close"
+                            >
+                                x
+                            </button>
+                        </div>
+                        <div className="overflow-auto flex-1 px-4 py-3">
+                            {createSubmissionFrozen && objectType === 'transaction' ? (
+                                <div
+                                    className="mb-3 rounded border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950"
+                                    role="status"
+                                >
+                                    <strong>Transaction object:</strong> this submission failed after an ID was reserved.
+                                    The values below are frozen. Close this dialog to start a new record — Save and Retry
+                                    are disabled to prevent a duplicate submission.
+                                </div>
+                            ) : null}
+                            {createError ? <p className="text-sm text-red-600 mb-3">{createError}</p> : null}
+                            {objectType === 'hierarchy' ? (
+                                <div className="mb-3 rounded border border-blue-200 bg-blue-50/50 p-3">
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <button
+                                            type="button"
+                                            className={`btn btn-secondary py-1 px-2 text-xs ${hierarchyMode === 'root' ? 'bg-blue-100 border-blue-300 text-blue-900' : ''}`}
+                                            onClick={() => {
+                                                setHierarchyMode('root');
+                                                setHierarchyParentId('');
+                                                setCreateValues((prev) => ({ ...prev, parent_id_u: '' }));
+                                            }}
+                                            disabled={createSubmissionFrozen || creating}
+                                        >
+                                            Add Root Record
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className={`btn btn-secondary py-1 px-2 text-xs ${hierarchyMode === 'child' ? 'bg-blue-100 border-blue-300 text-blue-900' : ''}`}
+                                            onClick={() => setHierarchyMode('child')}
+                                            disabled={createSubmissionFrozen || creating}
+                                        >
+                                            Add Child Record
+                                        </button>
+                                    </div>
+                                    {hierarchyMode === 'child' ? (
+                                        <div>
+                                            <label className="block text-xs font-medium text-gray-600 mb-1">Parent Record ID</label>
+                                            <select
+                                                className="input text-sm py-1.5 w-full"
+                                                value={hierarchyParentId}
+                                                disabled={createSubmissionFrozen || creating}
+                                                onChange={(e) => {
+                                                    const v = e.target.value;
+                                                    setHierarchyParentId(v);
+                                                    setCreateValues((prev) => ({ ...prev, parent_id_u: v }));
+                                                }}
+                                            >
+                                                <option value="">-- Select Parent --</option>
+                                                {rows.map((row) => {
+                                                    const parentCandidate =
+                                                        String(row['child_id_u'] ?? '').trim() ||
+                                                        String(row['name_u'] ?? '').trim() ||
+                                                        String(row['ddata_id'] ?? '').trim();
+                                                    if (!parentCandidate) return null;
+                                                    return (
+                                                        <option key={`${String(row['ddata_id'] ?? parentCandidate)}-${parentCandidate}`} value={parentCandidate}>
+                                                            {parentCandidate}
+                                                        </option>
+                                                    );
+                                                })}
+                                            </select>
+                                        </div>
+                                    ) : (
+                                        <p className="text-xs text-gray-600">Root record: Parent ID will be blank.</p>
+                                    )}
+                                </div>
+                            ) : null}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                {schemaFields
+                                    .filter((field) => getFieldApiName(field))
+                                    .map((field) => {
+                                        const key = getFieldApiName(field);
+                                        const label = String(field.label ?? key);
+                                        const formLocked = createSubmissionFrozen || creating;
+                                        const readOnly = isAutoNumberField(field);
+                                        const isPhone = String(field.dataType ?? '') === 'phone';
+                                        const phoneParts = splitPhoneValue(String(createValues[key] ?? ''));
+                                        return (
+                                            <div key={key}>
+                                                <label className="block text-xs font-medium text-gray-600 mb-1">
+                                                    {label}
+                                                    {isRequiredField(field) ? ' *' : ''}
+                                                </label>
+                                                {isPicklistField(field) ? (
+                                                    <select
+                                                        className="input text-sm py-1.5 w-full"
+                                                        value={String(createValues[key] ?? '')}
+                                                        disabled={formLocked}
+                                                        onChange={(e) =>
+                                                            setCreateValues((prev) => ({
+                                                                ...prev,
+                                                                [key]: e.target.value,
+                                                            }))
+                                                        }
+                                                    >
+                                                        <option value="">-- Select --</option>
+                                                        {getPicklistOptions(field).map((option) => (
+                                                            <option key={option} value={option}>
+                                                                {option}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                ) : isPicklistMultiField(field) ? (
+                                                    <select
+                                                        className="input text-sm py-1.5 w-full"
+                                                        multiple
+                                                        disabled={formLocked}
+                                                        size={Math.max(3, Number(getFieldAttributes(field).picklistVisibleLines ?? 5))}
+                                                        value={String(createValues[key] ?? '')
+                                                            .split(/\r?\n|,/)
+                                                            .map((v) => v.trim())
+                                                            .filter(Boolean)}
+                                                        onChange={(e) => {
+                                                            const selected = Array.from(e.target.selectedOptions).map((o) => o.value);
+                                                            setCreateValues((prev) => ({
+                                                                ...prev,
+                                                                [key]: selected.join('\n'),
+                                                            }));
+                                                        }}
+                                                    >
+                                                        {getPicklistOptions(field).map((option) => (
+                                                            <option key={option} value={option}>
+                                                                {option}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+                                                ) : (
+                                                    isPhone ? (
+                                                        <div className="grid grid-cols-[120px_1fr] gap-2">
+                                                            <input
+                                                                className="input text-sm py-1.5 w-full"
+                                                                placeholder="+91"
+                                                                value={phoneParts.code}
+                                                                disabled={formLocked}
+                                                                onChange={(e) =>
+                                                                    setCreateValues((prev) => ({
+                                                                        ...prev,
+                                                                        [key]: composePhoneValue(
+                                                                            e.target.value,
+                                                                            splitPhoneValue(String(prev[key] ?? '')).number,
+                                                                        ),
+                                                                    }))
+                                                                }
+                                                            />
+                                                            <input
+                                                                className="input text-sm py-1.5 w-full"
+                                                                placeholder="289889832"
+                                                                value={phoneParts.number}
+                                                                disabled={formLocked}
+                                                                onChange={(e) =>
+                                                                    setCreateValues((prev) => ({
+                                                                        ...prev,
+                                                                        [key]: composePhoneValue(
+                                                                            splitPhoneValue(String(prev[key] ?? '')).code,
+                                                                            e.target.value,
+                                                                        ),
+                                                                    }))
+                                                                }
+                                                            />
+                                                        </div>
+                                                    ) : (
+                                                        <input
+                                                            className="input text-sm py-1.5 w-full"
+                                                            value={String(createValues[key] ?? '')}
+                                                            readOnly={readOnly}
+                                                            disabled={formLocked}
+                                                            onChange={(e) =>
+                                                                setCreateValues((prev) => ({
+                                                                    ...prev,
+                                                                    [key]: e.target.value,
+                                                                }))
+                                                            }
+                                                        />
+                                                    )
+                                                )}
+                                            </div>
+                                        );
+                                    })}
+                            </div>
+                        </div>
+                        <div className="px-4 py-3 border-t border-gray-200 flex flex-wrap justify-end gap-2">
+                            <button
+                                type="button"
+                                className="btn btn-secondary"
+                                onClick={() => closeCreateModal()}
+                                disabled={creating && !createSubmissionFrozen}
+                            >
+                                {createSubmissionFrozen ? 'Close' : 'Cancel'}
+                            </button>
+                            {objectType === 'transaction' && createSubmissionFrozen ? (
+                                <button
+                                    type="button"
+                                    className="btn btn-secondary opacity-60 cursor-not-allowed"
+                                    disabled
+                                    title="Retry is disabled after a failed save on a transaction object. Close and open a new record."
+                                >
+                                    Retry
+                                </button>
+                            ) : null}
+                            <button
+                                type="button"
+                                className="btn btn-primary"
+                                onClick={handleSaveNewRecord}
+                                disabled={creating || createSubmissionFrozen}
+                            >
+                                {creating ? 'Saving...' : 'Save'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </>
+    );
+}

@@ -151,7 +151,7 @@ export const FIELD_ATTRIBUTE_UI_SECTIONS: FieldAttributeUiSection[] = [
         id: 'classification',
         title: 'Data classification',
         shellClass: 'rounded-lg border border-amber-200/90 bg-amber-50/35 shadow-sm ring-1 ring-amber-200/35',
-        keys: ['piiData', 'hiiData', 'financialData'],
+        keys: ['piiData', 'hiiData', 'financialData', 'preferredInView'],
     },
     {
         id: 'defaultFormula',

@@ -8,7 +8,7 @@ export interface TablePreset {
     config: any;
     isDefault?: boolean;
     presetId: string;
-    /** Optional icon for preset lists / tabs (see `TAB_BAR_ICON_OPTIONS`) */
+    /** Optional icon for preset lists / tabs (see `UI_ICON_PICKER_OPTIONS` + custom in `tabBarIcons`) */
     iconKey?: string;
     /** Emoji or short text override */
     customIcon?: string;

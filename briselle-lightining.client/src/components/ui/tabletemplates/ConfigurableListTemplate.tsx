@@ -42,11 +42,15 @@ import { DEFAULT_PRESETS, getDefaultPreset, loadCustomPresetsFromStorage, saveCu
 import {
     deleteShareLinksForPresetFromDB,
     deleteShareLinkFromDB,
+    DB_DOBJ_ID,
+    DB_ENTITY_ID,
+    ensureObjectLoaderPlatformConfigRow,
     fetchPresetsFromDB,
     listShareLinksForPresetFromDB,
     persistActiveContextToDB,
     saveTableSettingsToDB,
     resolveShareLinkSettingsFromDB,
+    type PlatformConfigScope,
     upsertShareLinkSettingsInDB,
 } from "./utils/configService";
 import { mergePresetWithPreservedTabState, mergeObjectTabBarIntoConfig } from "./utils/mergePresetConfig";
@@ -516,6 +520,7 @@ interface Props {
     title: string;
     data: any[];
     fieldMappings: Record<string, string>;
+    preferredColumns?: string[];
     config: TableConfig;
     loading?: boolean;
     error?: string | null;
@@ -528,6 +533,8 @@ interface Props {
     onDataChange?: (rows: any[]) => void;
     /** Optional handler for title-panel New button action. */
     onNewButtonClick?: () => void;
+    /** When set, ObjectLoader presets and saves use this `platform_config` scope (entity_id + dobj_id). */
+    platformConfigScope?: PlatformConfigScope;
 }
 
 /** Stable row identity for React keys and findIndex — avoid entity_id alone when many rows share one tenant. */
@@ -560,6 +567,7 @@ export default function ConfigurableListTemplate({
     title,
     data,
     fieldMappings,
+    preferredColumns,
     config,
     loading,
     error,
@@ -569,12 +577,20 @@ export default function ConfigurableListTemplate({
     objectLoaderCrud = null,
     onDataChange,
     onNewButtonClick,
+    platformConfigScope: platformConfigScopeProp,
 }: Props) {
     // Initialize selectedRows as a proper Set to fix the .has() error
 
     const navigate = useNavigate();
     const configRef = useRef(config);
     configRef.current = config;
+
+    const platformScope = useMemo<PlatformConfigScope>(() => {
+        if (platformConfigScopeProp) return platformConfigScopeProp;
+        return { entityId: DB_ENTITY_ID, dobjId: DB_DOBJ_ID };
+    }, [platformConfigScopeProp?.entityId, platformConfigScopeProp?.dobjId]);
+    const platformScopeRef = useRef(platformScope);
+    platformScopeRef.current = platformScope;
 
     const pushConfig = useCallback(
         (next: TableConfig) => onConfigChange(applyFreezePaneConsistency(next) as TableConfig),
@@ -627,7 +643,8 @@ export default function ConfigurableListTemplate({
         } catch {
             overrides = {};
         }
-        const { presets: dbPresets, error: dbError } = await fetchPresetsFromDB(1000000000, 1000000001);
+        const { entityId, dobjId } = platformScopeRef.current;
+        const { presets: dbPresets, error: dbError } = await fetchPresetsFromDB(entityId, dobjId);
         if (dbError) {
             console.warn('[Presets] Refresh after save failed:', dbError);
             return;
@@ -643,7 +660,7 @@ export default function ConfigurableListTemplate({
         const uniqueCustom = customPresets.filter((p) => !systemIds.has(p.id));
         const merged = [...mergedSystem, ...uniqueCustom];
         setPresets(merged);
-    }, []);
+    }, [platformScope.entityId, platformScope.dobjId]);
     const initialShareToken =
         typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('share') : null;
     const [shareViewParams, setShareViewParams] = useState<{
@@ -697,7 +714,8 @@ export default function ConfigurableListTemplate({
             let requireCredentials = false;
             let allowedEmailOrDomain: string | undefined;
             if (isShare && (rawRestrict == null || rawPanel == null)) {
-                const { settings, error } = await resolveShareLinkSettingsFromDB(String(rawShare));
+                const { entityId: se, dobjId: sd } = platformScopeRef.current;
+                const { settings, error } = await resolveShareLinkSettingsFromDB(String(rawShare), se, sd);
                 dbLookupError = error;
                 if (settings) {
                     restrict = Boolean(settings.restrictCopy);
@@ -743,7 +761,8 @@ export default function ConfigurableListTemplate({
                 allowedEmailOrDomain?: string;
             }
         ): Promise<boolean> => {
-            const { success } = await upsertShareLinkSettingsInDB(token, settings);
+            const { entityId, dobjId } = platformScopeRef.current;
+            const { success } = await upsertShareLinkSettingsInDB(token, settings, entityId, dobjId);
             return success;
         },
         [],
@@ -755,7 +774,8 @@ export default function ConfigurableListTemplate({
     }, [location.search]);
 
     const loadShareLinksForPreset = useCallback(async (presetId: string) => {
-        const { links } = await listShareLinksForPresetFromDB(presetId);
+        const { entityId, dobjId } = platformScopeRef.current;
+        const { links } = await listShareLinksForPresetFromDB(presetId, entityId, dobjId);
         const base = typeof window !== 'undefined' ? `${window.location.origin}${window.location.pathname}` : '';
         setShareGeneratedLinks(
             links.map((l) => ({
@@ -773,7 +793,8 @@ export default function ConfigurableListTemplate({
 
     const handleDeleteShareToken = useCallback(
         async (token: string): Promise<boolean> => {
-            const { success } = await deleteShareLinkFromDB(token);
+            const { entityId, dobjId } = platformScopeRef.current;
+            const { success } = await deleteShareLinkFromDB(token, entityId, dobjId);
             if (success) {
                 await loadShareLinksForPreset(activePresetId);
             }
@@ -783,7 +804,8 @@ export default function ConfigurableListTemplate({
     );
 
     const handleDeleteAllShareTokens = useCallback(async (): Promise<boolean> => {
-        const { success } = await deleteShareLinksForPresetFromDB(activePresetId);
+        const { entityId, dobjId } = platformScopeRef.current;
+        const { success } = await deleteShareLinksForPresetFromDB(activePresetId, entityId, dobjId);
         if (success) {
             await loadShareLinksForPreset(activePresetId);
         }
@@ -872,6 +894,36 @@ export default function ConfigurableListTemplate({
         navigate(`${baseUrl}/${encodeURIComponent(String(rowId))}`);
     }, [baseUrl, navigate, objectLoaderCrud]);
 
+    const goToObjectDataFromRow = useCallback((row: Record<string, unknown>) => {
+        if (baseUrl !== '/objects') return;
+        const objectId =
+            objectLoaderCrud != null
+                ? resolveRowRecordId(row, objectLoaderCrud.idColumn) ?? row.sys_id ?? row.dobj_id
+                : row.sys_id ?? row.dobj_id ?? row.id;
+        if (objectId == null) return;
+        const objectName = String(row.dobj_name_display ?? row.dobj_name_system ?? `Object ${objectId}`).trim() || `Object ${objectId}`;
+        const cfgRaw = row.dobj_configuration;
+        let objectIcon: string | undefined;
+        if (cfgRaw && typeof cfgRaw === 'object') {
+            objectIcon = String((cfgRaw as Record<string, unknown>).objectIcon ?? '').trim() || undefined;
+        } else if (typeof cfgRaw === 'string') {
+            try {
+                const parsed = JSON.parse(cfgRaw) as Record<string, unknown>;
+                objectIcon = String(parsed.objectIcon ?? '').trim() || undefined;
+            } catch {
+                objectIcon = undefined;
+            }
+        }
+        const payload = { id: String(objectId), name: objectName, icon: objectIcon };
+        try {
+            localStorage.setItem('activeObjectDataTarget', JSON.stringify(payload));
+            window.dispatchEvent(new CustomEvent('active-object-data-target-changed', { detail: payload }));
+        } catch {
+            /* non-blocking */
+        }
+        navigate(`/objects/${encodeURIComponent(String(objectId))}/records`);
+    }, [baseUrl, navigate, objectLoaderCrud]);
+
     const isObjectManagerLinkCell = useCallback(
         (rowIsDraft: boolean, col: string) =>
             !rowIsDraft &&
@@ -879,6 +931,17 @@ export default function ConfigurableListTemplate({
             (col === 'dobj_name_display' || col === 'sys_id'),
         [baseUrl],
     );
+
+    const detectFieldLinkKind = useCallback((col: string, value: string): 'email' | 'url' | null => {
+        const v = String(value ?? '').trim();
+        if (!v || v === '-') return null;
+        const colLower = col.toLowerCase();
+        const emailRegex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+        const urlRegex = /^(https?:\/\/|www\.)[^\s]+$/i;
+        if (emailRegex.test(v) || colLower.includes('email')) return 'email';
+        if (urlRegex.test(v) || colLower.includes('url') || colLower.includes('website') || colLower.includes('web')) return 'url';
+        return null;
+    }, []);
 
     // Checkbox column width only (data columns use auto layout unless `columnWidths` has explicit px)
     useEffect(() => {
@@ -1325,15 +1388,15 @@ export default function ConfigurableListTemplate({
                 overrides = {};
             }
 
-            const DB_ENTITY_ID = 1000000000;
-            const DB_DOBJ_ID = 1000000001;
+            const { entityId: loadEntityId, dobjId: loadDobjId } = platformScopeRef.current;
+            await ensureObjectLoaderPlatformConfigRow(loadEntityId, loadDobjId);
             const {
                 presets: dbPresets,
                 activePresetId: dbActiveId,
                 activeTabId: dbTabId,
                 objectTabBar,
                 error: dbError,
-            } = await fetchPresetsFromDB(DB_ENTITY_ID, DB_DOBJ_ID);
+            } = await fetchPresetsFromDB(loadEntityId, loadDobjId);
 
             if (cancelled) return;
 
@@ -1402,7 +1465,15 @@ export default function ConfigurableListTemplate({
 
         loadPresets();
         return () => { cancelled = true; };
-    }, [isShareRoute, setSearchParams, shareViewParams.isShareView, shareViewParams.shareToken, toShareOnlyParams]); // Only run on mount - presets are updated via setPresets from onPresetsChange
+    }, [
+        isShareRoute,
+        platformScope.entityId,
+        platformScope.dobjId,
+        setSearchParams,
+        shareViewParams.isShareView,
+        shareViewParams.shareToken,
+        toShareOnlyParams,
+    ]);
 
     // Close preset dropdown when clicking outside (used when table panel is disabled and dropdown is in title bar)
     useEffect(() => {
@@ -2088,11 +2159,12 @@ export default function ConfigurableListTemplate({
                 },
                 keys,
             );
+            const { entityId, dobjId } = platformScopeRef.current;
             const { success, error } = await saveTableSettingsToDB(
                 presetId,
                 configRef.current as Record<string, unknown>,
-                undefined,
-                undefined,
+                entityId,
+                dobjId,
                 undefined,
                 {
                     allowDefaultPresetBodyOverwrite: true,
@@ -2712,12 +2784,14 @@ export default function ConfigurableListTemplate({
     const getAllColumns = () =>
         Object.keys(fieldMappings);
 
-    const getPreferredColumns = () =>
-        Object.entries(fieldMappings)
-            .filter(([, value]) =>
-                typeof value === 'object' && value.preferred
-            )
+    const getPreferredColumns = () => {
+        if (Array.isArray(preferredColumns) && preferredColumns.length > 0) {
+            return preferredColumns.filter((key) => allColumns.includes(key));
+        }
+        return Object.entries(fieldMappings)
+            .filter(([, value]) => typeof value === 'object' && (value as { preferred?: boolean }).preferred)
             .map(([key]) => key);
+    };
 
     const loadAllColumns = () => {
         const all = getAllColumns();
@@ -2758,7 +2832,8 @@ export default function ConfigurableListTemplate({
             tabId = match?.id ?? tabs[0]?.id ?? null;
         }
 
-        void persistActiveContextToDB(preset.id, tabId);
+        const { entityId, dobjId } = platformScopeRef.current;
+        void persistActiveContextToDB(preset.id, tabId, entityId, dobjId);
 
         setSearchParams((prevParams) => {
             if (isShareRoute || shareViewParams.isShareView) {
@@ -2770,7 +2845,15 @@ export default function ConfigurableListTemplate({
             else next.delete(TABLE_TAB_URL_PARAM);
             return next;
         });
-    }, [isShareRoute, setSearchParams, shareViewParams.isShareView, shareViewParams.shareToken, toShareOnlyParams]);
+    }, [
+        isShareRoute,
+        platformScope.entityId,
+        platformScope.dobjId,
+        setSearchParams,
+        shareViewParams.isShareView,
+        shareViewParams.shareToken,
+        toShareOnlyParams,
+    ]);
 
     /** Per-user + per-template + per-preset query state: hydrate before paint when preset/template/user changes */
     useLayoutEffect(() => {
@@ -2822,6 +2905,19 @@ export default function ConfigurableListTemplate({
             };
             const sanitized = sanitizeTableQueryState(state, keys);
             saveTableQueryState(tableUserId, templateId, p.id, sanitized);
+
+            const { entityId, dobjId } = platformScopeRef.current;
+            void saveTableSettingsToDB(
+                p.id,
+                configRef.current as Record<string, unknown>,
+                entityId,
+                dobjId,
+                undefined,
+                {
+                    allowDefaultPresetBodyOverwrite: true,
+                    savedQueryState: sanitized as unknown as Record<string, unknown>,
+                },
+            );
         }, 500);
         return () => window.clearTimeout(handle);
     }, [
@@ -2839,6 +2935,37 @@ export default function ConfigurableListTemplate({
         activePresetId,
         presets.length,
     ]);
+
+    /** Debounced persist of layout/action-bar settings (freeze, button visibility, tabs, etc.). */
+    const lastLayoutPersistSigRef = useRef<string>('');
+    useEffect(() => {
+        const handle = window.setTimeout(() => {
+            if (!presets.length) return;
+            const presetId = activePresetId || 'default';
+            const layoutConfig = stripSavedQueryStateFromConfig(
+                configRef.current as Record<string, unknown>,
+            ) as Record<string, unknown>;
+            let sig = '';
+            try {
+                sig = JSON.stringify({ presetId, layoutConfig });
+            } catch {
+                sig = `${presetId}:${Date.now()}`;
+            }
+            if (lastLayoutPersistSigRef.current === sig) return;
+            lastLayoutPersistSigRef.current = sig;
+
+            const { entityId, dobjId } = platformScopeRef.current;
+            void saveTableSettingsToDB(
+                presetId,
+                layoutConfig,
+                entityId,
+                dobjId,
+                undefined,
+                { allowDefaultPresetBodyOverwrite: true },
+            );
+        }, 700);
+        return () => window.clearTimeout(handle);
+    }, [config, activePresetId, presets.length]);
 
     /** Tab click: activate preset + sync ?preset= & ?tableTab= (disambiguates duplicate preset links) */
     const handleTabPresetSelect = useCallback(
@@ -3362,6 +3489,9 @@ export default function ConfigurableListTemplate({
                                                   }
                                                 : undefined
                                         }
+                                        customActionLabel={baseUrl === '/objects' ? 'Go Object Data' : undefined}
+                                        customActionTitle={baseUrl === '/objects' ? 'Open records and set active object menu' : undefined}
+                                        onCustomAction={baseUrl === '/objects' ? () => goToObjectDataFromRow(row as Record<string, unknown>) : undefined}
                                         showRowActionsOnHover={config.showRowActionsOnHover}
                                         actionsTdClassName={cn(
                                             'px-4 py-2 text-sm text-gray-700',
@@ -3413,6 +3543,15 @@ export default function ConfigurableListTemplate({
                                                     }
                                                 })()
                                               : String(rawCellValue);
+                                    const hyperlinkKind = detectFieldLinkKind(col, cellValue);
+                                    const hyperlinkHref =
+                                        hyperlinkKind === 'email'
+                                            ? `mailto:${cellValue}`
+                                            : hyperlinkKind === 'url'
+                                              ? /^(https?:\/\/)/i.test(cellValue)
+                                                  ? cellValue
+                                                  : `https://${cellValue}`
+                                              : null;
                                     const wrapMode = getCellWrapMode(col, config, columnWrapStates);
                                     const clipMode = wrapMode === 'clip';
                                     const isAccentCol = col === rowAccentColumnKey;
@@ -3645,6 +3784,16 @@ export default function ConfigurableListTemplate({
                                                         >
                                                             {cellValue}
                                                         </button>
+                                                    ) : hyperlinkHref ? (
+                                                        <a
+                                                            href={hyperlinkHref}
+                                                            className="text-primary hover:underline"
+                                                            target={hyperlinkKind === 'url' ? '_blank' : undefined}
+                                                            rel={hyperlinkKind === 'url' ? 'noreferrer noopener' : undefined}
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        >
+                                                            {cellValue}
+                                                        </a>
                                                     ) : (
                                                         cellValue
                                                     )}
@@ -3715,6 +3864,9 @@ export default function ConfigurableListTemplate({
                                                   }
                                                 : undefined
                                         }
+                                        customActionLabel={baseUrl === '/objects' ? 'Go Object Data' : undefined}
+                                        customActionTitle={baseUrl === '/objects' ? 'Open records and set active object menu' : undefined}
+                                        onCustomAction={baseUrl === '/objects' ? () => goToObjectDataFromRow(row as Record<string, unknown>) : undefined}
                                         showRowActionsOnHover={config.showRowActionsOnHover}
                                         actionsTdClassName={cn(
                                             'px-4 py-2 text-sm text-gray-700',
@@ -3900,6 +4052,9 @@ export default function ConfigurableListTemplate({
                                                   }
                                                 : undefined
                                         }
+                                        customActionLabel={baseUrl === '/objects' ? 'Go Object Data' : undefined}
+                                        customActionTitle={baseUrl === '/objects' ? 'Open records and set active object menu' : undefined}
+                                        onCustomAction={baseUrl === '/objects' ? () => goToObjectDataFromRow(row as Record<string, unknown>) : undefined}
                                         showRowActionsOnHover={config.showRowActionsOnHover}
                                         actionsTdClassName={cn(
                                             'px-4 py-2 text-sm text-gray-700',
@@ -3951,6 +4106,15 @@ export default function ConfigurableListTemplate({
                                                     }
                                                 })()
                                               : String(rawCellValue);
+                                    const hyperlinkKind = detectFieldLinkKind(col, cellValue);
+                                    const hyperlinkHref =
+                                        hyperlinkKind === 'email'
+                                            ? `mailto:${cellValue}`
+                                            : hyperlinkKind === 'url'
+                                              ? /^(https?:\/\/)/i.test(cellValue)
+                                                  ? cellValue
+                                                  : `https://${cellValue}`
+                                              : null;
                                     const cellKey = `${rowPositionKey}-${col}`;
                                     const wrapMode = getCellWrapMode(col, config, columnWrapStates);
                                     const clipMode = wrapMode === 'clip';
@@ -4184,6 +4348,16 @@ export default function ConfigurableListTemplate({
                                                         >
                                                             {cellValue}
                                                         </button>
+                                                    ) : hyperlinkHref ? (
+                                                        <a
+                                                            href={hyperlinkHref}
+                                                            className="text-primary hover:underline"
+                                                            target={hyperlinkKind === 'url' ? '_blank' : undefined}
+                                                            rel={hyperlinkKind === 'url' ? 'noreferrer noopener' : undefined}
+                                                            onClick={(e) => e.stopPropagation()}
+                                                        >
+                                                            {cellValue}
+                                                        </a>
                                                     ) : (
                                                         cellValue
                                                     )}
@@ -4254,6 +4428,9 @@ export default function ConfigurableListTemplate({
                                                   }
                                                 : undefined
                                         }
+                                        customActionLabel={baseUrl === '/objects' ? 'Go Object Data' : undefined}
+                                        customActionTitle={baseUrl === '/objects' ? 'Open records and set active object menu' : undefined}
+                                        onCustomAction={baseUrl === '/objects' ? () => goToObjectDataFromRow(row as Record<string, unknown>) : undefined}
                                         showRowActionsOnHover={config.showRowActionsOnHover}
                                         actionsTdClassName={cn(
                                             'px-4 py-2 text-sm text-gray-700',
@@ -5103,6 +5280,7 @@ export default function ConfigurableListTemplate({
                         onSettingsClick={handleSettingsClick}
                         // Common
                         fieldMappings={fieldMappings}
+                        preferredColumns={preferredColumns}
                         config={config}
                         onConfigChange={pushConfig}
                     />
@@ -5565,6 +5743,7 @@ export default function ConfigurableListTemplate({
                 onPresetSelect={setActivePresetId}
                 fieldMappings={fieldMappings}
                 tableQueryState={tableQueryStateForModal}
+                platformConfigScope={platformScope}
             />
 
             {cellRangeGridCopy && (

@@ -14,9 +14,11 @@ export const DOBJ_FIELD_LABEL_OVERRIDES: Record<string, string> = {
     dobj_name_display: "Name",
     dobj_name_system: "API Name",
     dobj_description: "Description",
-    dobj_type: "Type",
+    dobj_type: "Creation Type",
+    object_type: "Object Type",
     dobj_status: "Status",
     isCustom: "Custom",
+    preferred_in_view: "Preferred in View",
     dobj_configuration: "Configuration",
 };
 
@@ -55,6 +57,32 @@ export function normalizeRowsToFieldMappings<T extends Record<string, unknown>>(
     mappingKeys: string[],
 ): Record<string, unknown>[] {
     if (!rows?.length) return [];
+    const sanitizeConfiguration = (raw: unknown): unknown => {
+        if (raw == null) return raw;
+        const stripLegacy = (obj: Record<string, unknown>): Record<string, unknown> => {
+            const next = { ...obj };
+            delete next.isTransactionObject;
+            delete next.is_transaction_object;
+            delete next.Is_Transaction_Object;
+            delete next['Is_Transaction Object'];
+            return next;
+        };
+        if (typeof raw === 'string') {
+            try {
+                const parsed = JSON.parse(raw) as unknown;
+                if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+                    return stripLegacy(parsed as Record<string, unknown>);
+                }
+                return raw;
+            } catch {
+                return raw;
+            }
+        }
+        if (typeof raw === 'object' && !Array.isArray(raw)) {
+            return stripLegacy(raw as Record<string, unknown>);
+        }
+        return raw;
+    };
     return rows.map((row) => {
         const rowKeysLower = Object.fromEntries(Object.keys(row).map((k) => [k.toLowerCase(), k]));
         const out: Record<string, unknown> = { ...row };
@@ -62,6 +90,9 @@ export function normalizeRowsToFieldMappings<T extends Record<string, unknown>>(
             if (row[key] !== undefined) continue;
             const lowerKey = rowKeysLower[key.toLowerCase()];
             if (lowerKey != null) out[key] = row[lowerKey];
+        }
+        if ('dobj_configuration' in out) {
+            out.dobj_configuration = sanitizeConfiguration(out.dobj_configuration);
         }
         return out;
     });

@@ -6,14 +6,91 @@ import {
     injectCanonicalDefaultTab,
     isProtectedDefaultTab,
 } from './canonicalObjectLoaderDefaults';
+import { getDefaultPreset } from './presets';
 
 const TABLE = 'platform_config';
 const OBJECT_LOADER_TYPE = 3;
+/** `platform_config` row for durable auto-number counters (`config_name` = ObjectCounter). */
+export const OBJECT_COUNTER_CONFIG_TYPE = 7;
 /** Must match `TABLE_TAB_URL_PARAM` in TableTabPanel (used when saving settings to sync active tab) */
 const TABLE_TAB_QUERY_PARAM = 'tableTab';
 
 export const DB_ENTITY_ID = 1000000000;
 export const DB_DOBJ_ID = 1000000001;
+
+/**
+ * Reserved `dobj_id` for the Object Manager list (`/objects`) so its ObjectLoader config
+ * does not collide with business objects (e.g. Accounts uses `dobj_id` = system id).
+ */
+export const OBJECT_REGISTRY_LIST_DOBJ_ID = 1000000000;
+
+export type PlatformConfigScope = {
+    entityId: number;
+    dobjId: number;
+};
+
+function buildMinimalObjectLoaderConfigFromCode(): ConfigJsonPayload {
+    const codeDefault = getDefaultPreset();
+    const stripped = stripObjectTabBarFromConfig(codeDefault.config as Record<string, unknown>);
+    const entry = presetToEntry({ ...codeDefault, config: stripped as TablePreset['config'] }, 0);
+    const tabSlice = extractObjectTabBarFromConfig(codeDefault.config as Record<string, unknown>);
+    const mergedTabList = injectCanonicalDefaultTab(tabSlice.tabList);
+    return {
+        activePresetId: 'default',
+        activeTabId: CANONICAL_DEFAULT_TAB_ITEM.id,
+        objectTabBar: { ...tabSlice, tabList: mergedTabList },
+        presets: [entry],
+    };
+}
+
+/**
+ * Ensures a `platform_config` row exists for ObjectLoader (config_type=3) for the given scope.
+ * Clones from the canonical seed scope when possible; otherwise builds a minimal document from code defaults.
+ */
+export async function ensureObjectLoaderPlatformConfigRow(
+    entityId: number,
+    dobjId: number,
+    options?: { cloneFromEntityId?: number; cloneFromDobjId?: number },
+): Promise<{ success: boolean; error: string | null }> {
+    const existing = await fetchRawDocument(entityId, dobjId);
+    if (existing.payload) return { success: true, error: null };
+
+    const srcE = options?.cloneFromEntityId ?? DB_ENTITY_ID;
+    const srcD = options?.cloneFromDobjId ?? DB_DOBJ_ID;
+    const clone = await fetchRawDocument(srcE, srcD);
+
+    let configJson: ConfigJsonPayload;
+    if (clone.payload) {
+        configJson = JSON.parse(JSON.stringify(clone.payload)) as ConfigJsonPayload;
+        configJson.activePresetId = configJson.activePresetId || 'default';
+        configJson.activeTabId = configJson.activeTabId || CANONICAL_DEFAULT_TAB_ITEM.id;
+    } else {
+        configJson = buildMinimalObjectLoaderConfigFromCode();
+    }
+
+    try {
+        const { error } = await supabase.from(TABLE).insert({
+            entity_id: entityId,
+            dobj_id: dobjId,
+            user_ids_linked: '["1"]',
+            config_name: 'ObjectLoader',
+            config_type: OBJECT_LOADER_TYPE,
+            config_description: `ObjectLoader presets for entity ${entityId}, dobj ${dobjId}`,
+            config_version: 1,
+            is_default: true,
+            is_active: true,
+            auth_edit_ids_linked: '["1"]',
+            auth_delete_ids_linked: '["1"]',
+            config_json: configJson as unknown as Record<string, unknown>,
+            created_by_user_id: '1',
+            modified_by_user_id: '1',
+        });
+        if (error) return { success: false, error: error.message };
+        return { success: true, error: null };
+    } catch (e) {
+        return { success: false, error: e instanceof Error ? e.message : String(e) };
+    }
+}
 
 export interface PresetJsonEntry {
     id: string;
@@ -278,7 +355,15 @@ export async function saveTableSettingsToDB(
         didSkipDefaultPresetBody = true;
     } else {
         const stripped = stripObjectTabBarFromConfig(fullLayoutConfig) as Record<string, unknown>;
-        const sq = options?.savedQueryState;
+        const existingConfig =
+            (p.presets[idx].config && typeof p.presets[idx].config === 'object'
+                ? (p.presets[idx].config as Record<string, unknown>)
+                : {});
+        const existingSavedQueryState =
+            existingConfig.savedQueryState && typeof existingConfig.savedQueryState === 'object'
+                ? (existingConfig.savedQueryState as Record<string, unknown>)
+                : undefined;
+        const sq = options?.savedQueryState ?? existingSavedQueryState;
         const configBody =
             sq != null && typeof sq === 'object'
                 ? { ...stripped, savedQueryState: sq }

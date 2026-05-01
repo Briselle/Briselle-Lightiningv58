@@ -65,4 +65,10 @@ export interface ObjectDefinitionSchema {
     obj_id: number;
     version: 1;
     fields: ObjectFieldDefinition[];
+    /** Object behavior mode in Object Manager. */
+    objectType?: 'list' | 'transaction' | 'hierarchy';
+    /** Optional mirrors of object metadata inside the same JSON document. */
+    objectLabel?: string;
+    objectApiName?: string;
+    objectDescription?: string;
 }

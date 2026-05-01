@@ -1,4 +1,4 @@
-import { Check, ChevronDown, ChevronRight, Pencil, Plus, Search, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, Pencil, Plus, Save, Search, X } from 'lucide-react';
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
@@ -13,6 +13,8 @@ import {
     toUserDefinedApiName,
 } from './fieldDataTypeModel';
 import { getDefaultAttributesForFieldType, getFieldTypeMasterEntry, validateFieldAttributes } from './salesforceFieldTypeMaster';
+import { getObjectIconNode, normalizeObjectIconKey, type ObjectIconKey } from '../../utils/objectIconCatalog';
+import { UiIconPickerSelect } from '../../utils/uiIconPickerCatalog';
 
 type DbObjectRow = {
     sys_id: number;
@@ -20,6 +22,8 @@ type DbObjectRow = {
     dobj_name_display?: string | null;
     dobj_name_system?: string | null;
     dobj_description?: string | null;
+    object_type?: string | null;
+    dobj_type?: string | null;
     dobj_configuration?: unknown;
 };
 
@@ -41,6 +45,13 @@ type ObjectManagerModel = {
     label: string;
     apiName: string;
     description: string;
+    objectType: 'list' | 'transaction' | 'hierarchy';
+    creationType: string;
+    objectIcon: ObjectIconKey;
+    createdOn: string;
+    modifiedOn: string;
+    createdBy: string;
+    modifiedBy: string;
     fields: ObjectField[];
 };
 
@@ -54,7 +65,7 @@ type NewFieldFormState = {
 };
 
 const OBJECT_MANAGER_MENU = [
-    'Details',
+    'Object Details',
     'Fields & Relationships',
     'Page Layouts',
     'Buttons, Links, and Actions',
@@ -64,6 +75,52 @@ const OBJECT_MANAGER_MENU = [
     'Record Types',
     'Search Layouts',
 ];
+
+function formatDateLabel(raw: unknown): string {
+    if (raw == null || raw === '') return '—';
+    const d = new Date(raw as string | number | Date);
+    if (Number.isNaN(d.getTime())) return String(raw);
+    return d.toLocaleString();
+}
+
+/** First non-null value among keys (case-insensitive key match on row). */
+function pickRowValue(row: Record<string, unknown>, keys: string[]): unknown {
+    const lowerMap = new Map(Object.keys(row).map((k) => [k.toLowerCase(), k]));
+    for (const k of keys) {
+        const exact = row[k];
+        if (exact !== undefined && exact !== null) return exact;
+        const alt = lowerMap.get(k.toLowerCase());
+        if (alt != null) {
+            const v = row[alt];
+            if (v !== undefined && v !== null) return v;
+        }
+    }
+    return undefined;
+}
+
+/**
+ * `dobj` audit shape differs by migration: 010 uses `sys_created_ts` only; 008 adds `dobj_*` mirrors.
+ * Never request non-existent columns — use `select('*')` and resolve here.
+ */
+function resolveDobjAuditDisplay(row: Record<string, unknown>): {
+    createdOn: string;
+    modifiedOn: string;
+    createdBy: string;
+    modifiedBy: string;
+} {
+    const createdRaw = pickRowValue(row, ['dobj_created_at', 'sys_created_ts', 'sys_created_on']);
+    const modifiedRaw = pickRowValue(row, ['dobj_updated_at', 'sys_updated_ts', 'sys_modified_on', 'sys_modified_ts']);
+    const createdByRaw = pickRowValue(row, ['dobj_created_by_id', 'sys_created_by_id']);
+    const modifiedByRaw = pickRowValue(row, ['dobj_modified_by_id', 'sys_updated_by_id']);
+    return {
+        createdOn: formatDateLabel(createdRaw),
+        modifiedOn: formatDateLabel(modifiedRaw),
+        createdBy:
+            createdByRaw != null && String(createdByRaw).trim() !== '' ? String(createdByRaw) : '—',
+        modifiedBy:
+            modifiedByRaw != null && String(modifiedByRaw).trim() !== '' ? String(modifiedByRaw) : '—',
+    };
+}
 function safeParseConfig(raw: unknown): Record<string, unknown> {
     if (raw == null) return {};
     if (typeof raw === 'string') {
@@ -112,6 +169,13 @@ function normalizeFieldRow(f: Record<string, unknown>): Record<string, unknown> 
 function normalizeConfigurationFields(cfg: Record<string, unknown>): Record<string, unknown> {
     const raw = Array.isArray(cfg.fields) ? (cfg.fields as Array<Record<string, unknown>>) : [];
     return { ...cfg, fields: raw.map((row) => normalizeFieldRow(row)) };
+}
+
+function normalizeObjectType(raw: unknown): 'list' | 'transaction' | 'hierarchy' {
+    const v = String(raw ?? '').trim().toLowerCase();
+    if (v === 'transaction') return 'transaction';
+    if (v === 'hierarchy') return 'hierarchy';
+    return 'list';
 }
 
 function toFields(config: Record<string, unknown>): ObjectField[] {
@@ -183,6 +247,10 @@ export default function ObjectDetail() {
     const [editingFieldId, setEditingFieldId] = useState<number | null>(null);
     const [expandedFieldId, setExpandedFieldId] = useState<number | null>(null);
     const [editFieldApiNameTouched, setEditFieldApiNameTouched] = useState(false);
+    const [activeMenu, setActiveMenu] = useState('Object Details');
+    const [objectTypeDraft, setObjectTypeDraft] = useState<'list' | 'transaction' | 'hierarchy'>('list');
+    const [objectIconDraft, setObjectIconDraft] = useState<ObjectIconKey>('table');
+    const [savingObjectMeta, setSavingObjectMeta] = useState(false);
     const [newField, setNewField] = useState<NewFieldFormState>({
         label: '',
         apiName: '',
@@ -214,7 +282,7 @@ export default function ObjectDetail() {
 
             const { data, error: fetchError } = await supabase
                 .from('dobj')
-                .select('sys_id,dobj_id,dobj_name_display,dobj_name_system,dobj_description,dobj_configuration')
+                .select('*')
                 .or(`sys_id.eq.${id},dobj_id.eq.${id}`)
                 .limit(1)
                 .maybeSingle<DbObjectRow>();
@@ -231,18 +299,33 @@ export default function ObjectDetail() {
                 return;
             }
 
+            const row = data as unknown as Record<string, unknown>;
             const cfgRaw = safeParseConfig(data.dobj_configuration);
             const cfg = normalizeConfigurationFields(cfgRaw);
             const fields = toFields(cfg);
 
+            const objectType = normalizeObjectType(
+                data.object_type ?? (typeof cfg.objectType === 'string' ? cfg.objectType : null),
+            );
+            const objectIcon = normalizeObjectIconKey(cfg.objectIcon);
+            const audit = resolveDobjAuditDisplay(row);
             setModel({
                 id: String(data.dobj_id ?? data.sys_id ?? id),
                 sysId: Number(data.sys_id),
                 label: data.dobj_name_display || 'Object',
                 apiName: data.dobj_name_system || '',
                 description: data.dobj_description || '',
+                objectType,
+                creationType: String(data.dobj_type ?? 'custom'),
+                objectIcon,
+                createdOn: audit.createdOn,
+                modifiedOn: audit.modifiedOn,
+                createdBy: audit.createdBy,
+                modifiedBy: audit.modifiedBy,
                 fields,
             });
+            setObjectTypeDraft(objectType);
+            setObjectIconDraft(objectIcon);
             setObjectConfig(cfg);
             setLoading(false);
         };
@@ -298,6 +381,11 @@ export default function ObjectDetail() {
     const persistConfiguration = async (nextConfig: Record<string, unknown>, logKey: string) => {
         const m = modelRef.current;
         if (!m) return false;
+        const nextFields = Array.isArray(nextConfig.fields) ? (nextConfig.fields as Array<Record<string, unknown>>) : [];
+        const preferredCount = nextFields.filter((f) => {
+            const attrs = typeof f.attributes === 'object' && f.attributes != null ? (f.attributes as Record<string, unknown>) : {};
+            return attrs.preferredInView === true || attrs.preferredInView === 1;
+        }).length;
         setSavingField(true);
         const { error: updateError } = await supabase
             .from('dobj')
@@ -333,6 +421,36 @@ export default function ObjectDetail() {
             `${f.label} ${f.apiName} ${f.dataType} ${f.description}`.toLowerCase().includes(q),
         );
     }, [model?.fields, quickFind]);
+
+    const saveObjectType = async () => {
+        if (!model || savingObjectMeta) return;
+        setSavingObjectMeta(true);
+        const nextConfig = {
+            ...objectConfigRef.current,
+            objectType: objectTypeDraft,
+            objectIcon: objectIconDraft,
+        };
+        const { error: updateError } = await supabase
+            .from('dobj')
+            .update({
+                object_type: objectTypeDraft,
+                dobj_configuration: nextConfig,
+            })
+            .eq('sys_id', model.sysId);
+        if (!updateError) {
+            setObjectConfig(nextConfig);
+            setModel((prev) =>
+                prev
+                    ? {
+                        ...prev,
+                        objectType: objectTypeDraft,
+                        objectIcon: objectIconDraft,
+                    }
+                    : prev,
+            );
+        }
+        setSavingObjectMeta(false);
+    };
 
     const handleSaveNewField = async () => {
         if (!model) return;
@@ -522,20 +640,110 @@ export default function ObjectDetail() {
                 <div className="grid grid-cols-[240px_1fr] min-h-[560px]">
                     <aside className="border-r border-gray-200 bg-gray-50">
                         {OBJECT_MANAGER_MENU.map((item) => (
-                            <div
+                            <button
                                 key={item}
+                                type="button"
+                                onClick={() => setActiveMenu(item)}
                                 className={`px-4 py-2.5 text-sm border-l-2 ${
-                                    item === 'Fields & Relationships'
+                                    item === activeMenu
                                         ? 'border-primary bg-blue-50 text-gray-900 font-medium'
                                         : 'border-transparent text-gray-700'
-                                }`}
+                                } w-full text-left`}
                             >
                                 {item}
-                            </div>
+                            </button>
                         ))}
                     </aside>
 
                     <section className="p-4">
+                        {activeMenu === 'Object Details' && (
+                            <div className="rounded border border-gray-200 bg-white p-4">
+                                <h2 className="text-lg font-semibold text-gray-900 mb-3">Object Details</h2>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                    <div>
+                                        <label className="block text-[11px] font-medium text-gray-600 mb-1">Object Name</label>
+                                        <input className="input text-sm py-1.5 w-full bg-gray-100" value={model.label} readOnly />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-medium text-gray-600 mb-1">Object ID</label>
+                                        <input className="input text-sm py-1.5 w-full bg-gray-100" value={model.id} readOnly />
+                                    </div>
+                                    <div className="md:col-span-2">
+                                        <label className="block text-[11px] font-medium text-gray-600 mb-1">Object Description</label>
+                                        <textarea className="input text-sm py-1.5 w-full bg-gray-100 min-h-[64px]" value={model.description} readOnly />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-medium text-gray-600 mb-1">Created Date</label>
+                                        <input className="input text-sm py-1.5 w-full bg-gray-100" value={model.createdOn} readOnly />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-medium text-gray-600 mb-1">Modified Date</label>
+                                        <input className="input text-sm py-1.5 w-full bg-gray-100" value={model.modifiedOn} readOnly />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-medium text-gray-600 mb-1">Created By</label>
+                                        <input className="input text-sm py-1.5 w-full bg-gray-100" value={model.createdBy} readOnly />
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-medium text-gray-600 mb-1">Modified By</label>
+                                        <input className="input text-sm py-1.5 w-full bg-gray-100" value={model.modifiedBy} readOnly />
+                                    </div>
+                                    <div className="md:col-span-2">
+                                        <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
+                                            <div className="flex flex-col gap-0.5 min-w-[9rem] w-[min(100%,11rem)] shrink-0">
+                                                <label className="text-[11px] font-medium text-gray-600">Object Type</label>
+                                                <select
+                                                    className="input text-sm py-1.5 w-full"
+                                                    value={objectTypeDraft}
+                                                    onChange={(e) => setObjectTypeDraft(normalizeObjectType(e.target.value))}
+                                                    disabled={savingObjectMeta}
+                                                >
+                                                    <option value="list">List</option>
+                                                    <option value="transaction">Transaction</option>
+                                                    <option value="hierarchy">Hierarchy (Parent &amp; Child)</option>
+                                                </select>
+                                            </div>
+                                            <div className="flex flex-col gap-0.5 min-w-[10rem] flex-1 max-w-md">
+                                                <label className="text-[11px] font-medium text-gray-600">Object Icon</label>
+                                                <UiIconPickerSelect
+                                                    showSearch={false}
+                                                    wrapperClassName="w-full max-w-none"
+                                                    className="w-full"
+                                                    value={objectIconDraft}
+                                                    onChange={(k) => setObjectIconDraft(normalizeObjectIconKey(k))}
+                                                    disabled={savingObjectMeta}
+                                                />
+                                            </div>
+                                            <div className="inline-flex items-center gap-2 text-gray-700 rounded border border-gray-200 px-3 py-2 shrink-0">
+                                                {getObjectIconNode(objectIconDraft, 18)}
+                                                <span className="text-sm">Preview</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="block text-[11px] font-medium text-gray-600 mb-1">Creation Type</label>
+                                        <input className="input text-sm py-1.5 w-full bg-gray-100" value={model.creationType} readOnly />
+                                    </div>
+                                </div>
+                                <div className="mt-4">
+                                    <button
+                                        type="button"
+                                        className="btn btn-primary py-1.5 px-3 text-sm"
+                                        onClick={() => void saveObjectType()}
+                                        disabled={
+                                            savingObjectMeta ||
+                                            (objectTypeDraft === model.objectType &&
+                                                objectIconDraft === model.objectIcon)
+                                        }
+                                    >
+                                        <Save size={14} className="mr-1" />
+                                        {savingObjectMeta ? 'Saving...' : 'Save Object Details'}
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                        {activeMenu === 'Fields & Relationships' && (
+                            <>
                         <div className="flex items-center justify-between gap-3 mb-3">
                             <div>
                                 <h2 className="text-lg font-semibold text-gray-900">Fields &amp; Relationships</h2>
@@ -968,6 +1176,8 @@ export default function ObjectDetail() {
                                 </tbody>
                             </table>
                         </div>
+                            </>
+                        )}
                     </section>
                 </div>
             </div>

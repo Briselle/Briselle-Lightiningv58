@@ -168,6 +168,7 @@ interface TableActionPanelProps {
     
     // Common
     fieldMappings: Record<string, string>;
+    preferredColumns?: string[];
     config: any;
     onConfigChange: (partial: any) => void;
 }
@@ -220,6 +221,7 @@ const TableActionPanel: React.FC<TableActionPanelProps> = (props) => {
                 columnVisibilityButtonType={props.columnVisibilityButtonType}
                 columnVisibilityButtonAlign={props.columnVisibilityButtonAlign}
                 fieldMappings={props.fieldMappings}
+                preferredColumns={props.preferredColumns}
                 allColumns={props.allColumns}
                 activeColumns={props.activeColumns}
                 visibleColumns={props.visibleColumns}

@@ -9,8 +9,9 @@ import {
     normalizeRowsToFieldMappings,
     objectLoaderCrudBase,
 } from "./dobjTableShared";
+import { DB_ENTITY_ID, OBJECT_REGISTRY_LIST_DOBJ_ID } from "../../components/ui/tabletemplates/utils/configService";
 
-const defaultConfig: TableConfig = {
+export const defaultConfig: TableConfig = {
     // Core Features
     enableSort: true,
     enableHeader: true,
@@ -175,11 +176,31 @@ export default function TempList2() {
     const [data, setData] = useState<Record<string, unknown>[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
-    const [config, setConfig] = useState<TableConfig>(defaultConfig);
+    const [config, setConfig] = useState<TableConfig>(() => {
+        try {
+            return structuredClone(defaultConfig);
+        } catch {
+            return JSON.parse(JSON.stringify(defaultConfig)) as TableConfig;
+        }
+    });
 
     const fieldMappings = useMemo(() => buildDobjFieldMappings(data), [data]);
+    const preferredColumns = useMemo(() => {
+        const keys = Object.keys(fieldMappings);
+        const fallback = ['sys_id', 'dobj_name_display', 'dobj_name_system', 'dobj_status'];
+        const preferred = fallback.filter((key) => keys.includes(key));
+        if (keys.includes('preferred_in_view')) {
+            preferred.push('preferred_in_view');
+        }
+        return preferred;
+    }, [fieldMappings]);
 
     const objectLoaderCrud = useMemo(() => buildDobjObjectLoaderCrud(data), [data]);
+
+    const objectsListPlatformScope = useMemo(
+        () => ({ entityId: DB_ENTITY_ID, dobjId: OBJECT_REGISTRY_LIST_DOBJ_ID }),
+        [],
+    );
 
     const fetchEntities = async () => {
         setLoading(true);
@@ -207,23 +228,8 @@ export default function TempList2() {
         fetchEntities();
     }, []);
 
-    // Load saved config from localStorage
-    useEffect(() => {
-        const savedConfig = localStorage.getItem('tableConfig2');
-        if (savedConfig) {
-            try {
-                const parsedConfig = JSON.parse(savedConfig);
-                setConfig({ ...defaultConfig, ...parsedConfig });
-            } catch (error) {
-                console.error('Error loading saved config:', error);
-            }
-        }
-    }, []);
-
-    // Save config to localStorage when it changes
     const handleConfigChange = (newConfig: TableConfig) => {
         setConfig(newConfig);
-        localStorage.setItem('tableConfig2', JSON.stringify(newConfig));
     };
 
     const handleRefresh = () => {
@@ -235,6 +241,7 @@ export default function TempList2() {
             title="Objects"
             data={data}
             fieldMappings={fieldMappings}
+            preferredColumns={preferredColumns}
             config={config}
             loading={loading}
             onConfigChange={handleConfigChange}
@@ -243,6 +250,7 @@ export default function TempList2() {
             error={error}
             objectLoaderCrud={objectLoaderCrud}
             onNewButtonClick={() => navigate('/objects/new')}
+            platformConfigScope={objectsListPlatformScope}
         />
     );
 }

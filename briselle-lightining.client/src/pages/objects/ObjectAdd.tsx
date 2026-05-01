@@ -2,7 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft, Plus, Save, Trash2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { supabase } from '../../utils/supabase';
+import { ensureObjectLoaderPlatformConfigRow } from '../../components/ui/tabletemplates/utils/configService';
 import type { ObjectFieldDataType, ObjectFieldDefinition } from './objectDefinitionSchema';
+import { getObjectIconNode, normalizeObjectIconKey, type ObjectIconKey } from '../../utils/objectIconCatalog';
+import { UiIconPickerSelect } from '../../utils/uiIconPickerCatalog';
 import { FieldAttributesSectionedPanel } from './FieldAttributesSectionedPanel';
 import {
     FieldDefinitionRowForm,
@@ -14,6 +17,7 @@ import {
 import { getDefaultAttributesForFieldType, getFieldTypeMasterEntry, validateFieldAttributes } from './salesforceFieldTypeMaster';
 
 type FieldErrors = Record<string, string>;
+type ObjectType = 'list' | 'transaction' | 'hierarchy';
 
 function createField(overrides?: Partial<ObjectFieldDefinition>): ObjectFieldDefinition {
     const dataType = overrides?.dataType ?? 'text';
@@ -72,6 +76,9 @@ export default function ObjectAdd() {
     const [errors, setErrors] = useState<FieldErrors>({});
     const [saveError, setSaveError] = useState<string | null>(null);
     const [saving, setSaving] = useState(false);
+    /** Stored in `dobj_configuration.objectType`; default is list. */
+    const [objectType, setObjectType] = useState<ObjectType>('list');
+    const [objectIcon, setObjectIcon] = useState<ObjectIconKey>('table');
 
     const typeGroups = useMemo(() => groupedFieldTypes(), []);
     const mandatoryFirstTypeOptions = useMemo(
@@ -152,10 +159,46 @@ export default function ObjectAdd() {
             }),
         ];
 
+        if (objectType === 'hierarchy') {
+            const ensureLinkField = (apiName: string, labelText: string) => {
+                const exists = normalizedFields.some((f) => String(f.apiName ?? '').trim() === apiName);
+                if (exists) return;
+                normalizedFields.push({
+                    version: 1,
+                    id: normalizedFields.length + 1,
+                    dataType: 'text',
+                    label: labelText,
+                    apiName,
+                    description: `${labelText} link field for hierarchy object relationship.`,
+                    required: 0,
+                    isdeleted: 0,
+                    isactive: 1,
+                    isCustom: 1,
+                    order: normalizedFields.length + 1,
+                    attributes: {
+                        indexed: true,
+                        defaultValue: '',
+                    },
+                });
+            };
+            ensureLinkField('parent_id_u', 'Parent ID');
+            ensureLinkField('child_id_u', 'Child ID');
+        }
+
+        normalizedFields.forEach((field, index) => {
+            field.id = index + 1;
+            field.order = index + 1;
+        });
+
         return {
             obj_id: objId,
             version: 1,
             fields: normalizedFields,
+            objectType,
+            objectIcon,
+            objectLabel: label.trim(),
+            objectApiName: apiName.trim(),
+            objectDescription: description.trim(),
         } as Record<string, unknown>;
     };
 
@@ -250,6 +293,7 @@ export default function ObjectAdd() {
             dobj_name_system: apiName.trim(),
             dobj_description: description.trim() || null,
             dobj_type: 'custom',
+            object_type: objectType,
             dobj_status: 1,
             isCustom: 1,
             dobj_configuration: configurationPayload,
@@ -263,6 +307,13 @@ export default function ObjectAdd() {
         if (error) {
             setSaveError(error.message || 'Failed to save object configuration.');
             return;
+        }
+        const inserted = insertedRows?.[0] as { sys_id?: number; dobj_id?: number | null } | undefined;
+        const scopeDobjId = Number(inserted?.dobj_id ?? inserted?.sys_id ?? nextSystemId);
+        const pcResult = await ensureObjectLoaderPlatformConfigRow(1000000000, scopeDobjId);
+        const pcError = pcResult.error;
+        if (pcError) {
+            console.warn('[ObjectAdd] platform_config seed failed:', pcError);
         }
         navigate('/objects');
     };
@@ -324,6 +375,40 @@ export default function ObjectAdd() {
                 <div className="mt-3">
                     <label className="block text-[11px] font-medium text-gray-600 mb-0.5">Description</label>
                     <textarea className="input text-sm py-1.5 min-h-[64px]" rows={2} value={description} onChange={(e) => setDescription(e.target.value)} />
+                </div>
+                <div className="mt-4">
+                    <div className="flex flex-wrap items-end gap-x-3 gap-y-2">
+                        <div className="flex flex-col gap-0.5 min-w-[9rem] w-[min(100%,11rem)] shrink-0">
+                            <label className="text-[11px] font-medium text-gray-600">Object Type</label>
+                            <select
+                                className="input text-sm py-1.5 w-full"
+                                value={objectType}
+                                onChange={(e) => setObjectType(e.target.value as ObjectType)}
+                            >
+                                <option value="list">List</option>
+                                <option value="transaction">Transaction</option>
+                                <option value="hierarchy">Hierarchy (Parent &amp; Child)</option>
+                            </select>
+                        </div>
+                        <div className="flex flex-col gap-0.5 min-w-[10rem] flex-1 max-w-md">
+                            <label className="text-[11px] font-medium text-gray-600">Object Icon</label>
+                            <UiIconPickerSelect
+                                showSearch={false}
+                                wrapperClassName="w-full max-w-none"
+                                className="w-full"
+                                value={objectIcon}
+                                onChange={(k) => setObjectIcon(normalizeObjectIconKey(k))}
+                            />
+                        </div>
+                        <div className="inline-flex items-center gap-2 text-gray-700 rounded border border-gray-200 px-3 py-2 shrink-0">
+                            {getObjectIconNode(objectIcon, 18)}
+                            <span className="text-sm">Preview</span>
+                        </div>
+                    </div>
+                    <p className="text-[11px] text-gray-600 mt-1.5">
+                        Transaction: failed submissions freeze this record attempt. Hierarchy: Parent ID and Child ID
+                        fields are auto-added in schema on save.
+                    </p>
                 </div>
             </div>
 

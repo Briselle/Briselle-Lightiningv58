@@ -17,6 +17,7 @@ interface ObjectConfig {
   name: string;
   apiName: string;
   description: string;
+  objectType: 'list' | 'transaction' | 'hierarchy';
   fields: Field[];
 }
 
@@ -35,6 +36,7 @@ function ObjectConfig() {
         name: 'Account',
         apiName: 'Account__c',
         description: 'Business accounts and organizations',
+        objectType: 'list',
         fields: [
           {
             id: '1',
@@ -151,6 +153,16 @@ function ObjectConfig() {
               rows={3}
               className="input"
             ></textarea>
+          </div>
+          <div className="mt-4">
+            <label htmlFor="objectType" className="block text-sm font-medium text-gray-700 mb-1">
+              Object Type
+            </label>
+            <select id="objectType" defaultValue={object.objectType} className="input">
+              <option value="list">List</option>
+              <option value="transaction">Transaction</option>
+              <option value="hierarchy">Hierarchy (Parent &amp; Child)</option>
+            </select>
           </div>
         </div>
       </div>

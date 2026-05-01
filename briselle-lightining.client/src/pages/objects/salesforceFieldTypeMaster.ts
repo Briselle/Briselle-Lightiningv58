@@ -240,6 +240,12 @@ export const ATTRIBUTE_CATALOG: Record<string, MasterAttributeDef> = {
         kind: 'checkbox',
         hint: 'Financial or payment-related information',
     },
+    preferredInView: {
+        key: 'preferredInView',
+        label: 'Preferred in View',
+        kind: 'checkbox',
+        hint: 'Prefer this field in default record/table views',
+    },
     emailVerificationStatus: {
         key: 'emailVerificationStatus',
         label: '',
@@ -702,7 +708,7 @@ export function getFieldTypeMasterEntry(type: ObjectFieldDataType): FieldTypeMas
 const EFFECTIVE_KEYS_EVERY_TYPE: readonly string[] = ['autoAddToCustomReportType', 'externalId', 'useForAiPrediction'];
 
 /** Governance flags appended to every type (Briselle field scheme). */
-const EFFECTIVE_KEYS_SUFFIX: readonly string[] = ['piiData', 'hiiData', 'financialData'];
+const EFFECTIVE_KEYS_SUFFIX: readonly string[] = ['piiData', 'hiiData', 'financialData', 'preferredInView'];
 
 /**
  * Keys used for defaults, validation, and the sectioned Object Manager UI.
@@ -850,6 +856,9 @@ export function getDefaultAttributesForFieldType(type: ObjectFieldDataType): Rec
             case 'hiiData':
             case 'financialData':
                 out[key] = false;
+                break;
+            case 'preferredInView':
+                out[key] = true;
                 break;
             case 'emailVerificationStatus':
                 out[key] = 'not_bounced';

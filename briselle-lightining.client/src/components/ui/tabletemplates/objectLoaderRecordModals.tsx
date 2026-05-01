@@ -1,6 +1,6 @@
 import React, { useId, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ExternalLink, Edit, Copy, Trash2, ChevronDown, X } from 'lucide-react';
+import { ExternalLink, Edit, Copy, Trash2, ChevronDown, X, Database } from 'lucide-react';
 import { supabase } from '../../../utils/supabase';
 import { cn } from '../../../utils/helpers';
 import { buildClipboardGridPayload } from './utils/clipboardGridTable';
@@ -8,6 +8,12 @@ import { buildClipboardGridPayload } from './utils/clipboardGridTable';
 export interface ObjectLoaderCrudOptions {
     sourceTable: string;
     idColumn: string;
+    /**
+     * When set, edited dynamic keys are stored under this JSON/JSONB column
+     * instead of writing each key as a physical table column.
+     */
+    jsonValueColumn?: string;
+    fieldTypeByKey?: Record<string, string>;
     readOnlyKeys?: string[];
     /**
      * When true (default), row Delete sets `sysStatusColumn` to `sysStatusInactiveValue` instead of removing the row.
@@ -219,6 +225,9 @@ export interface ObjectLoaderRowActionsBarProps {
     onObjectLoaderAction?: (action: 'view' | 'edit' | 'copy' | 'delete') => void;
     showRowActionsOnHover?: boolean;
     actionsTdClassName: string;
+    customActionLabel?: string;
+    customActionTitle?: string;
+    onCustomAction?: (() => void) | undefined;
 }
 
 export function ObjectLoaderRowActionsBar({
@@ -234,6 +243,9 @@ export function ObjectLoaderRowActionsBar({
     onObjectLoaderAction,
     showRowActionsOnHover,
     actionsTdClassName,
+    customActionLabel,
+    customActionTitle,
+    onCustomAction,
 }: ObjectLoaderRowActionsBarProps) {
     const useOl = !!(objectLoaderCrud && onObjectLoaderAction);
     const close = () => setOpenRowActionsMenuId(null);
@@ -319,6 +331,20 @@ export function ObjectLoaderRowActionsBar({
         </button>
     );
 
+    const customMenuBtn =
+        onCustomAction && customActionLabel ? (
+            <button
+                type="button"
+                className="flex items-center gap-2 w-full px-3 py-1.5 text-sm hover:bg-gray-100 text-left"
+                onClick={() => {
+                    onCustomAction();
+                    close();
+                }}
+            >
+                <Database size={14} /> {customActionLabel}
+            </button>
+        ) : null;
+
     return (
         <td className={actionsTdClassName}>
             <div
@@ -349,6 +375,7 @@ export function ObjectLoaderRowActionsBar({
                                     {enabledActions.includes('edit') && editEl}
                                     {enabledActions.includes('copy') && copyMenuBtn}
                                     {enabledActions.includes('delete') && deleteMenuBtn}
+                                    {customMenuBtn}
                                 </div>
                             </>
                         )}
@@ -387,6 +414,16 @@ export function ObjectLoaderRowActionsBar({
                                     <Trash2 size={16} />
                                 </button>
                             ))}
+                        {onCustomAction && customActionLabel ? (
+                            <button
+                                type="button"
+                                className="p-1 text-gray-500 hover:text-primary"
+                                title={customActionTitle ?? customActionLabel}
+                                onClick={onCustomAction}
+                            >
+                                <Database size={16} />
+                            </button>
+                        ) : null}
                     </>
                 )}
             </div>
@@ -887,6 +924,46 @@ function coerceInputValue(raw: string, original: unknown): unknown {
     return raw;
 }
 
+function splitPhoneValue(raw: string): { code: string; number: string } {
+    const value = String(raw ?? '').trim();
+    if (!value) return { code: '', number: '' };
+    const [left, ...rest] = value.split('-');
+    if (rest.length === 0) {
+        return left.startsWith('+') ? { code: left, number: '' } : { code: '', number: left };
+    }
+    return { code: left, number: rest.join('-') };
+}
+
+function composePhoneValue(code: string, number: string): string {
+    const c = String(code ?? '').trim();
+    const n = String(number ?? '').trim();
+    if (!c && !n) return '';
+    if (!c) return n;
+    if (!n) return c;
+    return `${c}-${n}`;
+}
+
+function validateEmailValue(value: string): string | null {
+    if (!value) return null;
+    const emailRegex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
+    if (!emailRegex.test(value)) return 'Enter a valid email address (example: user@domain.com).';
+    return null;
+}
+
+function validateUrlValue(value: string): string | null {
+    if (!value) return null;
+    const urlRegex = /^(https?:\/\/)?(www\.)?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+([\/?#][^\s]*)?$/i;
+    if (!urlRegex.test(value)) return 'Enter a valid URL (example: https://www.domain.com).';
+    return null;
+}
+
+function validatePhoneValue(value: string): string | null {
+    if (!value) return null;
+    const phoneRegex = /^\+\d{1,4}-[0-9][0-9\s-]{4,19}$/;
+    if (!phoneRegex.test(value)) return 'Enter phone as +<countrycode>-<number> (example: +91-289889832).';
+    return null;
+}
+
 function EditRecordModal({
     row,
     fieldMappings,
@@ -923,8 +1000,25 @@ function EditRecordModal({
         const patch: Record<string, unknown> = {};
         for (const k of keys) {
             if (readOnly.has(k)) continue;
+            const typed = crud.fieldTypeByKey?.[k];
+            const rawValue = String(values[k] ?? '');
+            const validationError =
+                typed === 'email'
+                    ? validateEmailValue(rawValue)
+                    : typed === 'url'
+                      ? validateUrlValue(rawValue)
+                      : typed === 'phone'
+                        ? validatePhoneValue(rawValue)
+                        : null;
+            if (validationError) {
+                setErr(`${labelForKey(k, fieldMappings)}: ${validationError}`);
+                return;
+            }
             patch[k] = coerceInputValue(values[k] ?? '', row[k]);
         }
+        const finalPatch: Record<string, unknown> = crud.jsonValueColumn
+            ? { [crud.jsonValueColumn]: patch }
+            : patch;
         if (id === undefined || id === null) {
             setErr(`Missing ${crud.idColumn}; cannot save.`);
             return;
@@ -932,7 +1026,7 @@ function EditRecordModal({
         setSaving(true);
         const { error } = await supabase
             .from(crud.sourceTable)
-            .update(patch)
+            .update(finalPatch)
             .eq(crud.idColumn, coercePostgrestNumericId(id));
         setSaving(false);
         if (error) {
@@ -974,6 +1068,33 @@ function EditRecordModal({
                             <label className="block text-xs font-medium text-gray-600 mb-1">{labelForKey(k, fieldMappings)}</label>
                             {ro ? (
                                 <div className="text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded px-2 py-1.5">{values[k]}</div>
+                            ) : crud.fieldTypeByKey?.[k] === 'phone' ? (
+                                <div className="grid grid-cols-[120px_1fr] gap-2">
+                                    <input
+                                        type="text"
+                                        className="w-full text-sm border border-gray-300 rounded px-2 py-1.5"
+                                        placeholder="+91"
+                                        value={splitPhoneValue(values[k] ?? '').code}
+                                        onChange={(e) =>
+                                            setValues((p) => ({
+                                                ...p,
+                                                [k]: composePhoneValue(e.target.value, splitPhoneValue(p[k] ?? '').number),
+                                            }))
+                                        }
+                                    />
+                                    <input
+                                        type="text"
+                                        className="w-full text-sm border border-gray-300 rounded px-2 py-1.5"
+                                        placeholder="289889832"
+                                        value={splitPhoneValue(values[k] ?? '').number}
+                                        onChange={(e) =>
+                                            setValues((p) => ({
+                                                ...p,
+                                                [k]: composePhoneValue(splitPhoneValue(p[k] ?? '').code, e.target.value),
+                                            }))
+                                        }
+                                    />
+                                </div>
                             ) : long ? (
                                 <textarea
                                     className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 font-mono"
