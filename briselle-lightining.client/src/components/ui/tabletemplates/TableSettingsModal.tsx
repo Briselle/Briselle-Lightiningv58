@@ -54,6 +54,8 @@ export interface TableSettingsModalProps {
     onPresetSelect?: (presetId: string) => void;
     /** Column keys to display labels (same as table headers); used for inline edit column list */
     fieldMappings?: Record<string, string>;
+    /** When set, inline-edit picker is limited to these keys (see BehaviorSettingsSection). */
+    inlineEditCandidateKeys?: string[] | null;
     /** Current runtime filter/sort/group/columns/search — embedded in new presets as `savedQueryState` */
     tableQueryState?: TableQueryState | null;
     /** `platform_config` row scope for all ObjectLoader DB writes from this modal */
@@ -71,6 +73,7 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
     activePresetId,
     onPresetSelect,
     fieldMappings,
+    inlineEditCandidateKeys = null,
     tableQueryState = null,
     platformConfigScope = { entityId: DB_ENTITY_ID, dobjId: DB_DOBJ_ID },
 }) => {
@@ -1055,6 +1058,7 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
                                             modalHeaderFontSize={modalHeaderFontSize}
                                             modalContentFontSize={modalContentFontSize}
                                             fieldMappings={fieldMappings}
+                                            inlineEditCandidateKeys={inlineEditCandidateKeys}
                                         />
                                     )}
 

@@ -10,6 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@blocknote/core": "^0.23.1",
+    "@blocknote/mantine": "^0.23.1",
+    "@blocknote/react": "^0.23.1",
+    "@mantine/core": "^7.17.0",
+    "@mantine/hooks": "^7.17.0",
     "@microsoft/signalr": "^8.0.0",
     "@supabase/supabase-js": "^2.50.0",
     "axios": "^1.6.2",

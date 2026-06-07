@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from '../../../../utils/helpers';
+import { isExcludedFromInlineEditSystemPicker } from '../../../../modules/objects/FieldRelated/platformSystemFields';
 
 interface BehaviorSettingsSectionProps {
     config: Record<string, any>;
@@ -9,6 +10,11 @@ interface BehaviorSettingsSectionProps {
     modalContentFontSize?: number;
     /** Column keys to display labels (same as table); used for inline edit column list and labels */
     fieldMappings?: Record<string, string>;
+    /**
+     * Keys allowed in the “add inline edit column” dropdown. When set, only these keys appear (intersected with `fieldMappings` when present).
+     * When omitted, all `fieldMappings` keys are offered (legacy templates).
+     */
+    inlineEditCandidateKeys?: string[] | null;
 }
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
@@ -62,20 +68,13 @@ function CollapsibleSection({
     );
 }
 
-const DEFAULT_INLINE_EDIT_FIELDS = [
-    'dobj_name_display',
-    'dobj_name_system',
-    'dobj_description',
-    'dobj_status',
-    'sys_updated_ts',
-];
-
 const BehaviorSettingsSection: React.FC<BehaviorSettingsSectionProps> = ({
     config,
     onChange,
     modalHeaderFontSize = 16,
     modalContentFontSize = 14,
     fieldMappings,
+    inlineEditCandidateKeys = null,
 }) => {
     const [newInlineEditField, setNewInlineEditField] = useState('');
     const [open, setOpen] = useState<Record<string, boolean>>({
@@ -86,7 +85,12 @@ const BehaviorSettingsSection: React.FC<BehaviorSettingsSectionProps> = ({
     const toggle = (k: string) => () => setOpen((s) => ({ ...s, [k]: !s[k] }));
 
     const enabledRowActions = config.enabledRowActions ?? ['view', 'edit', 'copy', 'delete'];
-    const availableFields = fieldMappings ? Object.keys(fieldMappings) : DEFAULT_INLINE_EDIT_FIELDS;
+    const availableFields = (() => {
+        const mappingKeys = Object.keys(fieldMappings ?? {});
+        const allow = inlineEditCandidateKeys != null ? new Set(inlineEditCandidateKeys) : null;
+        const base = allow != null ? mappingKeys.filter((k) => allow.has(k)) : mappingKeys;
+        return base.filter((k) => !isExcludedFromInlineEditSystemPicker(k));
+    })();
 
     const handleAddInlineEditField = () => {
         const current = config.enableInlineEdit ?? [];

@@ -1,10 +1,27 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import {
+    createNotionNestRecord,
+    notionNestPagePath,
+} from '../../modules/notion-nest/notionPageStorage';
+import { applyNotionNestFieldPolicy } from '../../modules/objects/FieldRelated/notionNestSystemField';
+import {
+    isNotionNestObjectType,
+    parsePlatformObjectType,
+    type PlatformObjectType,
+} from '../../modules/objects/shared/objectTypes';
 import ConfigurableListTemplate, { type TableConfig } from '../../components/ui/tabletemplates/ConfigurableListTemplate';
-import { type ObjectLoaderCrudOptions } from '../../components/ui/tabletemplates/objectLoaderRecordModals';
+import { type ObjectLoaderCrudOptions } from '../../modules/records/loader/objectLoaderRecordModals';
 import { supabase } from '../../utils/supabase';
+import { validateEmailValue, validateUrlValue } from '../../modules/records/loader/objectLoaderDataValidationRules';
 import { OBJECT_COUNTER_CONFIG_TYPE } from '../../components/ui/tabletemplates/utils/configService';
-import { defaultConfig as objectsDefaultTableConfig } from '../objects/templist2';
+import { defaultConfig as objectsDefaultTableConfig } from '../../modules/objects/ObjectRelated/templist';
+import {
+    isExcludedFromInlineEditSystemPicker,
+    isRecordDisplayFieldApi,
+    RECORD_ID_FIELD_API,
+    RECORD_NAME_FIELD_API,
+} from '../../modules/objects/FieldRelated/platformSystemFields';
 
 type DbObjectSchemaField = {
     label?: unknown;
@@ -44,29 +61,8 @@ function safeParseConfig(raw: unknown): Record<string, unknown> {
     return typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
 }
 
-type ObjectType = 'list' | 'transaction' | 'hierarchy';
-
-/** Reads object type from `dobj_configuration`; defaults to list for legacy objects. */
-function parseObjectType(config: Record<string, unknown>): ObjectType {
-    const rawType =
-        config.objectType ??
-        config.object_type ??
-        config.ObjectType ??
-        config['Object Type'];
-    if (typeof rawType === 'string') {
-        const v = rawType.trim().toLowerCase();
-        if (v === 'transaction') return 'transaction';
-        if (v === 'hierarchy' || v === 'parent_child' || v === 'parent&child') return 'hierarchy';
-    }
-    return 'list';
-}
-
-function parseObjectTypeFromRow(data: DbObjectRow, config: Record<string, unknown>): ObjectType {
-    const fromCol = String(data.object_type ?? '').trim().toLowerCase();
-    if (fromCol === 'transaction') return 'transaction';
-    if (fromCol === 'hierarchy') return 'hierarchy';
-    if (fromCol === 'list') return 'list';
-    return parseObjectType(config);
+function parseObjectTypeFromRow(data: DbObjectRow, config: Record<string, unknown>): PlatformObjectType {
+    return parsePlatformObjectType(config, data.object_type ?? null);
 }
 
 function generateHierarchyNodeId(): string {
@@ -151,6 +147,48 @@ function getFieldAttributes(field: DbObjectSchemaField): Record<string, unknown>
     return typeof field.attributes === 'object' && field.attributes != null ? (field.attributes as Record<string, unknown>) : {};
 }
 
+/** Legacy object-registry keys that must not drive record-grid inline edit. */
+const LEGACY_DD_INLINE_KEYS = new Set(['dobj_name_display', 'dobj_description', 'dobj_name_system', 'dobj_status']);
+
+/** Inline-edit picker: all schema columns except system/audit keys and schema `systemManaged` fields (record name/id slot still allowed). */
+function buildRecordsInlineEditCandidateKeys(fields: DbObjectSchemaField[], fieldMappings: Record<string, string>): string[] {
+    const systemManagedKeys = new Set<string>();
+    for (const field of fields) {
+        const key = getFieldApiName(field);
+        if (!key) continue;
+        const attrs = getFieldAttributes(field);
+        const sm = attrs.systemManaged === true || attrs.systemManaged === 1;
+        if (sm && !isRecordDisplayFieldApi(key)) systemManagedKeys.add(key);
+    }
+    return Object.keys(fieldMappings).filter((k) => {
+        if (isExcludedFromInlineEditSystemPicker(k)) return false;
+        if (systemManagedKeys.has(k)) return false;
+        return true;
+    });
+}
+
+function recordsDefaultInlineEditKeys(fields: DbObjectSchemaField[], fieldMappings: Record<string, string>): string[] {
+    const nameField = fields.find((f) => getFieldApiName(f) === 'sys_record_name');
+    if (!nameField || String(nameField.dataType ?? '') !== 'text') return [];
+    if (!('sys_record_name' in fieldMappings)) return [];
+    return ['sys_record_name'];
+}
+
+function normalizeRecordsEnableInlineEdit(
+    raw: string[] | undefined,
+    candidates: readonly string[],
+    defaultKeys: readonly string[],
+): string[] {
+    const candidateSet = new Set(candidates);
+    const defaultFiltered = defaultKeys.filter((k) => candidateSet.has(k));
+    const arr = Array.isArray(raw) ? raw : [];
+    const filtered = arr.filter((k) => candidateSet.has(k) && !LEGACY_DD_INLINE_KEYS.has(k));
+    if (filtered.length > 0) return [...new Set(filtered)];
+    const onlyJunk = arr.length === 0 || arr.every((k) => !candidateSet.has(k) || LEGACY_DD_INLINE_KEYS.has(k));
+    if (onlyJunk) return [...defaultFiltered];
+    return [];
+}
+
 function isRequiredField(field: DbObjectSchemaField): boolean {
     return field.required === 1 || field.required === true;
 }
@@ -204,21 +242,6 @@ function composePhoneValue(code: string, number: string): string {
     if (!c) return n;
     if (!n) return c;
     return `${c}-${n}`;
-}
-
-function validateEmailValue(value: string): string | null {
-    if (!value) return null;
-    const emailRegex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
-    if (!emailRegex.test(value)) return 'Enter a valid email address (example: user@domain.com).';
-    return null;
-}
-
-function validateUrlValue(value: string): string | null {
-    if (!value) return null;
-    const urlRegex =
-        /^(https?:\/\/)?(www\.)?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+([\/?#][^\s]*)?$/i;
-    if (!urlRegex.test(value)) return 'Enter a valid URL (example: https://www.domain.com).';
-    return null;
 }
 
 function validatePhoneValue(value: string): string | null {
@@ -302,6 +325,7 @@ const FIXED_USER_ID = 1212;
 
 export default function RecordsList() {
     const { objectId } = useParams<{ objectId: string }>();
+    const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [objectLabel, setObjectLabel] = useState('Object');
@@ -317,7 +341,8 @@ export default function RecordsList() {
     const [createError, setCreateError] = useState<string | null>(null);
     const [authBootstrapTried, setAuthBootstrapTried] = useState(false);
     /** From `dobj_configuration.objectType`; default list. */
-    const [objectType, setObjectType] = useState<ObjectType>('list');
+    const [objectType, setObjectType] = useState<PlatformObjectType>('list');
+    const [notionPageTitle, setNotionPageTitle] = useState('');
     /** After counter allocated + insert failed on a transaction object — freeze Save / Retry / edits. */
     const [createSubmissionFrozen, setCreateSubmissionFrozen] = useState(false);
     const [hierarchyMode, setHierarchyMode] = useState<HierarchyCreateMode>('root');
@@ -332,6 +357,19 @@ export default function RecordsList() {
         [schemaFields],
     );
 
+    const fieldLinkClickBehaviorByKey = useMemo<Record<string, 'new_page' | 'same_page'>>(() => {
+        const out: Record<string, 'new_page' | 'same_page'> = {};
+        for (const field of schemaFields) {
+            const key = getFieldApiName(field);
+            if (!key) continue;
+            const dt = String(field.dataType ?? '');
+            if (dt !== 'url' && dt !== 'email') continue;
+            const raw = getFieldAttributes(field).linkClickBehavior;
+            out[key] = raw === 'same_page' ? 'same_page' : 'new_page';
+        }
+        return out;
+    }, [schemaFields]);
+
     const recordsPlatformScope = useMemo(
         () =>
             resolvedDobjId == null
@@ -339,6 +377,55 @@ export default function RecordsList() {
                 : { entityId: FIXED_ENTITY_ID, dobjId: resolvedDobjId },
         [resolvedDobjId],
     );
+
+    const inlineEditCandidateKeys = useMemo(
+        () => buildRecordsInlineEditCandidateKeys(schemaFields, fieldMappings),
+        [schemaFields, fieldMappings],
+    );
+
+    const recordsDefaultInlineKeys = useMemo(
+        () => recordsDefaultInlineEditKeys(schemaFields, fieldMappings),
+        [schemaFields, fieldMappings],
+    );
+
+    const sanitizeRecordsTableConfig = useCallback(
+        (next: TableConfig): TableConfig => {
+            const ne = normalizeRecordsEnableInlineEdit(
+                next.enableInlineEdit,
+                inlineEditCandidateKeys,
+                recordsDefaultInlineKeys,
+            );
+            const prevE = next.enableInlineEdit ?? [];
+            if (prevE.length === ne.length && prevE.every((k, i) => k === ne[i])) return next;
+            return { ...next, enableInlineEdit: ne };
+        },
+        [inlineEditCandidateKeys, recordsDefaultInlineKeys],
+    );
+
+    useEffect(() => {
+        if (resolvedDobjId == null) return;
+        setConfig((prev) => sanitizeRecordsTableConfig(prev));
+    }, [resolvedDobjId, sanitizeRecordsTableConfig]);
+
+    const notionNestBadgeColumn = useMemo(() => {
+        if (RECORD_NAME_FIELD_API in fieldMappings) return RECORD_NAME_FIELD_API;
+        if (RECORD_ID_FIELD_API in fieldMappings) return RECORD_ID_FIELD_API;
+        if ('ddata_id' in fieldMappings) return 'ddata_id';
+        const preferred = preferredColumns.find((k) => k in fieldMappings);
+        if (preferred) return preferred;
+        return Object.keys(fieldMappings)[0] ?? '';
+    }, [fieldMappings, preferredColumns]);
+
+    useEffect(() => {
+        if (!isNotionNestObjectType(objectType)) return;
+        setConfig((prev) =>
+            sanitizeRecordsTableConfig({
+                ...prev,
+                customRowBadgeColumn: notionNestBadgeColumn,
+                enableInlineEdit: [],
+            }),
+        );
+    }, [objectType, notionNestBadgeColumn, sanitizeRecordsTableConfig]);
 
     useEffect(() => {
         const run = async () => {
@@ -367,11 +454,13 @@ export default function RecordsList() {
                 setLoading(false);
                 return;
             }
-            const schema = safeParseConfig(data.dobj_configuration);
+            const schemaRaw = safeParseConfig(data.dobj_configuration);
+            const resolvedType = parseObjectTypeFromRow(data, schemaRaw);
+            const schema = applyNotionNestFieldPolicy(schemaRaw, resolvedType);
             const mappings = toSchemaFieldMappings(schema);
             const preferred = toSchemaPreferredColumns(schema);
             const fields = toSchemaFields(schema);
-            setObjectType(parseObjectTypeFromRow(data, schema));
+            setObjectType(resolvedType);
             setObjectLabel(String(data.dobj_name_display ?? data.dobj_name_system ?? 'Object'));
             setResolvedDobjId(Number(data.dobj_id ?? data.sys_id));
             setSchemaFields(fields);
@@ -421,8 +510,9 @@ export default function RecordsList() {
             readOnlyKeys: ['ddata_id', 'entity_id', 'dobj_id', 'ddata_created_at', 'ddata_updated_at', 'ddata_created_by_id', 'ddata_modified_by_id'],
             jsonValueColumn: 'ddata_values',
             fieldTypeByKey,
+            fieldLinkClickBehaviorByKey,
         };
-    }, [fieldTypeByKey, resolvedDobjId]);
+    }, [fieldLinkClickBehaviorByKey, fieldTypeByKey, resolvedDobjId]);
 
     const reloadRows = async () => {
         if (resolvedDobjId == null) return;
@@ -447,7 +537,7 @@ export default function RecordsList() {
     };
 
     const handleConfigChange = (next: TableConfig) => {
-        setConfig(next);
+        setConfig(sanitizeRecordsTableConfig(next));
     };
 
     const closeCreateModal = () => {
@@ -499,11 +589,64 @@ export default function RecordsList() {
     };
 
     const handleNewRecordClick = () => {
+        if (isNotionNestObjectType(objectType)) {
+            setNotionPageTitle('');
+            setCreateError(null);
+            setShowCreateModal(true);
+            return;
+        }
         void openCreateModal();
     };
 
+    const handleNavigateToRowDetail = useCallback(
+        (row: Record<string, unknown>) => {
+            if (!isNotionNestObjectType(objectType) || !objectId) return;
+            const rowId = row.ddata_id ?? row.id ?? row.sys_id;
+            if (rowId == null || rowId === '') return;
+            navigate(notionNestPagePath(objectId, String(rowId)));
+        },
+        [navigate, objectId, objectType],
+    );
+
     const handleSaveNewRecord = async () => {
         if (resolvedDobjId == null) return;
+
+        if (isNotionNestObjectType(objectType)) {
+            const title = notionPageTitle.trim() || 'Untitled';
+            setCreating(true);
+            setCreateError(null);
+            let { data: authSessionData } = await supabase.auth.getSession();
+            if (!authSessionData.session && !authBootstrapTried) {
+                setAuthBootstrapTried(true);
+                const { data: anonData } = await supabase.auth.signInAnonymously();
+                authSessionData = { session: anonData.session };
+            }
+            const authUser = authSessionData.session?.user ?? null;
+            const candidateActorId =
+                authUser?.user_metadata?.user_id ??
+                authUser?.app_metadata?.user_id ??
+                authUser?.user_metadata?.id ??
+                authUser?.app_metadata?.id ??
+                null;
+            const actorIdNum = Number(candidateActorId);
+            const actorId = Number.isFinite(actorIdNum) && actorIdNum > 0 ? actorIdNum : FIXED_USER_ID;
+            const { recordId, error: createErr } = await createNotionNestRecord({
+                dobjId: resolvedDobjId,
+                title,
+                actorId,
+            });
+            setCreating(false);
+            if (createErr || recordId == null) {
+                setCreateError(createErr ?? 'Unable to create page.');
+                return;
+            }
+            closeCreateModal();
+            if (objectId) {
+                navigate(notionNestPagePath(objectId, recordId));
+            }
+            return;
+        }
+
         const missingRequired = schemaFields.filter((f) => {
             if (!isRequiredField(f)) return false;
             const key = getFieldApiName(f);
@@ -638,6 +781,10 @@ export default function RecordsList() {
                 onRefresh={() => void reloadRows()}
                 objectLoaderCrud={objectLoaderCrud}
                 platformConfigScope={recordsPlatformScope}
+                inlineEditCandidateKeys={inlineEditCandidateKeys}
+                onNavigateToRowDetail={
+                    isNotionNestObjectType(objectType) ? handleNavigateToRowDetail : undefined
+                }
             />
             ) : (
                 <div className="card p-6 text-center text-gray-600">
@@ -648,7 +795,9 @@ export default function RecordsList() {
                 <div className="fixed inset-0 z-[1000] flex items-center justify-center p-4 bg-black/40" role="dialog" aria-modal="true">
                     <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] flex flex-col border border-gray-200">
                         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
-                            <h2 className="text-lg font-semibold text-gray-900">New {objectLabel}</h2>
+                            <h2 className="text-lg font-semibold text-gray-900">
+                                {isNotionNestObjectType(objectType) ? `New ${objectLabel} page` : `New ${objectLabel}`}
+                            </h2>
                             <button
                                 type="button"
                                 className="p-1 rounded hover:bg-gray-100 text-gray-500 disabled:opacity-40 disabled:pointer-events-none"
@@ -671,7 +820,27 @@ export default function RecordsList() {
                                 </div>
                             ) : null}
                             {createError ? <p className="text-sm text-red-600 mb-3">{createError}</p> : null}
-                            {objectType === 'hierarchy' ? (
+                            {isNotionNestObjectType(objectType) ? (
+                                <div className="space-y-3">
+                                    <p className="text-sm text-gray-600">
+                                        Create a Notion-style page. Add blocks, cover, and icon after the page opens.
+                                    </p>
+                                    <div>
+                                        <label className="block text-xs font-medium text-gray-600 mb-1">Page title</label>
+                                        <input
+                                            className="input text-sm py-1.5 w-full"
+                                            value={notionPageTitle}
+                                            placeholder="Untitled"
+                                            disabled={creating}
+                                            onChange={(e) => setNotionPageTitle(e.target.value)}
+                                            onKeyDown={(e) => {
+                                                if (e.key === 'Enter') void handleSaveNewRecord();
+                                            }}
+                                        />
+                                    </div>
+                                </div>
+                            ) : null}
+                            {!isNotionNestObjectType(objectType) && objectType === 'hierarchy' ? (
                                 <div className="mb-3 rounded border border-blue-200 bg-blue-50/50 p-3">
                                     <div className="flex items-center gap-2 mb-2">
                                         <button
@@ -728,6 +897,7 @@ export default function RecordsList() {
                                     )}
                                 </div>
                             ) : null}
+                            {!isNotionNestObjectType(objectType) ? (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 {schemaFields
                                     .filter((field) => getFieldApiName(field))
@@ -840,6 +1010,7 @@ export default function RecordsList() {
                                         );
                                     })}
                             </div>
+                            ) : null}
                         </div>
                         <div className="px-4 py-3 border-t border-gray-200 flex flex-wrap justify-end gap-2">
                             <button

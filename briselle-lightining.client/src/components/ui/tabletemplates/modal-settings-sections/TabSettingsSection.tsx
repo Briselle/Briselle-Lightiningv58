@@ -4,6 +4,7 @@ import { TabItem, TabBarPlacement, TabMenuStyle } from '../table-components/Tabl
 import { cn } from '../../../../utils/helpers';
 import { TAB_ICON_CUSTOM_KEY, TabBarIcon, TabIconPickerSelect } from '../utils/tabBarIcons';
 import { normalizeTabShape } from '../utils/tabBarNormalize';
+import { TabSettingsColorInput } from '../utils/tabSettingsColorInputs';
 import { TablePreset } from '../action-components/Action_Preset';
 import { isProtectedDefaultTab } from '../utils/canonicalObjectLoaderDefaults';
 
@@ -576,15 +577,13 @@ const TabSettingsSection: React.FC<TabSettingsSectionProps> = ({
                                 <div className="flex items-center gap-2 min-w-0">
                                     <span className="text-sm font-medium text-gray-800 shrink-0">Tab Background</span>
                                     {useCustomPanelBg && (
-                                        <input 
-                                            type="color" 
+                                        <TabSettingsColorInput
                                             value={config.tabPanelBackground || '#ffffff'}
-                                            onChange={(e) => {
-                                                onChange('tabPanelBackground', e.target.value);
+                                            title="Background fill (when on)"
+                                            onChange={(hex) => {
+                                                onChange('tabPanelBackground', hex);
                                                 onChange('tabUseCustomPanelBackground', true);
                                             }}
-                                            className="w-8 h-8 rounded border border-gray-300 cursor-pointer shrink-0"
-                                            title="Background fill (when on)"
                                         />
                                     )}
                                     <Toggle
@@ -601,12 +600,10 @@ const TabSettingsSection: React.FC<TabSettingsSectionProps> = ({
                                 <div className="flex items-center gap-2 min-w-0">
                                     <span className="text-sm font-medium text-gray-800 shrink-0">Selection</span>
                                     {config.tabCustomSelection && (
-                                        <input 
-                                            type="color" 
+                                        <TabSettingsColorInput
                                             value={selectionColorValue}
-                                            onChange={(e) => onChange('tabSelectionColor', e.target.value)}
-                                            className="w-8 h-8 rounded border border-gray-300 cursor-pointer shrink-0"
                                             title="Active tab emphasis"
+                                            onChange={(hex) => onChange('tabSelectionColor', hex)}
                                         />
                                     )}
                                     <Toggle
@@ -623,12 +620,10 @@ const TabSettingsSection: React.FC<TabSettingsSectionProps> = ({
                                 <div className="flex items-center gap-2 min-w-0">
                                     <span className="text-sm font-medium text-gray-800 shrink-0">Hover</span>
                                     {config.tabCustomHover && (
-                                    <input 
-                                        type="color" 
+                                        <TabSettingsColorInput
                                             value={hoverColorValue}
-                                            onChange={(e) => onChange('tabHoverColor', e.target.value)}
-                                            className="w-8 h-8 rounded border border-gray-300 cursor-pointer shrink-0"
                                             title="Hover highlight"
+                                            onChange={(hex) => onChange('tabHoverColor', hex)}
                                         />
                                     )}
                                     <Toggle

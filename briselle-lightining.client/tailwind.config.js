@@ -1,6 +1,12 @@
 /** @type {import('tailwindcss').Config} */
 export default {
-  content: ['./index.html', './src/**/*.{js,ts,jsx,tsx}'],
+  content: [
+    './index.html',
+    // Use separate globs (not brace expansion) — on Windows `./src/**/*.ts` can scan node_modules.
+    './src/**/*.tsx',
+    './src/**/*.jsx',
+    './src/modules/ziva-chat-module/src/**/*.js',
+  ],
   theme: {
     extend: {
       colors: {

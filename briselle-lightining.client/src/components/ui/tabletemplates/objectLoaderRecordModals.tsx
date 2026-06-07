@@ -2,7 +2,16 @@ import React, { useId, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ExternalLink, Edit, Copy, Trash2, ChevronDown, X, Database } from 'lucide-react';
 import { supabase } from '../../../utils/supabase';
+import {
+    validateEmailValue,
+    validatePhoneValue,
+    validateUrlValue,
+} from './utils/objectLoaderDataValidationRules';
 import { cn } from '../../../utils/helpers';
+import {
+    formatNotionNestPageCellSummary,
+    isNotionNestPageFieldApi,
+} from '../../../modules/objects/FieldRelated/notionNestSystemField';
 import { buildClipboardGridPayload } from './utils/clipboardGridTable';
 
 export interface ObjectLoaderCrudOptions {
@@ -14,6 +23,8 @@ export interface ObjectLoaderCrudOptions {
      */
     jsonValueColumn?: string;
     fieldTypeByKey?: Record<string, string>;
+    /** Per-column link target for URL fields in grids (`mailto:` ignores this). Default `new_page`. */
+    fieldLinkClickBehaviorByKey?: Record<string, 'new_page' | 'same_page'>;
     readOnlyKeys?: string[];
     /**
      * When true (default), row Delete sets `sysStatusColumn` to `sysStatusInactiveValue` instead of removing the row.
@@ -90,31 +101,30 @@ export function resolveRowRecordId(
     return undefined;
 }
 
+/**
+ * Keys for view/edit/copy: **every** field in `fieldMappings` (current schema), ordered by
+ * `columnOrder` first, then remaining mapping keys in definition order. Values come from `row`
+ * when present, otherwise empty in the editor.
+ *
+ * Row-only keys not in the schema are omitted so dynamic object fields stay aligned with the
+ * latest schema (new columns appear on old records).
+ */
 export function getOrderedRecordKeys(
     row: Record<string, unknown>,
     fieldMappings: Record<string, string>,
     columnOrder: string[]
 ): string[] {
-    const rowKeys = new Set(Object.keys(row));
     const seen = new Set<string>();
     const out: string[] = [];
     for (const k of columnOrder) {
-        if (fieldMappings[k] != null && rowKeys.has(k) && !seen.has(k)) {
-            out.push(k);
-            seen.add(k);
-        }
+        if (fieldMappings[k] == null || seen.has(k)) continue;
+        out.push(k);
+        seen.add(k);
     }
     for (const k of Object.keys(fieldMappings)) {
-        if (rowKeys.has(k) && !seen.has(k)) {
-            out.push(k);
-            seen.add(k);
-        }
-    }
-    for (const k of [...rowKeys].sort()) {
-        if (!seen.has(k)) {
-            out.push(k);
-            seen.add(k);
-        }
+        if (seen.has(k)) continue;
+        out.push(k);
+        seen.add(k);
     }
     return out.filter((k) => !isRedundantDobjMirrorKey(k, row));
 }
@@ -144,8 +154,9 @@ export function labelForKey(key: string, fieldMappings: Record<string, string>):
     return fieldMappings[key] || key.replace(/_/g, ' ');
 }
 
-export function formatDisplayValue(v: unknown): string {
+export function formatDisplayValue(v: unknown, fieldType?: string): string {
     if (v === null || v === undefined) return '—';
+    if (fieldType === 'notionNestPage') return formatNotionNestPageCellSummary(v);
     if (typeof v === 'object') return JSON.stringify(v);
     return String(v);
 }
@@ -181,7 +192,64 @@ function mergeReadOnlyKeysForEdit(crud: ObjectLoaderCrudOptions): Set<string> {
     const d = resolveObjectLoaderCrudDefaults(crud);
     const extra = [...(crud.readOnlyKeys ?? [])];
     if (d.softDelete) extra.push(d.sysStatusColumn);
-    return mergeReadOnlyKeys(crud.idColumn, extra);
+    const keys = mergeReadOnlyKeys(crud.idColumn, extra);
+    for (const [k, t] of Object.entries(crud.fieldTypeByKey ?? {})) {
+        if (t === 'notionNestPage' || isNotionNestPageFieldApi(k)) keys.add(k);
+    }
+    return keys;
+}
+
+/** Client-side mirror of PK on flattened record rows — must not be written into JSON value blobs. */
+function isFlattenedRowSyntheticKey(key: string): boolean {
+    return key === 'id';
+}
+
+/**
+ * When `jsonValueColumn` stores a document merged onto a flattened grid row, rebuild the next
+ * JSON object from the existing row plus edited keys so fields not in the form are preserved.
+ */
+function buildMergedJsonColumnUpdate(
+    row: Record<string, unknown>,
+    crud: ObjectLoaderCrudOptions,
+    keys: string[],
+    values: Record<string, string>,
+    readOnly: Set<string>
+): Record<string, unknown> {
+    const col = crud.jsonValueColumn!;
+    const next: Record<string, unknown> = {};
+    for (const k of Object.keys(row)) {
+        if (readOnly.has(k)) continue;
+        if (isFlattenedRowSyntheticKey(k)) continue;
+        next[k] = row[k];
+    }
+    for (const k of keys) {
+        if (readOnly.has(k)) continue;
+        next[k] = coerceInputValue(values[k] ?? '', row[k]);
+    }
+    return { [col]: next };
+}
+
+function validateObjectLoaderFieldValue(type: string | undefined, rawValue: string): string | null {
+    if (type === 'email') return validateEmailValue(rawValue);
+    if (type === 'url') return validateUrlValue(rawValue);
+    if (type === 'phone') return validatePhoneValue(rawValue);
+    return null;
+}
+
+function collectValidationErrors(
+    keys: string[],
+    values: Record<string, string>,
+    readOnly: Set<string>,
+    fieldTypeByKey: Record<string, string> | undefined,
+): Record<string, string> {
+    const errors: Record<string, string> = {};
+    for (const k of keys) {
+        if (readOnly.has(k)) continue;
+        const rawValue = String(values[k] ?? '');
+        const validationError = validateObjectLoaderFieldValue(fieldTypeByKey?.[k], rawValue);
+        if (validationError) errors[k] = validationError;
+    }
+    return errors;
 }
 
 async function copyToClipboard(text: string): Promise<void> {
@@ -943,27 +1011,6 @@ function composePhoneValue(code: string, number: string): string {
     return `${c}-${n}`;
 }
 
-function validateEmailValue(value: string): string | null {
-    if (!value) return null;
-    const emailRegex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
-    if (!emailRegex.test(value)) return 'Enter a valid email address (example: user@domain.com).';
-    return null;
-}
-
-function validateUrlValue(value: string): string | null {
-    if (!value) return null;
-    const urlRegex = /^(https?:\/\/)?(www\.)?[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+([\/?#][^\s]*)?$/i;
-    if (!urlRegex.test(value)) return 'Enter a valid URL (example: https://www.domain.com).';
-    return null;
-}
-
-function validatePhoneValue(value: string): string | null {
-    if (!value) return null;
-    const phoneRegex = /^\+\d{1,4}-[0-9][0-9\s-]{4,19}$/;
-    if (!phoneRegex.test(value)) return 'Enter phone as +<countrycode>-<number> (example: +91-289889832).';
-    return null;
-}
-
 function EditRecordModal({
     row,
     fieldMappings,
@@ -985,40 +1032,57 @@ function EditRecordModal({
         const o: Record<string, string> = {};
         for (const k of keys) {
             const v = row[k];
-            if (typeof v === 'object' && v !== null) o[k] = JSON.stringify(v, null, 2);
+            const ft = crud.fieldTypeByKey?.[k];
+            if (ft === 'notionNestPage' || isNotionNestPageFieldApi(k)) {
+                o[k] = formatNotionNestPageCellSummary(v);
+            } else if (typeof v === 'object' && v !== null) o[k] = JSON.stringify(v, null, 2);
             else o[k] = v === null || v === undefined ? '' : String(v);
         }
         return o;
     });
     const [saving, setSaving] = useState(false);
     const [err, setErr] = useState<string | null>(null);
+    const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
     const id = resolveRowRecordId(row, crud.idColumn);
+    const setValueAndClearError = (key: string, nextValue: string) => {
+        setValues((p) => ({ ...p, [key]: nextValue }));
+        setFieldErrors((p) => {
+            if (!p[key]) return p;
+            const next = { ...p };
+            delete next[key];
+            return next;
+        });
+    };
 
     const save = async () => {
         setErr(null);
-        const patch: Record<string, unknown> = {};
-        for (const k of keys) {
-            if (readOnly.has(k)) continue;
-            const typed = crud.fieldTypeByKey?.[k];
-            const rawValue = String(values[k] ?? '');
-            const validationError =
-                typed === 'email'
-                    ? validateEmailValue(rawValue)
-                    : typed === 'url'
-                      ? validateUrlValue(rawValue)
-                      : typed === 'phone'
-                        ? validatePhoneValue(rawValue)
-                        : null;
-            if (validationError) {
-                setErr(`${labelForKey(k, fieldMappings)}: ${validationError}`);
+        setFieldErrors({});
+        let finalPatch: Record<string, unknown>;
+        try {
+            const validationErrors = collectValidationErrors(keys, values, readOnly, crud.fieldTypeByKey);
+            if (Object.keys(validationErrors).length > 0) {
+                setFieldErrors(validationErrors);
+                const fieldsWithIssues = Object.keys(validationErrors)
+                    .map((k) => `${labelForKey(k, fieldMappings)}: ${validationErrors[k]}`)
+                    .join(' | ');
+                setErr(`Please fix highlighted fields. ${fieldsWithIssues}`);
                 return;
             }
-            patch[k] = coerceInputValue(values[k] ?? '', row[k]);
+            if (crud.jsonValueColumn) {
+                finalPatch = buildMergedJsonColumnUpdate(row, crud, keys, values, readOnly);
+            } else {
+                const patch: Record<string, unknown> = {};
+                for (const k of keys) {
+                    if (readOnly.has(k)) continue;
+                    patch[k] = coerceInputValue(values[k] ?? '', row[k]);
+                }
+                finalPatch = patch;
+            }
+        } catch (e) {
+            setErr(e instanceof Error ? e.message : 'Validation failed.');
+            return;
         }
-        const finalPatch: Record<string, unknown> = crud.jsonValueColumn
-            ? { [crud.jsonValueColumn]: patch }
-            : patch;
         if (id === undefined || id === null) {
             setErr(`Missing ${crud.idColumn}; cannot save.`);
             return;
@@ -1060,6 +1124,7 @@ function EditRecordModal({
             <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
                 {keys.map((k) => {
                     const ro = readOnly.has(k);
+                    const fieldError = fieldErrors[k];
                     const long =
                         typeof row[k] === 'object' ||
                         (typeof values[k] === 'string' && (values[k].length > 80 || values[k].includes('\n')));
@@ -1067,49 +1132,81 @@ function EditRecordModal({
                         <div key={k}>
                             <label className="block text-xs font-medium text-gray-600 mb-1">{labelForKey(k, fieldMappings)}</label>
                             {ro ? (
-                                <div className="text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded px-2 py-1.5">{values[k]}</div>
+                                <div className="text-sm text-gray-500 bg-gray-50 border border-gray-200 rounded px-2 py-1.5">
+                                    {crud.fieldTypeByKey?.[k] === 'notionNestPage' ||
+                                    isNotionNestPageFieldApi(k)
+                                        ? formatNotionNestPageCellSummary(row[k])
+                                        : values[k]}
+                                    {(crud.fieldTypeByKey?.[k] === 'notionNestPage' ||
+                                        isNotionNestPageFieldApi(k)) && (
+                                        <p className="text-xs text-gray-400 mt-1">
+                                            Edit this content in the Notion page editor (open the record).
+                                        </p>
+                                    )}
+                                </div>
                             ) : crud.fieldTypeByKey?.[k] === 'phone' ? (
                                 <div className="grid grid-cols-[120px_1fr] gap-2">
                                     <input
                                         type="text"
-                                        className="w-full text-sm border border-gray-300 rounded px-2 py-1.5"
+                                        className={cn(
+                                            'w-full text-sm border rounded px-2 py-1.5',
+                                            fieldError
+                                                ? 'border-red-500 animate-pulse focus:outline-none focus:ring-2 focus:ring-red-300'
+                                                : 'border-gray-300',
+                                        )}
                                         placeholder="+91"
                                         value={splitPhoneValue(values[k] ?? '').code}
                                         onChange={(e) =>
-                                            setValues((p) => ({
-                                                ...p,
-                                                [k]: composePhoneValue(e.target.value, splitPhoneValue(p[k] ?? '').number),
-                                            }))
+                                            setValueAndClearError(
+                                                k,
+                                                composePhoneValue(e.target.value, splitPhoneValue(values[k] ?? '').number),
+                                            )
                                         }
                                     />
                                     <input
                                         type="text"
-                                        className="w-full text-sm border border-gray-300 rounded px-2 py-1.5"
+                                        className={cn(
+                                            'w-full text-sm border rounded px-2 py-1.5',
+                                            fieldError
+                                                ? 'border-red-500 animate-pulse focus:outline-none focus:ring-2 focus:ring-red-300'
+                                                : 'border-gray-300',
+                                        )}
                                         placeholder="289889832"
                                         value={splitPhoneValue(values[k] ?? '').number}
                                         onChange={(e) =>
-                                            setValues((p) => ({
-                                                ...p,
-                                                [k]: composePhoneValue(splitPhoneValue(p[k] ?? '').code, e.target.value),
-                                            }))
+                                            setValueAndClearError(
+                                                k,
+                                                composePhoneValue(splitPhoneValue(values[k] ?? '').code, e.target.value),
+                                            )
                                         }
                                     />
                                 </div>
                             ) : long ? (
                                 <textarea
-                                    className="w-full text-sm border border-gray-300 rounded px-2 py-1.5 font-mono"
+                                    className={cn(
+                                        'w-full text-sm border rounded px-2 py-1.5 font-mono',
+                                        fieldError
+                                            ? 'border-red-500 animate-pulse focus:outline-none focus:ring-2 focus:ring-red-300'
+                                            : 'border-gray-300',
+                                    )}
                                     rows={4}
                                     value={values[k] ?? ''}
-                                    onChange={(e) => setValues((p) => ({ ...p, [k]: e.target.value }))}
+                                    onChange={(e) => setValueAndClearError(k, e.target.value)}
                                 />
                             ) : (
                                 <input
                                     type="text"
-                                    className="w-full text-sm border border-gray-300 rounded px-2 py-1.5"
+                                    className={cn(
+                                        'w-full text-sm border rounded px-2 py-1.5',
+                                        fieldError
+                                            ? 'border-red-500 animate-pulse focus:outline-none focus:ring-2 focus:ring-red-300'
+                                            : 'border-gray-300',
+                                    )}
                                     value={values[k] ?? ''}
-                                    onChange={(e) => setValues((p) => ({ ...p, [k]: e.target.value }))}
+                                    onChange={(e) => setValueAndClearError(k, e.target.value)}
                                 />
                             )}
+                            {fieldError ? <p className="mt-1 text-xs text-red-600">{fieldError}</p> : null}
                         </div>
                     );
                 })}
@@ -1134,19 +1231,16 @@ function BulkEditModal({
     onSaved: () => void;
 }) {
     const keys = useMemo(() => {
+        if (rows.length === 0) return [];
         const readOnly = mergeReadOnlyKeysForEdit(crud);
-        const s = new Set<string>();
-        for (const r of rows) {
-            for (const k of getOrderedRecordKeys(r, fieldMappings, columnOrder)) {
-                if (!readOnly.has(k)) s.add(k);
-            }
-        }
-        return [...s].filter((k) => fieldMappings[k] != null || rows.some((r) => r[k] !== undefined));
+        const ordered = getOrderedRecordKeys(rows[0]!, fieldMappings, columnOrder);
+        return ordered.filter((k) => !readOnly.has(k));
     }, [rows, fieldMappings, columnOrder, crud]);
 
     const [values, setValues] = useState<Record<string, string>>({});
     const [saving, setSaving] = useState(false);
     const [err, setErr] = useState<string | null>(null);
+    const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
     const ids = rows
         .map((r) => resolveRowRecordId(r, crud.idColumn))
@@ -1155,12 +1249,27 @@ function BulkEditModal({
 
     const save = async () => {
         setErr(null);
+        setFieldErrors({});
         const patch: Record<string, unknown> = {};
+        const validationErrors: Record<string, string> = {};
         for (const k of keys) {
             const raw = values[k];
             if (raw === undefined || raw === '') continue;
+            const validationError = validateObjectLoaderFieldValue(crud.fieldTypeByKey?.[k], String(raw));
+            if (validationError) {
+                validationErrors[k] = validationError;
+                continue;
+            }
             const sample = rows.find((r) => r[k] !== undefined)?.[k];
             patch[k] = coerceInputValue(raw, sample ?? '');
+        }
+        if (Object.keys(validationErrors).length > 0) {
+            setFieldErrors(validationErrors);
+            const fieldsWithIssues = Object.keys(validationErrors)
+                .map((k) => `${labelForKey(k, fieldMappings)}: ${validationErrors[k]}`)
+                .join(' | ');
+            setErr(`Please fix highlighted fields. ${fieldsWithIssues}`);
+            return;
         }
         if (Object.keys(patch).length === 0) {
             setErr('Enter at least one field to update.');
@@ -1206,11 +1315,26 @@ function BulkEditModal({
                         <label className="block text-xs font-medium text-gray-600 mb-1">{labelForKey(k, fieldMappings)}</label>
                         <input
                             type="text"
-                            className="w-full text-sm border border-gray-300 rounded px-2 py-1.5"
+                            className={cn(
+                                'w-full text-sm border rounded px-2 py-1.5',
+                                fieldErrors[k]
+                                    ? 'border-red-500 animate-pulse focus:outline-none focus:ring-2 focus:ring-red-300'
+                                    : 'border-gray-300',
+                            )}
                             placeholder="Leave empty to skip"
                             value={values[k] ?? ''}
-                            onChange={(e) => setValues((p) => ({ ...p, [k]: e.target.value }))}
+                            onChange={(e) => {
+                                const nextValue = e.target.value;
+                                setValues((p) => ({ ...p, [k]: nextValue }));
+                                setFieldErrors((p) => {
+                                    if (!p[k]) return p;
+                                    const next = { ...p };
+                                    delete next[k];
+                                    return next;
+                                });
+                            }}
                         />
+                        {fieldErrors[k] ? <p className="mt-1 text-xs text-red-600">{fieldErrors[k]}</p> : null}
                     </div>
                 ))}
             </div>

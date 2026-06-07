@@ -38,6 +38,7 @@ import { SortCriteria } from "./action-components/Action_Sort";
 import { FilterCriteria } from "./action-components/Action_Filter";
 import { TablePreset } from "./action-components/Action_Preset";
 import { loadTableConfig, loadTablePresets } from "./utils/loadTableConfig";
+import { formatObjectLoaderCellDisplay } from '../../../modules/objects/FieldRelated/notionNestSystemField';
 import { DEFAULT_PRESETS, getDefaultPreset, loadCustomPresetsFromStorage, saveCustomPresetsToStorage } from "./utils/presets";
 import {
     deleteShareLinksForPresetFromDB,
@@ -58,6 +59,7 @@ import { injectCanonicalDefaultTab } from "./utils/canonicalObjectLoaderDefaults
 import { normalizeTabMenuStyle, resolveTabShowUnderline, sanitizeTabListPresetIds } from "./utils/tabBarNormalize";
 import { useAuthStore } from "../../../stores/authStore";
 import { supabase } from '../../../utils/supabase';
+import { hrefFromUrlCellText, validateEmailValue, validateUrlValue } from '../../../modules/records/loader/objectLoaderDataValidationRules';
 import {
     computeTemplateId,
     loadTableQueryState,
@@ -535,6 +537,10 @@ interface Props {
     onNewButtonClick?: () => void;
     /** When set, ObjectLoader presets and saves use this `platform_config` scope (entity_id + dobj_id). */
     platformConfigScope?: PlatformConfigScope;
+    /** Limits inline-edit column picker in table settings (records: schema `includeInInlineEdit`; objects list: caller-defined). */
+    inlineEditCandidateKeys?: string[] | null;
+    /** When set, overrides default `${baseUrl}/:id` navigation on row badge / name click. */
+    onNavigateToRowDetail?: (row: Record<string, unknown>) => void;
 }
 
 /** Stable row identity for React keys and findIndex — avoid entity_id alone when many rows share one tenant. */
@@ -578,6 +584,8 @@ export default function ConfigurableListTemplate({
     onDataChange,
     onNewButtonClick,
     platformConfigScope: platformConfigScopeProp,
+    inlineEditCandidateKeys = null,
+    onNavigateToRowDetail: onNavigateToRowDetailProp,
 }: Props) {
     // Initialize selectedRows as a proper Set to fix the .has() error
 
@@ -634,6 +642,64 @@ export default function ConfigurableListTemplate({
     const [columnWrapStates, setColumnWrapStates] = useState<Record<string, 'wrap' | 'clip'>>({});
     /** Inline-edit + Custom badge: show text+badge until user clicks value; then input only (badge hidden). */
     const [inlineEditActiveKey, setInlineEditActiveKey] = useState<string | null>(null);
+    const [inlineDirtyEdits, setInlineDirtyEdits] = useState<Record<string, Record<string, string>>>({});
+    const [savingInlineRowKey, setSavingInlineRowKey] = useState<string | null>(null);
+    const [, setInlineRowSaveError] = useState<string | null>(null);
+
+    const stageInlineEdit = useCallback((rowKey: string, col: string, value: string) => {
+        setInlineDirtyEdits((prev) => ({ ...prev, [rowKey]: { ...(prev[rowKey] ?? {}), [col]: value } }));
+    }, []);
+
+    const clearInlineRowEdits = useCallback((rowKey: string) => {
+        setInlineDirtyEdits((prev) => {
+            if (!prev[rowKey]) return prev;
+            const next = { ...prev };
+            delete next[rowKey];
+            return next;
+        });
+    }, []);
+
+    const saveInlineRowEdits = useCallback(
+        async (rowKey: string, rowRecord: Record<string, unknown>, rowId: string | number | null) => {
+            if (!objectLoaderCrud || rowId == null) return;
+            const edits = inlineDirtyEdits[rowKey];
+            if (!edits || Object.keys(edits).length === 0) return;
+            setInlineRowSaveError(null);
+            setSavingInlineRowKey(rowKey);
+            const patch: Record<string, unknown> = {};
+            for (const [k, v] of Object.entries(edits)) {
+                const typed = objectLoaderCrud.fieldTypeByKey?.[k];
+                const validationError =
+                    typed === 'email'
+                        ? validateEmailValue(v)
+                        : typed === 'url'
+                          ? validateUrlValue(v)
+                          : null;
+                if (validationError) {
+                    setInlineRowSaveError(`${fieldMappings[k] ?? k}: ${validationError}`);
+                    setSavingInlineRowKey(null);
+                    return;
+                }
+                const oldValue = rowRecord[k];
+                patch[k] =
+                    typeof oldValue === 'number' ? (v.trim() === '' ? null : Number(v)) :
+                    typeof oldValue === 'boolean' ? (v === 'true' || v === '1') :
+                    v;
+            }
+            const { error } = await supabase
+                .from(objectLoaderCrud.sourceTable)
+                .update(patch)
+                .eq(objectLoaderCrud.idColumn, rowId);
+            setSavingInlineRowKey(null);
+            if (error) {
+                setInlineRowSaveError(error.message || 'Unable to save row.');
+                return;
+            }
+            clearInlineRowEdits(rowKey);
+            onRefresh?.();
+        },
+        [objectLoaderCrud, inlineDirtyEdits, fieldMappings, clearInlineRowEdits, onRefresh],
+    );
 
     /** Re-fetch presets from DB and merge with localStorage (icons + custom); keeps preset `config` in sync after Save. */
     const reloadPresetsFromDatabase = useCallback(async () => {
@@ -886,13 +952,17 @@ export default function ConfigurableListTemplate({
         config.tabCustomSelection && config.tabSelectionColor ? config.tabSelectionColor : '#2563eb';
 
     const navigateToRowDetail = useCallback((row: Record<string, unknown>) => {
+        if (onNavigateToRowDetailProp) {
+            onNavigateToRowDetailProp(row);
+            return;
+        }
         const rowId =
             objectLoaderCrud != null
                 ? resolveRowRecordId(row, objectLoaderCrud.idColumn) ?? resolveTableRowKey(row)
                 : resolveTableRowKey(row);
         if (rowId == null) return;
         navigate(`${baseUrl}/${encodeURIComponent(String(rowId))}`);
-    }, [baseUrl, navigate, objectLoaderCrud]);
+    }, [baseUrl, navigate, objectLoaderCrud, onNavigateToRowDetailProp]);
 
     const goToObjectDataFromRow = useCallback((row: Record<string, unknown>) => {
         if (baseUrl !== '/objects') return;
@@ -904,17 +974,22 @@ export default function ConfigurableListTemplate({
         const objectName = String(row.dobj_name_display ?? row.dobj_name_system ?? `Object ${objectId}`).trim() || `Object ${objectId}`;
         const cfgRaw = row.dobj_configuration;
         let objectIcon: string | undefined;
+        let objectCustomIcon: string | undefined;
         if (cfgRaw && typeof cfgRaw === 'object') {
-            objectIcon = String((cfgRaw as Record<string, unknown>).objectIcon ?? '').trim() || undefined;
+            const c = cfgRaw as Record<string, unknown>;
+            objectIcon = String(c.objectIcon ?? '').trim() || undefined;
+            objectCustomIcon = String(c.objectCustomIcon ?? '').trim() || undefined;
         } else if (typeof cfgRaw === 'string') {
             try {
                 const parsed = JSON.parse(cfgRaw) as Record<string, unknown>;
                 objectIcon = String(parsed.objectIcon ?? '').trim() || undefined;
+                objectCustomIcon = String(parsed.objectCustomIcon ?? '').trim() || undefined;
             } catch {
                 objectIcon = undefined;
+                objectCustomIcon = undefined;
             }
         }
-        const payload = { id: String(objectId), name: objectName, icon: objectIcon };
+        const payload = { id: String(objectId), name: objectName, icon: objectIcon, objectCustomIcon };
         try {
             localStorage.setItem('activeObjectDataTarget', JSON.stringify(payload));
             window.dispatchEvent(new CustomEvent('active-object-data-target-changed', { detail: payload }));
@@ -924,6 +999,8 @@ export default function ConfigurableListTemplate({
         navigate(`/objects/${encodeURIComponent(String(objectId))}/records`);
     }, [baseUrl, navigate, objectLoaderCrud]);
 
+    const rowDetailNavigationEnabled = Boolean(onNavigateToRowDetailProp);
+
     const isObjectManagerLinkCell = useCallback(
         (rowIsDraft: boolean, col: string) =>
             !rowIsDraft &&
@@ -932,16 +1009,42 @@ export default function ConfigurableListTemplate({
         [baseUrl],
     );
 
+    /** Records / NotionNest: every data cell opens the row detail (e.g. Notion page). */
+    const isRecordDetailNavCell = useCallback(
+        (rowIsDraft: boolean) => !rowIsDraft && rowDetailNavigationEnabled,
+        [rowDetailNavigationEnabled],
+    );
+
+    const handleRowClickOpenDetail = useCallback(
+        (e: React.MouseEvent, row: Record<string, unknown>, rowIsDraft: boolean) => {
+            if (!rowDetailNavigationEnabled || rowIsDraft) return;
+            const target = e.target as HTMLElement;
+            if (
+                target.closest(
+                    'button, a, input, select, textarea, label, [role="menuitem"], [role="menu"], [data-no-row-nav]',
+                )
+            ) {
+                return;
+            }
+            if (activeInlineCellKey) return;
+            navigateToRowDetail(row);
+        },
+        [rowDetailNavigationEnabled, activeInlineCellKey, navigateToRowDetail],
+    );
+
     const detectFieldLinkKind = useCallback((col: string, value: string): 'email' | 'url' | null => {
         const v = String(value ?? '').trim();
         if (!v || v === '-') return null;
+        const dt = objectLoaderCrud?.fieldTypeByKey?.[col];
+        if (dt === 'email') return validateEmailValue(v) === null ? 'email' : null;
+        if (dt === 'url') return validateUrlValue(v) === null ? 'url' : null;
         const colLower = col.toLowerCase();
         const emailRegex = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/;
         const urlRegex = /^(https?:\/\/|www\.)[^\s]+$/i;
         if (emailRegex.test(v) || colLower.includes('email')) return 'email';
         if (urlRegex.test(v) || colLower.includes('url') || colLower.includes('website') || colLower.includes('web')) return 'url';
         return null;
-    }, []);
+    }, [objectLoaderCrud?.fieldTypeByKey]);
 
     // Checkbox column width only (data columns use auto layout unless `columnWidths` has explicit px)
     useEffect(() => {
@@ -3329,6 +3432,15 @@ export default function ConfigurableListTemplate({
                             getTemplateRowIdentityKey(row as Record<string, unknown>) ??
                             `${groupValue}-${groupRowIdx}-${JSON.stringify(row).substring(0, 50)}`;
                         const stableRowKey = `${rowKey}-group-${groupValue}-${groupByColumn}-${sortSignature}`;
+                        const inlineRowId =
+                            objectLoaderCrud != null
+                                ? resolveRowRecordId(row as Record<string, unknown>, objectLoaderCrud.idColumn) ?? row.id ?? null
+                                : row.id ?? null;
+                        const inlineRowKey = String(inlineRowId ?? stableRowKey);
+                        const inlineRowPatch = inlineDirtyEdits[inlineRowKey] ?? null;
+                        const hasInlineRowChanges = !!inlineRowPatch && Object.keys(inlineRowPatch).length > 0;
+                        const rowInlineActive = activeInlineCellKey?.startsWith(`${stableRowKey}__`) ?? false;
+                        const shouldShowInlineRowSave = hasInlineRowChanges || rowInlineActive;
                         const rowCanDrag = config.enableRowReorder && displayPos >= 0 && !rowIsDraft;
                         const stripeIdx = displayPos >= 0 ? displayPos : groupRowIdx;
                         const rowDropHighlight =
@@ -3347,6 +3459,7 @@ export default function ConfigurableListTemplate({
                                 config.enableRowHoverHighlight ? 'hover:bg-gray-100 transition-colors group' : 'group',
                                 config.enableStripedRows && stripeIdx % 2 === 1 && 'bg-gray-50',
                                 config.enableRowDivider ? 'border-b border-gray-200' : 'border-b-0',
+                                rowDetailNavigationEnabled && !rowIsDraft && 'cursor-pointer',
                             )}
                             style={{
                                 ...(rowDropHighlight
@@ -3354,6 +3467,7 @@ export default function ConfigurableListTemplate({
                                     : {}),
                             }}
                             draggable={rowCanDrag}
+                            onClick={(e) => handleRowClickOpenDetail(e, row as Record<string, unknown>, rowIsDraft)}
                             onDragStart={(e) => displayPos >= 0 && handleRowDragStart(e, displayPos)}
                             onDragOver={(e) => displayPos >= 0 && handleRowDragOver(e, displayPos)}
                             onDrop={(e) => displayPos >= 0 && handleRowDrop(e, displayPos)}
@@ -3467,6 +3581,35 @@ export default function ConfigurableListTemplate({
                                         : row.id;
                                 const menuId = `row-actions-left-${rowLinkId ?? rowKey}`;
                                 const isMenuOpen = openRowActionsMenuId === menuId;
+                                if (shouldShowInlineRowSave) {
+                                    return (
+                                        <td
+                                            className={cn(
+                                                'px-4 py-2 text-sm text-gray-700',
+                                                !config.enableRowDivider ? '!border-b-0' : '',
+                                                config.enableColumnDivider ? 'border-r border-gray-200' : ''
+                                            )}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-primary h-7 px-2 text-xs"
+                                                    disabled={savingInlineRowKey === inlineRowKey}
+                                                    onClick={() => void saveInlineRowEdits(inlineRowKey, row as Record<string, unknown>, rowLinkId ?? null)}
+                                                >
+                                                    Save
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="inline-flex h-7 items-center rounded border border-gray-300 px-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                                                    onClick={() => clearInlineRowEdits(inlineRowKey)}
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </div>
+                                        </td>
+                                    );
+                                }
                                 return (
                                     <ObjectLoaderRowActionsBar
                                         enabledActions={enabledActions}
@@ -3527,31 +3670,25 @@ export default function ConfigurableListTemplate({
                                                 freezeIndex > 1));
                                     const rowBg = config.enableStripedRows && stripeIdx % 2 === 1 ? 'rgb(249 250 251)' : 'white';
                                     const leftOffset = isFrozen ? getFreezeLeftOffset(colIndex) : 0;
-                                    const rawCellValue = row[col];
-                                    const cellValue =
-                                        rawCellValue == null
-                                            ? '-'
-                                            : typeof rawCellValue === 'object'
-                                              ? (() => {
-                                                    try {
-                                                        const compact = JSON.stringify(rawCellValue);
-                                                        return compact.length > 220
-                                                            ? `${compact.slice(0, 220)}...`
-                                                            : compact;
-                                                    } catch {
-                                                        return '[object]';
-                                                    }
-                                                })()
-                                              : String(rawCellValue);
+                                    const cellValue = formatObjectLoaderCellDisplay(
+                                        row[col],
+                                        objectLoaderCrud?.fieldTypeByKey?.[col],
+                                    );
                                     const hyperlinkKind = detectFieldLinkKind(col, cellValue);
                                     const hyperlinkHref =
                                         hyperlinkKind === 'email'
                                             ? `mailto:${cellValue}`
                                             : hyperlinkKind === 'url'
-                                              ? /^(https?:\/\/)/i.test(cellValue)
-                                                  ? cellValue
-                                                  : `https://${cellValue}`
+                                              ? hrefFromUrlCellText(cellValue)
                                               : null;
+                                    const linkBehavior = objectLoaderCrud?.fieldLinkClickBehaviorByKey?.[col] ?? 'new_page';
+                                    const urlLinkTarget =
+                                        hyperlinkKind === 'url'
+                                            ? linkBehavior === 'same_page'
+                                                ? '_self'
+                                                : '_blank'
+                                            : undefined;
+                                    const urlLinkRel = urlLinkTarget === '_blank' ? 'noreferrer noopener' : undefined;
                                     const wrapMode = getCellWrapMode(col, config, columnWrapStates);
                                     const clipMode = wrapMode === 'clip';
                                     const isAccentCol = col === rowAccentColumnKey;
@@ -3688,9 +3825,12 @@ export default function ConfigurableListTemplate({
                                                         <input
                                                             key={badgeInlineEditKey}
                                                             type="text"
-                                                            defaultValue={cellValue}
+                                                            value={inlineRowPatch?.[col] ?? cellValue}
                                                             autoFocus
                                                             title={config.enableTooltips === true ? cellValue : undefined}
+                                                        onChange={(e) => {
+                                                            stageInlineEdit(inlineRowKey, col, e.target.value);
+                                                        }}
                                                             onFocus={() => {
                                                                 setActiveInlineCellKey(badgeInlineEditKey);
                                                             }}
@@ -3740,8 +3880,11 @@ export default function ConfigurableListTemplate({
                                                 ) : (
                                                     <input
                                                         type="text"
-                                                        defaultValue={cellValue}
+                                                        value={inlineRowPatch?.[col] ?? cellValue}
                                                         title={config.enableTooltips === true ? cellValue : undefined}
+                                                        onChange={(e) => {
+                                                            stageInlineEdit(inlineRowKey, col, e.target.value);
+                                                        }}
                                                         onFocus={() => {
                                                             setActiveInlineCellKey(badgeInlineEditKey);
                                                         }}
@@ -3773,10 +3916,16 @@ export default function ConfigurableListTemplate({
                                                     )}
                                                     title={config.enableTooltips === true ? cellValue : undefined}
                                                 >
-                                                    {isObjectManagerLinkCell(rowIsDraft, col) ? (
+                                                    {isObjectManagerLinkCell(rowIsDraft, col) ||
+                                                    isRecordDetailNavCell(rowIsDraft) ? (
                                                         <button
                                                             type="button"
-                                                            className="text-left text-primary hover:underline"
+                                                            className={cn(
+                                                                'text-left hover:underline',
+                                                                isRecordDetailNavCell(rowIsDraft)
+                                                                    ? 'text-primary font-medium'
+                                                                    : 'text-primary',
+                                                            )}
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
                                                                 navigateToRowDetail(row as Record<string, unknown>);
@@ -3788,8 +3937,8 @@ export default function ConfigurableListTemplate({
                                                         <a
                                                             href={hyperlinkHref}
                                                             className="text-primary hover:underline"
-                                                            target={hyperlinkKind === 'url' ? '_blank' : undefined}
-                                                            rel={hyperlinkKind === 'url' ? 'noreferrer noopener' : undefined}
+                                                            target={urlLinkTarget}
+                                                            rel={urlLinkRel}
                                                             onClick={(e) => e.stopPropagation()}
                                                         >
                                                             {cellValue}
@@ -3842,6 +3991,35 @@ export default function ConfigurableListTemplate({
                                         : row.id;
                                 const menuId = `row-actions-${rowLinkId ?? rowKey}`;
                                 const isMenuOpen = openRowActionsMenuId === menuId;
+                                if (shouldShowInlineRowSave) {
+                                    return (
+                                        <td
+                                            className={cn(
+                                                'px-4 py-2 text-sm text-gray-700',
+                                                !config.enableRowDivider ? '!border-b-0' : '',
+                                                config.enableColumnDivider ? 'border-l border-gray-200' : ''
+                                            )}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-primary h-7 px-2 text-xs"
+                                                    disabled={savingInlineRowKey === inlineRowKey}
+                                                    onClick={() => void saveInlineRowEdits(inlineRowKey, row as Record<string, unknown>, rowLinkId ?? null)}
+                                                >
+                                                    Save
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="inline-flex h-7 items-center rounded border border-gray-300 px-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                                                    onClick={() => clearInlineRowEdits(inlineRowKey)}
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </div>
+                                        </td>
+                                    );
+                                }
                                 return (
                                     <ObjectLoaderRowActionsBar
                                         enabledActions={enabledActions}
@@ -3896,6 +4074,15 @@ export default function ConfigurableListTemplate({
             const rowPositionKey = `${stableRowKey}-pos${idx}`;
             const rowIsDraft = isQuickAddDraftRow(row as Record<string, unknown>);
             const draftId = rowIsDraft ? String((row as Record<string, unknown>).__quickAddId ?? '') : '';
+            const inlineRowId =
+                objectLoaderCrud != null
+                    ? resolveRowRecordId(row as Record<string, unknown>, objectLoaderCrud.idColumn) ?? row.id ?? null
+                    : row.id ?? null;
+            const inlineRowKey = String(inlineRowId ?? rowPositionKey);
+            const inlineRowPatch = inlineDirtyEdits[inlineRowKey] ?? null;
+            const hasInlineRowChanges = !!inlineRowPatch && Object.keys(inlineRowPatch).length > 0;
+            const rowInlineActive = activeInlineCellKey?.startsWith(`${rowPositionKey}__`) ?? false;
+            const shouldShowInlineRowSave = hasInlineRowChanges || rowInlineActive;
             const rowDropHighlightUngrouped =
                 config.enableRowReorder &&
                 rowDragOverIndex !== null &&
@@ -3911,6 +4098,7 @@ export default function ConfigurableListTemplate({
                     config.enableRowHoverHighlight ? 'hover:bg-gray-100 transition-colors group' : 'group',
                     config.enableStripedRows && idx % 2 === 1 && 'bg-gray-50',
                     config.enableRowDivider ? 'border-b border-gray-200' : 'border-b-0',
+                    rowDetailNavigationEnabled && !rowIsDraft && 'cursor-pointer',
                 )}
                 style={{
                     ...(rowDropHighlightUngrouped
@@ -3918,6 +4106,7 @@ export default function ConfigurableListTemplate({
                         : {}),
                 }}
                 draggable={config.enableRowReorder && !rowIsDraft}
+                onClick={(e) => handleRowClickOpenDetail(e, row as Record<string, unknown>, rowIsDraft)}
                 onDragStart={(e) => handleRowDragStart(e, idx)}
                 onDragOver={(e) => handleRowDragOver(e, idx)}
                 onDrop={(e) => handleRowDrop(e, idx)}
@@ -4030,6 +4219,35 @@ export default function ConfigurableListTemplate({
                                         : row.id;
                                 const menuId = `row-actions-left-${rowLinkId ?? rowPositionKey}`;
                                 const isMenuOpen = openRowActionsMenuId === menuId;
+                                if (shouldShowInlineRowSave) {
+                                    return (
+                                        <td
+                                            className={cn(
+                                                'px-4 py-2 text-sm text-gray-700',
+                                                !config.enableRowDivider ? '!border-b-0' : '',
+                                                config.enableColumnDivider ? 'border-r border-gray-200' : ''
+                                            )}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-primary h-7 px-2 text-xs"
+                                                    disabled={savingInlineRowKey === inlineRowKey}
+                                                    onClick={() => void saveInlineRowEdits(inlineRowKey, row as Record<string, unknown>, rowLinkId ?? null)}
+                                                >
+                                                    Save
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="inline-flex h-7 items-center rounded border border-gray-300 px-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                                                    onClick={() => clearInlineRowEdits(inlineRowKey)}
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </div>
+                                        </td>
+                                    );
+                                }
                                 return (
                                     <ObjectLoaderRowActionsBar
                                         enabledActions={enabledActions}
@@ -4090,31 +4308,25 @@ export default function ConfigurableListTemplate({
                                                 freezeIndex > 1));
                                     const rowBg = config.enableStripedRows && idx % 2 === 1 ? 'rgb(249 250 251)' : 'white';
                                     const leftOffset = isFrozen ? getFreezeLeftOffset(colIndex) : 0;
-                                    const rawCellValue = row[col];
-                                    const cellValue =
-                                        rawCellValue == null
-                                            ? '-'
-                                            : typeof rawCellValue === 'object'
-                                              ? (() => {
-                                                    try {
-                                                        const compact = JSON.stringify(rawCellValue);
-                                                        return compact.length > 220
-                                                            ? `${compact.slice(0, 220)}...`
-                                                            : compact;
-                                                    } catch {
-                                                        return '[object]';
-                                                    }
-                                                })()
-                                              : String(rawCellValue);
+                                    const cellValue = formatObjectLoaderCellDisplay(
+                                        row[col],
+                                        objectLoaderCrud?.fieldTypeByKey?.[col],
+                                    );
                                     const hyperlinkKind = detectFieldLinkKind(col, cellValue);
                                     const hyperlinkHref =
                                         hyperlinkKind === 'email'
                                             ? `mailto:${cellValue}`
                                             : hyperlinkKind === 'url'
-                                              ? /^(https?:\/\/)/i.test(cellValue)
-                                                  ? cellValue
-                                                  : `https://${cellValue}`
+                                              ? hrefFromUrlCellText(cellValue)
                                               : null;
+                                    const linkBehavior = objectLoaderCrud?.fieldLinkClickBehaviorByKey?.[col] ?? 'new_page';
+                                    const urlLinkTarget =
+                                        hyperlinkKind === 'url'
+                                            ? linkBehavior === 'same_page'
+                                                ? '_self'
+                                                : '_blank'
+                                            : undefined;
+                                    const urlLinkRel = urlLinkTarget === '_blank' ? 'noreferrer noopener' : undefined;
                                     const cellKey = `${rowPositionKey}-${col}`;
                                     const wrapMode = getCellWrapMode(col, config, columnWrapStates);
                                     const clipMode = wrapMode === 'clip';
@@ -4252,9 +4464,12 @@ export default function ConfigurableListTemplate({
                                                         <input
                                                             key={badgeInlineEditKey}
                                                             type="text"
-                                                            defaultValue={cellValue}
+                                                            value={inlineRowPatch?.[col] ?? cellValue}
                                                             autoFocus
                                                             title={config.enableTooltips === true ? cellValue : undefined}
+                                                            onChange={(e) => {
+                                                                stageInlineEdit(inlineRowKey, col, e.target.value);
+                                                            }}
                                                             onFocus={() => {
                                                                 setActiveInlineCellKey(badgeInlineEditKey);
                                                             }}
@@ -4304,8 +4519,11 @@ export default function ConfigurableListTemplate({
                                                 ) : (
                                                     <input
                                                         type="text"
-                                                        defaultValue={cellValue}
+                                                        value={inlineRowPatch?.[col] ?? cellValue}
                                                         title={config.enableTooltips === true ? cellValue : undefined}
+                                                        onChange={(e) => {
+                                                            stageInlineEdit(inlineRowKey, col, e.target.value);
+                                                        }}
                                                         onFocus={() => {
                                                             setActiveInlineCellKey(badgeInlineEditKey);
                                                         }}
@@ -4337,10 +4555,16 @@ export default function ConfigurableListTemplate({
                                                     )}
                                                     title={config.enableTooltips === true ? cellValue : undefined}
                                                 >
-                                                    {isObjectManagerLinkCell(rowIsDraft, col) ? (
+                                                    {isObjectManagerLinkCell(rowIsDraft, col) ||
+                                                    isRecordDetailNavCell(rowIsDraft) ? (
                                                         <button
                                                             type="button"
-                                                            className="text-left text-primary hover:underline"
+                                                            className={cn(
+                                                                'text-left hover:underline',
+                                                                isRecordDetailNavCell(rowIsDraft)
+                                                                    ? 'text-primary font-medium'
+                                                                    : 'text-primary',
+                                                            )}
                                                             onClick={(e) => {
                                                                 e.stopPropagation();
                                                                 navigateToRowDetail(row as Record<string, unknown>);
@@ -4352,8 +4576,8 @@ export default function ConfigurableListTemplate({
                                                         <a
                                                             href={hyperlinkHref}
                                                             className="text-primary hover:underline"
-                                                            target={hyperlinkKind === 'url' ? '_blank' : undefined}
-                                                            rel={hyperlinkKind === 'url' ? 'noreferrer noopener' : undefined}
+                                                            target={urlLinkTarget}
+                                                            rel={urlLinkRel}
                                                             onClick={(e) => e.stopPropagation()}
                                                         >
                                                             {cellValue}
@@ -4406,6 +4630,35 @@ export default function ConfigurableListTemplate({
                                         : row.id;
                                 const menuId = `row-actions-${rowLinkId ?? rowPositionKey}`;
                                 const isMenuOpen = openRowActionsMenuId === menuId;
+                                if (shouldShowInlineRowSave) {
+                                    return (
+                                        <td
+                                            className={cn(
+                                                'px-4 py-2 text-sm text-gray-700',
+                                                !config.enableRowDivider ? '!border-b-0' : '',
+                                                config.enableColumnDivider ? 'border-l border-gray-200' : ''
+                                            )}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    className="btn btn-primary h-7 px-2 text-xs"
+                                                    disabled={savingInlineRowKey === inlineRowKey}
+                                                    onClick={() => void saveInlineRowEdits(inlineRowKey, row as Record<string, unknown>, rowLinkId ?? null)}
+                                                >
+                                                    Save
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    className="inline-flex h-7 items-center rounded border border-gray-300 px-2 text-xs font-medium text-gray-700 hover:bg-gray-50"
+                                                    onClick={() => clearInlineRowEdits(inlineRowKey)}
+                                                >
+                                                    Cancel
+                                                </button>
+                                            </div>
+                                        </td>
+                                    );
+                                }
                                 return (
                                     <ObjectLoaderRowActionsBar
                                         enabledActions={enabledActions}
@@ -5742,6 +5995,7 @@ export default function ConfigurableListTemplate({
                 activePresetId={activePresetId}
                 onPresetSelect={setActivePresetId}
                 fieldMappings={fieldMappings}
+                inlineEditCandidateKeys={inlineEditCandidateKeys}
                 tableQueryState={tableQueryStateForModal}
                 platformConfigScope={platformScope}
             />

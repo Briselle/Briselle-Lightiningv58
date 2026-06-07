@@ -1,7 +1,7 @@
 # Table Templates Architecture
 
 ## Overview
-This document describes the refactored Salesforce-style architecture for the configurable list table system.
+This document describes the refactored architecture for the configurable list table system.
 
 ## Directory Structure
 

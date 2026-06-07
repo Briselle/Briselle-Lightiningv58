@@ -1,0 +1,207 @@
+/* ZIVA marketing page — extracted from main portal app.css. Host app should define CSS variables: --black-secondary, --border-color, --white, --success-color, --text-secondary, --text-light, --black-tertiary */
+
+.ziva-module-container {
+  width: 100%;
+  max-width: 1140px;
+  margin: 0 auto;
+  padding: 0 1.25rem;
+  box-sizing: border-box;
+}
+
+.ziva-page-hero {
+  padding: calc(80px + 3rem) 0 3rem;
+  background: var(--black-secondary, #0a0a0a);
+  border-bottom: 1px solid var(--border-color, #2a2a2a);
+}
+
+.ziva-page-hero .ziva-module-container {
+  display: flex;
+  align-items: center;
+  gap: 3rem;
+  flex-wrap: wrap;
+}
+
+.ziva-hero-content {
+  flex: 1;
+  min-width: 280px;
+}
+
+.ziva-hero-title {
+  font-size: clamp(2.5rem, 6vw, 4rem);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  color: var(--white, #fff);
+  margin-bottom: 0.25rem;
+}
+
+.ziva-hero-subtitle {
+  font-size: 1.25rem;
+  color: var(--success-color, #00ff88);
+  margin-bottom: 1rem;
+}
+
+.ziva-hero-desc {
+  color: var(--text-secondary, #b0b0b0);
+  max-width: 560px;
+  margin-bottom: 1.5rem;
+  line-height: 1.7;
+}
+
+.ziva-hero-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+}
+
+.ziva-hero-cta-hint {
+  font-size: 0.85rem;
+  color: var(--text-light, #808080);
+  width: 100%;
+}
+
+.ziva-hero-visual {
+  flex-shrink: 0;
+}
+
+.ziva-hero-icon {
+  width: 120px;
+  height: 120px;
+  border-radius: 24px;
+  background: var(--black-tertiary, #141414);
+  border: 1px solid var(--border-color, #2a2a2a);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+}
+
+.ziva-hero-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.ziva-features-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 1.5rem;
+}
+
+.ziva-feature-card {
+  background: var(--black-secondary, #0a0a0a);
+  border: 1px solid var(--border-color, #2a2a2a);
+  border-radius: 1rem;
+  padding: 1.5rem;
+}
+
+.ziva-feature-card i {
+  font-size: 1.5rem;
+  color: var(--success-color, #00ff88);
+  margin-bottom: 0.75rem;
+}
+
+.ziva-feature-card h3 {
+  font-size: 1.1rem;
+  color: var(--white, #fff);
+  margin-bottom: 0.5rem;
+}
+
+.ziva-feature-card p {
+  color: var(--text-secondary, #b0b0b0);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.ziva-page-section {
+  padding: 2.5rem 0;
+  border-bottom: 1px solid var(--border-color, #2a2a2a);
+}
+
+.ziva-section-title {
+  font-size: 1.5rem;
+  color: var(--white, #fff);
+  margin-bottom: 0.25rem;
+}
+
+.ziva-section-subtitle {
+  color: var(--text-secondary, #b0b0b0);
+  margin-bottom: 1.5rem;
+}
+
+.ziva-roles-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.ziva-role-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 1rem;
+  background: var(--black-secondary, #0a0a0a);
+  border: 1px solid var(--border-color, #2a2a2a);
+  border-radius: 2rem;
+  color: var(--text-secondary, #b0b0b0);
+  font-size: 0.9rem;
+}
+
+.ziva-role-card i {
+  color: var(--success-color, #00ff88);
+}
+
+.ziva-cta-section h2 {
+  font-size: 1.25rem;
+  color: var(--white, #fff);
+  margin-bottom: 0.75rem;
+}
+
+.ziva-cta-section p {
+  color: var(--text-secondary, #b0b0b0);
+  margin-bottom: 0.5rem;
+}
+
+.ziva-page-content-block {
+  padding: 3rem 0 2rem;
+  background: var(--black-secondary, #0a0a0a);
+}
+
+.ziva-page-content-block h2 {
+  font-size: 1.75rem;
+  color: var(--white, #fff);
+  margin-bottom: 0.5rem;
+}
+
+.ziva-page-content-block .ziva-page-lead {
+  color: var(--text-secondary, #b0b0b0);
+  margin-bottom: 2rem;
+  max-width: 720px;
+  line-height: 1.6;
+}
+
+.ziva-btn-primary,
+.ziva-btn-secondary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.65rem 1.25rem;
+  border-radius: 8px;
+  text-decoration: none;
+  font-weight: 600;
+  font-size: 0.95rem;
+}
+
+.ziva-btn-primary {
+  background: var(--success-color, #00ff88);
+  color: #0a0a0a;
+}
+
+.ziva-btn-secondary {
+  border: 1px solid var(--border-color, #2a2a2a);
+  color: var(--text-primary, #fff);
+  background: transparent;
+}

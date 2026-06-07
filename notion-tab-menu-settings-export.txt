@@ -1,0 +1,3239 @@
+﻿================================================================================
+NOTION NEST — TAB SETTINGS & TAB MENU EXPORT
+For porting to another project / AI context
+================================================================================
+
+PURPOSE
+-------
+This pack is ONLY the Tab Settings (gear on tab bar) and per-tab Context Menu
+(Rename, Edit icon, Copy link, Delete). It is NOT the BlockNote tab block
+engine (visibility, Enter/Backspace, reparent) — that lives in notion-nest/tabs/.
+
+TAB SETTINGS (block-level)
+--------------------------
+- UI: NotionTabsStylePopover — gear button on NotionPageTabsBar
+- Portaled to document.body (#notion-tab-settings-host) so BlockNote remounts do not close it
+- State: tabs/uiSession.ts (getTabsSettingsMenuOpen, setTabsSettingsMenuOpen)
+- Persists on notionTabs block props via editor.updateBlock:
+  tabStyle, tabShowUnderline, tabGap, tabHeight, tabCustomSelection,
+  tabSelectionColor, tabAlignment
+- Bar applies styles via notionTabShapes.ts (notionTabButtonClass, notionTabButtonStyle)
+
+Options in panel:
+  Shape | Tab Highlight (+ color) | Gap 0-32 | Align left/center/right | Height s/m/l
+
+TAB MENU (per-tab)
+------------------
+- Open: double-click tab OR right-click tab (NotionPageTabsBar)
+- State: setTabContextMenu in tabs/uiSession.ts
+- Render: NotionTabOverlaysRoot (single mount on editor) -> NotionTabContextMenu
+- Position: notionTabMenuAnchor.ts (above tab when space allows)
+
+Menu actions:
+  Rename     -> NotionTabRenameOverlay + commitTabRename (registry + panel props)
+  Edit icon  -> setTabContextMenuMode("icon") -> NotionTabIconPicker
+  Copy link  -> buildTabDeepLinkUrl (#tab:tabsId:panelId) + clipboard + toast
+  Delete     -> NotionTabDeleteDialog -> deleteNotionTabPanelAtIndex (your tabs API)
+
+REQUIRED MOUNT
+--------------
+  <NotionTabOverlaysRoot editor={editor} />  // next to BlockNote editor
+
+REQUIRED DOM ON TAB BAR
+-----------------------
+  Tab wrap: data-tab-panel-id={panel.id}
+  Tab button: role="tab"
+
+EXTERNAL DEPS (copy or stub)
+----------------------------
+  components/ui/tabletemplates/utils/tabSettingsColorInputs  (NotionTabSettingsColorField)
+  components/ui/tabletemplates/utils/tabBarIcons             (TabBarIcon, TAB_ICON_CUSTOM_KEY)
+  components/ui/tabletemplates/utils/tabBarNormalize         (normalizeTabShape)
+  tabs/registry.ts: readPanelRegistry, writePanelRegistry, updateRegistryPanelIcon
+  tabs/activate.ts: deleteNotionTabPanelAtIndex
+  notionUpload.uploadNotionFile (icon upload tab)
+  lucide-react
+
+INTEGRATION IN TAB BAR (see NotionPageTabsBar.tsx)
+--------------------------------------------------
+  readStyleProps + patchStyle + <NotionTabsStylePopover />
+  openTabMenuForPanel + consumeTabDoublePointerDown + onContextMenu
+
+================================================================================
+SOURCE FILES FOLLOW
+================================================================================
+
+
+
+======== FILE: briselle-lightining.client\src\modules\notion-nest\components\NotionTabsStylePopover.types.ts ========
+
+export type NotionTabsStyleProps = {
+    tabStyle: string;
+    tabShowUnderline: boolean;
+    tabGap: number;
+    tabHeight: 'small' | 'medium' | 'large';
+    tabCustomSelection: boolean;
+    tabSelectionColor: string;
+    tabAlignment: 'left' | 'center' | 'right';
+};
+
+
+
+======== FILE: briselle-lightining.client\src\modules\notion-nest\components\NotionTabsStylePopover.tsx ========
+
+import { Settings2 } from 'lucide-react';
+
+import { useCallback, useEffect, useRef, useSyncExternalStore } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+
+import { NotionTabSettingsColorField } from '../../../components/ui/tabletemplates/utils/tabSettingsColorInputs';
+
+import { NOTION_TAB_SHAPE_OPTIONS } from '../utils/notionTabShapes';
+
+import {
+    getTabsPanelPosition,
+    getTabsSettingsMenuOpen,
+    isAnyTabsSettingsOpen,
+    setTabsFieldMenuOpen,
+    setTabsPanelPosition,
+    setTabsSettingsMenuOpen,
+    subscribeTabsUiSession,
+} from '../tabs';
+
+import type { NotionTabsStyleProps } from './NotionTabsStylePopover.types';
+
+export type { NotionTabsStyleProps } from './NotionTabsStylePopover.types';
+
+const POPOVER_WIDTH_PX = 240;
+const HOST_ID = 'notion-tab-settings-host';
+const DEFAULT_SELECTION_COLOR = '#2563eb';
+
+function stopBubble(e: { stopPropagation: () => void }) {
+    e.stopPropagation();
+}
+
+function capturePanelPosition(anchor: HTMLElement | null): { top: number; left: number } | null {
+    if (!anchor) return null;
+    const r = anchor.getBoundingClientRect();
+    if (r.width < 1 && r.height < 1) return null;
+    return {
+        top: Math.round(r.bottom + 4),
+        left: Math.round(r.right - POPOVER_WIDTH_PX),
+    };
+}
+
+const HEIGHT_OPTIONS = [
+    { value: 'small' as const, label: 'Small' },
+    { value: 'medium' as const, label: 'Medium' },
+    { value: 'large' as const, label: 'Large' },
+];
+
+const ALIGN_OPTIONS = [
+    { value: 'left' as const, label: 'Left' },
+    { value: 'center' as const, label: 'Center' },
+    { value: 'right' as const, label: 'Right' },
+];
+
+type PanelContentProps = {
+    position: { top: number; left: number };
+    value: NotionTabsStyleProps;
+    onChange: (patch: Partial<NotionTabsStyleProps>) => void;
+    onRequestClose: () => void;
+};
+
+function NativeSelect<T extends string>({
+    value,
+    options,
+    onChange,
+    'aria-label': ariaLabel,
+}: {
+    value: T;
+    options: readonly { value: T; label: string }[];
+    onChange: (v: T) => void;
+    'aria-label': string;
+}) {
+    return (
+        <select
+            className="notion-tabs-style-popover__select-native"
+            value={value}
+            aria-label={ariaLabel}
+            data-no-row-nav
+            onPointerDown={stopBubble}
+            onMouseDown={stopBubble}
+            onClick={stopBubble}
+            onChange={(e) => onChange(e.target.value as T)}
+        >
+            {options.map((o) => (
+                <option key={o.value} value={o.value}>
+                    {o.label}
+                </option>
+            ))}
+        </select>
+    );
+}
+
+function Toggle({
+    checked,
+    onChange,
+    label,
+}: {
+    checked: boolean;
+    onChange: (v: boolean) => void;
+    label: string;
+}) {
+    return (
+        <button
+            type="button"
+            role="switch"
+            aria-checked={checked}
+            aria-label={label}
+            title={label}
+            data-no-row-nav
+            className={`notion-tabs-style-popover__toggle${checked ? ' is-on' : ''}`}
+            onPointerDown={stopBubble}
+            onMouseDown={stopBubble}
+            onClick={(e) => {
+                stopBubble(e);
+                onChange(!checked);
+            }}
+        />
+    );
+}
+
+function TabSettingsPanelContent({ position, value, onChange, onRequestClose }: PanelContentProps) {
+    const selectionColor =
+        value.tabSelectionColor.startsWith('#') ? value.tabSelectionColor : DEFAULT_SELECTION_COLOR;
+
+    const setTabHighlight = (on: boolean) => {
+        onChange({
+            tabShowUnderline: on,
+            tabCustomSelection: on,
+            ...(on && !value.tabSelectionColor
+                ? { tabSelectionColor: DEFAULT_SELECTION_COLOR }
+                : {}),
+        });
+    };
+
+    return (
+        <div
+            className="notion-tabs-style-popover notion-tabs-style-popover--fixed"
+            role="dialog"
+            aria-label="Tab settings"
+            data-notion-tab-settings-host
+            data-notion-tabs-panel
+            style={{
+                position: 'fixed',
+                top: position.top,
+                left: position.left,
+                width: POPOVER_WIDTH_PX,
+            }}
+            onPointerDown={stopBubble}
+            onMouseDown={stopBubble}
+        >
+            <header className="notion-tabs-style-popover__header">
+                <span className="notion-tabs-style-popover__heading">Tab settings</span>
+                <button
+                    type="button"
+                    className="notion-tabs-style-popover__close"
+                    aria-label="Close"
+                    data-no-row-nav
+                    onClick={(e) => {
+                        stopBubble(e);
+                        onRequestClose();
+                    }}
+                >
+                    Ã—
+                </button>
+            </header>
+
+            <div className="notion-tabs-style-popover__row">
+                <span className="notion-tabs-style-popover__label">Shape</span>
+                <NativeSelect
+                    aria-label="Shape"
+                    value={value.tabStyle}
+                    options={NOTION_TAB_SHAPE_OPTIONS}
+                    onChange={(v) => onChange({ tabStyle: v })}
+                />
+            </div>
+
+            <div className="notion-tabs-style-popover__row">
+                <span className="notion-tabs-style-popover__label">Tab Highlight</span>
+                <div className="notion-tabs-style-popover__control-cluster">
+                    {value.tabShowUnderline ? (
+                        <NotionTabSettingsColorField
+                            value={selectionColor}
+                            defaultClear={DEFAULT_SELECTION_COLOR}
+                            onChange={(hex) =>
+                                onChange({
+                                    tabSelectionColor: hex,
+                                    tabCustomSelection: true,
+                                })
+                            }
+                            onClear={() =>
+                                onChange({
+                                    tabSelectionColor: DEFAULT_SELECTION_COLOR,
+                                    tabCustomSelection: true,
+                                })
+                            }
+                        />
+                    ) : null}
+                    <Toggle
+                        label="Highlight active tab"
+                        checked={value.tabShowUnderline}
+                        onChange={setTabHighlight}
+                    />
+                </div>
+            </div>
+
+            <div className="notion-tabs-style-popover__row">
+                <span className="notion-tabs-style-popover__label">Gap</span>
+                <div className="notion-tabs-style-popover__stepper">
+                    <button
+                        type="button"
+                        className="notion-tabs-style-popover__step-btn"
+                        data-no-row-nav
+                        aria-label="Decrease gap"
+                        onClick={(e) => {
+                            stopBubble(e);
+                            onChange({ tabGap: Math.max(0, value.tabGap - 2) });
+                        }}
+                    >
+                        âˆ’
+                    </button>
+                    <span className="notion-tabs-style-popover__step-val">{value.tabGap}px</span>
+                    <button
+                        type="button"
+                        className="notion-tabs-style-popover__step-btn"
+                        data-no-row-nav
+                        aria-label="Increase gap"
+                        onClick={(e) => {
+                            stopBubble(e);
+                            onChange({ tabGap: Math.min(32, value.tabGap + 2) });
+                        }}
+                    >
+                        +
+                    </button>
+                </div>
+            </div>
+
+            <div className="notion-tabs-style-popover__row">
+                <span className="notion-tabs-style-popover__label">Align</span>
+                <NativeSelect
+                    aria-label="Alignment"
+                    value={value.tabAlignment}
+                    options={ALIGN_OPTIONS}
+                    onChange={(v) => onChange({ tabAlignment: v })}
+                />
+            </div>
+
+            <div className="notion-tabs-style-popover__row">
+                <span className="notion-tabs-style-popover__label">Height</span>
+                <NativeSelect
+                    aria-label="Height"
+                    value={value.tabHeight}
+                    options={HEIGHT_OPTIONS}
+                    onChange={(v) => onChange({ tabHeight: v })}
+                />
+            </div>
+        </div>
+    );
+}
+
+let panelRoot: Root | null = null;
+let panelHost: HTMLDivElement | null = null;
+
+function ensurePanelHost(): Root {
+    if (!panelHost) {
+        panelHost = document.createElement('div');
+        panelHost.id = HOST_ID;
+        document.body.appendChild(panelHost);
+        panelRoot = createRoot(panelHost);
+    }
+    return panelRoot!;
+}
+
+function destroyPanelHost() {
+    panelRoot?.render(null);
+    panelHost?.remove();
+    panelHost = null;
+    panelRoot = null;
+}
+
+type Props = {
+    tabsBlockId: string;
+    value: NotionTabsStyleProps;
+    onChange: (patch: Partial<NotionTabsStyleProps>) => void;
+};
+
+export default function NotionTabsStylePopover({ tabsBlockId, value, onChange }: Props) {
+    const anchorRef = useRef<HTMLDivElement>(null);
+    const open = useSyncExternalStore(
+        subscribeTabsUiSession,
+        () => getTabsSettingsMenuOpen(tabsBlockId),
+        () => getTabsSettingsMenuOpen(tabsBlockId),
+    );
+
+    const close = useCallback(() => {
+        setTabsFieldMenuOpen(tabsBlockId, null);
+        setTabsSettingsMenuOpen(tabsBlockId, false);
+        if (!isAnyTabsSettingsOpen()) {
+            destroyPanelHost();
+        }
+    }, [tabsBlockId]);
+
+    const openPanel = useCallback(() => {
+        const pos = capturePanelPosition(anchorRef.current) ?? getTabsPanelPosition(tabsBlockId);
+        if (!pos) return;
+        setTabsPanelPosition(tabsBlockId, pos);
+        setTabsSettingsMenuOpen(tabsBlockId, true);
+    }, [tabsBlockId]);
+
+    const toggleOpen = useCallback(() => {
+        if (open) {
+            close();
+            return;
+        }
+        openPanel();
+    }, [open, close, openPanel]);
+
+    useEffect(() => {
+        if (!open) {
+            if (!isAnyTabsSettingsOpen()) {
+                destroyPanelHost();
+            }
+            return;
+        }
+
+        const pos = getTabsPanelPosition(tabsBlockId);
+        if (!pos) return;
+
+        const root = ensurePanelHost();
+        root.render(
+            <TabSettingsPanelContent
+                position={pos}
+                value={value}
+                onChange={onChange}
+                onRequestClose={close}
+            />,
+        );
+    }, [open, tabsBlockId, value, onChange, close]);
+
+    useEffect(() => {
+        if (!open) return;
+
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') close();
+        };
+        window.addEventListener('keydown', onKey);
+
+        const onOutside = (e: PointerEvent) => {
+            if (e.button !== 0) return;
+            const t = e.target;
+            if (!(t instanceof Node)) return;
+            if (anchorRef.current?.contains(t)) return;
+            if (panelHost?.contains(t)) return;
+            close();
+        };
+
+        const timer = window.setTimeout(() => {
+            document.addEventListener('pointerdown', onOutside, true);
+        }, 0);
+
+        return () => {
+            window.clearTimeout(timer);
+            document.removeEventListener('pointerdown', onOutside, true);
+            window.removeEventListener('keydown', onKey);
+        };
+    }, [open, close]);
+
+    return (
+        <div
+            ref={anchorRef}
+            className="notion-tabs-style-anchor relative shrink-0"
+            data-notion-tabs-settings-anchor
+        >
+            <button
+                type="button"
+                className="notion-tabs-bar__icon-btn"
+                title="Tab settings"
+                aria-label="Tab settings"
+                aria-expanded={open}
+                data-no-row-nav
+                onPointerDown={(e) => {
+                    if (e.button !== 0) return;
+                    stopBubble(e);
+                    toggleOpen();
+                }}
+            >
+                <Settings2 size={16} />
+            </button>
+        </div>
+    );
+}
+
+
+
+======== FILE: briselle-lightining.client\src\modules\notion-nest\components\NotionTabContextMenu.tsx ========
+
+import { Link2, Pencil, Smile, Trash2 } from 'lucide-react';
+
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+
+
+
+import { TAB_ICON_CUSTOM_KEY, TabBarIcon } from '../../../components/ui/tabletemplates/utils/tabBarIcons';
+
+import NotionTabIconPicker from './NotionTabIconPicker';
+
+import { getTabContextMenuOpenedAt } from '../tabs';
+
+
+
+import type { TabContextMenuPlacement } from '../tabs';
+
+import {
+
+    getTabPanelAnchorRect,
+
+    resolveFloatingMenuPosition,
+
+    TAB_ICON_PICKER_HEIGHT,
+
+    TAB_MENU_HEIGHT,
+
+} from '../utils/notionTabMenuAnchor';
+
+
+
+export type NotionTabContextMenuState = {
+
+    panelId: string;
+
+    top: number;
+
+    left: number;
+
+    mode: 'menu' | 'icon';
+
+    placement?: TabContextMenuPlacement;
+
+};
+
+
+
+type Props = {
+
+    state: NotionTabContextMenuState;
+
+    tabLabel: string;
+
+    tabIcon?: string;
+
+    tabIconCustom?: string;
+
+    onCopyLink: () => void | Promise<void>;
+
+    onClose: () => void;
+
+    onRename: () => void;
+
+    onDelete: () => void;
+
+    onOpenIconPicker: () => void;
+
+    onIconChange: (iconKey: string, customIcon: string) => void;
+
+};
+
+
+
+const MENU_WIDTH = 200;
+
+const ICON_PANEL_WIDTH = 360;
+
+
+
+type MenuPosition = {
+
+    top: number;
+
+    left: number;
+
+    placement: TabContextMenuPlacement;
+
+};
+
+
+
+export default function NotionTabContextMenu({
+
+    state,
+
+    tabLabel,
+
+    tabIcon,
+
+    tabIconCustom,
+
+    onCopyLink,
+
+    onClose,
+
+    onRename,
+
+    onDelete,
+
+    onOpenIconPicker,
+
+    onIconChange,
+
+}: Props) {
+
+    const rootRef = useRef<HTMLDivElement>(null);
+
+    const [iconKeyDraft, setIconKeyDraft] = useState((tabIcon && String(tabIcon).trim()) || 'list');
+
+    const [customDraft, setCustomDraft] = useState(tabIconCustom ?? '');
+
+    const [position, setPosition] = useState<MenuPosition>(() => ({
+
+        top: state.top,
+
+        left: state.left,
+
+        placement: state.placement ?? 'pointer',
+
+    }));
+
+
+
+    useEffect(() => {
+
+        setIconKeyDraft((tabIcon && String(tabIcon).trim()) || 'list');
+
+        setCustomDraft(tabIconCustom ?? '');
+
+    }, [tabIcon, tabIconCustom, state.panelId, state.mode]);
+
+
+
+    useLayoutEffect(() => {
+
+        const panelWidth = state.mode === 'icon' ? ICON_PANEL_WIDTH : MENU_WIDTH;
+
+        const menuHeight = state.mode === 'icon' ? TAB_ICON_PICKER_HEIGHT : TAB_MENU_HEIGHT;
+
+        const anchor = getTabPanelAnchorRect(state.panelId);
+
+        if (anchor) {
+
+            const resolved = resolveFloatingMenuPosition(anchor, panelWidth, menuHeight);
+
+            const next: MenuPosition = {
+
+                top: resolved.top,
+
+                left: resolved.left,
+
+                placement: resolved.placement,
+
+            };
+
+            setPosition(next);
+
+            return;
+
+        }
+
+        setPosition({
+
+            top: state.top,
+
+            left: Math.min(state.left, window.innerWidth - panelWidth - 8),
+
+            placement: state.placement ?? 'pointer',
+
+        });
+
+    }, [state.panelId, state.mode, state.top, state.left, state.placement]);
+
+
+
+    useEffect(() => {
+
+        const onKey = (e: KeyboardEvent) => {
+
+            if (e.key === 'Escape') onClose();
+
+        };
+
+        window.addEventListener('keydown', onKey);
+
+        return () => window.removeEventListener('keydown', onKey);
+
+    }, [onClose]);
+
+
+
+    useEffect(() => {
+
+        let armed = false;
+
+        const armId = requestAnimationFrame(() => {
+
+            armed = true;
+
+        });
+
+        const onOutside = (e: PointerEvent) => {
+
+            if (!armed) return;
+
+            if (performance.now() - getTabContextMenuOpenedAt() < 120) return;
+
+            if (e.button !== 0) return;
+
+            const t = e.target;
+
+            if (!(t instanceof Node)) return;
+
+            if (rootRef.current?.contains(t)) return;
+
+            if (t instanceof Element && t.closest('[data-notion-tabs-bar]')) return;
+
+            if (t instanceof Element && t.closest('[data-notion-tab-dialog]')) return;
+
+            onClose();
+
+        };
+
+        document.addEventListener('pointerdown', onOutside, true);
+
+        return () => {
+
+            cancelAnimationFrame(armId);
+
+            document.removeEventListener('pointerdown', onOutside, true);
+
+        };
+
+    }, [onClose]);
+
+
+
+    const panelWidth = state.mode === 'icon' ? ICON_PANEL_WIDTH : MENU_WIDTH;
+
+    const positionStyle =
+
+        position.placement === 'above-tab'
+
+            ? { top: position.top, left: position.left, transform: 'translateY(calc(-100% - 8px))' as const }
+
+            : position.placement === 'below-tab'
+
+              ? { top: position.top, left: position.left, transform: 'translateY(8px)' as const }
+
+              : { top: position.top, left: position.left };
+
+
+
+    const applyIcon = (key: string, custom: string) => {
+
+        const trimmed = custom.trim();
+
+        if (key === TAB_ICON_CUSTOM_KEY) {
+
+            onIconChange(TAB_ICON_CUSTOM_KEY, trimmed);
+
+            return;
+
+        }
+
+        onIconChange(key, '');
+
+    };
+
+
+
+    if (state.mode === 'icon') {
+
+        return (
+
+            <div
+
+                ref={rootRef}
+
+                className="notion-tab-context-menu notion-tab-context-menu--icon"
+
+                role="dialog"
+
+                aria-label="Edit tab icon"
+
+                data-notion-tab-context-menu
+
+                style={{ position: 'fixed', ...positionStyle, width: ICON_PANEL_WIDTH, zIndex: 10050 }}
+
+                data-no-row-nav
+
+                onPointerDown={(e) => e.stopPropagation()}
+
+            >
+
+                <NotionTabIconPicker
+
+                    tabIcon={tabIcon}
+
+                    tabIconCustom={tabIconCustom}
+
+                    onIconChange={(key, custom) => {
+
+                        setIconKeyDraft(key);
+
+                        setCustomDraft(custom);
+
+                        applyIcon(key, custom);
+
+                    }}
+
+                    onRemove={() => {
+
+                        onIconChange('', '');
+
+                        onClose();
+
+                    }}
+
+                    onClose={onClose}
+
+                />
+
+            </div>
+
+        );
+
+    }
+
+
+
+    return (
+
+        <div
+
+            ref={rootRef}
+
+            className="notion-tab-context-menu"
+
+            role="menu"
+
+            aria-label={`Tab options for ${tabLabel}`}
+
+            data-notion-tab-context-menu
+
+            style={{ position: 'fixed', ...positionStyle, width: MENU_WIDTH, zIndex: 10050 }}
+
+            data-no-row-nav
+
+            onPointerDown={(e) => e.stopPropagation()}
+
+        >
+
+            <button
+
+                type="button"
+
+                className="notion-tab-context-menu__item"
+
+                role="menuitem"
+
+                onMouseDown={(e) => {
+
+                    e.preventDefault();
+
+                    e.stopPropagation();
+
+                    onRename();
+
+                }}
+
+                onClick={(e) => e.stopPropagation()}
+
+            >
+
+                <Pencil className="w-4 h-4 shrink-0" />
+
+                Rename
+
+            </button>
+
+            <button
+
+                type="button"
+
+                className="notion-tab-context-menu__item"
+
+                role="menuitem"
+
+                onClick={(e) => {
+
+                    e.stopPropagation();
+
+                    onOpenIconPicker();
+
+                }}
+
+            >
+
+                <Smile className="w-4 h-4 shrink-0" />
+
+                <span className="flex-1 text-left">Edit icon</span>
+
+                <TabBarIcon iconKey={tabIcon} customIcon={tabIconCustom} size={16} />
+
+            </button>
+
+            <button
+
+                type="button"
+
+                className="notion-tab-context-menu__item"
+
+                role="menuitem"
+
+                onClick={() => void onCopyLink()}
+
+            >
+
+                <Link2 className="w-4 h-4 shrink-0" />
+
+                Copy link
+
+            </button>
+
+            <div className="notion-tab-context-menu__divider" />
+
+            <button
+
+                type="button"
+
+                className="notion-tab-context-menu__item notion-tab-context-menu__item--danger"
+
+                role="menuitem"
+
+                onMouseDown={(e) => {
+
+                    e.preventDefault();
+
+                    e.stopPropagation();
+
+                    onDelete();
+
+                }}
+
+            >
+
+                <Trash2 className="w-4 h-4 shrink-0" />
+
+                Delete
+
+            </button>
+
+        </div>
+
+    );
+
+}
+
+
+
+
+
+======== FILE: briselle-lightining.client\src\modules\notion-nest\components\NotionTabIconPicker.tsx ========
+
+import {
+    Carrot,
+    CheckCircle2,
+    Clock3,
+    Flag,
+    Grid2X2,
+    ImageUp,
+    Leaf,
+    Lightbulb,
+    Plane,
+    Plus,
+    Search,
+    Shuffle,
+    Smile,
+    Trophy,
+} from 'lucide-react';
+import { useMemo, useRef, useState } from 'react';
+
+import { uploadNotionFile } from '../notionUpload';
+
+import {
+    TAB_BAR_ICON_OPTIONS,
+    TAB_ICON_CUSTOM_KEY,
+    TabBarIcon,
+} from '../../../components/ui/tabletemplates/utils/tabBarIcons';
+import { cn } from '../../../utils/helpers';
+
+type TabId = 'emoji' | 'icons' | 'upload';
+
+type EmojiCategory = {
+    id: string;
+    label: string;
+    Icon: typeof Smile;
+    emojis: string[];
+};
+
+const EMOJI_CATEGORIES: EmojiCategory[] = [
+    {
+        id: 'people',
+        label: 'People',
+        Icon: Smile,
+        emojis: [
+            'ðŸ˜€', 'ðŸ˜ƒ', 'ðŸ˜„', 'ðŸ˜', 'ðŸ˜†', 'ðŸ˜…', 'ðŸ¤£', 'ðŸ˜‚', 'ðŸ™‚', 'ðŸ™ƒ', 'ðŸ˜‰', 'ðŸ˜Š', 'ðŸ˜‡', 'ðŸ¥°', 'ðŸ˜',
+            'ðŸ¤©', 'ðŸ˜˜', 'ðŸ˜—', 'ðŸ˜š', 'ðŸ˜™', 'ðŸ¥²', 'ðŸ˜‹', 'ðŸ˜›', 'ðŸ˜œ', 'ðŸ¤ª', 'ðŸ˜', 'ðŸ¤‘', 'ðŸ¤—', 'ðŸ¤­', 'ðŸ¤«',
+            'ðŸ¤”', 'ðŸ¤', 'ðŸ¤¨', 'ðŸ˜', 'ðŸ˜‘', 'ðŸ˜¶', 'ðŸ˜', 'ðŸ˜’', 'ðŸ™„', 'ðŸ˜¬', 'ðŸ¤¥', 'ðŸ˜Œ', 'ðŸ˜”', 'ðŸ˜ª', 'ðŸ¤¤',
+            'ðŸ˜´', 'ðŸ˜·', 'ðŸ¤’', 'ðŸ¤•', 'ðŸ¤¢', 'ðŸ¤®', 'ðŸ¤§', 'ðŸ¥µ', 'ðŸ¥¶', 'ðŸ¥´', 'ðŸ˜µ', 'ðŸ¤¯', 'ðŸ¤ ', 'ðŸ¥³', 'ðŸ¥¸',
+        ],
+    },
+    {
+        id: 'nature',
+        label: 'Nature',
+        Icon: Leaf,
+        emojis: ['ðŸŒ¸', 'ðŸŒº', 'ðŸŒ»', 'ðŸŒ¼', 'ðŸŒ·', 'ðŸŒ±', 'ðŸŒ¿', 'ðŸ€', 'ðŸŒ³', 'ðŸŒ²', 'ðŸŒ´', 'ðŸŒµ', 'ðŸŒ¾', 'ðŸŒ½', 'ðŸ„'],
+    },
+    {
+        id: 'food',
+        label: 'Food',
+        Icon: Carrot,
+        emojis: ['ðŸŽ', 'ðŸŠ', 'ðŸ‹', 'ðŸŒ', 'ðŸ‰', 'ðŸ‡', 'ðŸ“', 'ðŸ«', 'ðŸ’', 'ðŸ‘', 'ðŸ¥­', 'ðŸ', 'ðŸ¥¥', 'ðŸ¥', 'ðŸ…'],
+    },
+    {
+        id: 'activity',
+        label: 'Activity',
+        Icon: Trophy,
+        emojis: ['âš½', 'ðŸ€', 'ðŸˆ', 'âš¾', 'ðŸŽ¾', 'ðŸ', 'ðŸ‰', 'ðŸŽ±', 'ðŸ“', 'ðŸ¸', 'ðŸ¥…', 'ðŸ’', 'â›³', 'ðŸ¹', 'ðŸŽ£'],
+    },
+    {
+        id: 'travel',
+        label: 'Travel',
+        Icon: Plane,
+        emojis: ['ðŸš—', 'ðŸš•', 'ðŸš™', 'ðŸšŒ', 'ðŸšŽ', 'ðŸŽï¸', 'ðŸš“', 'ðŸš‘', 'ðŸš’', 'ðŸš', 'ðŸ›»', 'ðŸšš', 'ðŸš›', 'ðŸšœ', 'âœˆï¸'],
+    },
+    {
+        id: 'objects',
+        label: 'Objects',
+        Icon: Lightbulb,
+        emojis: ['ðŸ’¡', 'ðŸ”¦', 'ðŸ®', 'ðŸ“±', 'ðŸ’»', 'âŒ¨ï¸', 'ðŸ–¥ï¸', 'ðŸ–¨ï¸', 'ðŸ–±ï¸', 'ðŸ’¾', 'ðŸ’¿', 'ðŸ“€', 'ðŸ“·', 'ðŸ“¸', 'ðŸŽ¥'],
+    },
+    {
+        id: 'symbols',
+        label: 'Symbols',
+        Icon: CheckCircle2,
+        emojis: ['â¤ï¸', 'ðŸ§¡', 'ðŸ’›', 'ðŸ’š', 'ðŸ’™', 'ðŸ’œ', 'ðŸ–¤', 'ðŸ¤', 'ðŸ¤Ž', 'ðŸ’”', 'â£ï¸', 'ðŸ’•', 'ðŸ’ž', 'ðŸ’“', 'ðŸ’—'],
+    },
+    {
+        id: 'flags',
+        label: 'Flags',
+        Icon: Flag,
+        emojis: ['ðŸ', 'ðŸš©', 'ðŸŽŒ', 'ðŸ´', 'ðŸ³ï¸', 'ðŸ³ï¸â€ðŸŒˆ', 'ðŸ‡ºðŸ‡¸', 'ðŸ‡¬ðŸ‡§', 'ðŸ‡¨ðŸ‡¦', 'ðŸ‡¦ðŸ‡º', 'ðŸ‡©ðŸ‡ª', 'ðŸ‡«ðŸ‡·', 'ðŸ‡¯ðŸ‡µ', 'ðŸ‡®ðŸ‡³', 'ðŸ‡§ðŸ‡·'],
+    },
+];
+
+const LUCIDE_ICONS = TAB_BAR_ICON_OPTIONS.filter((o) => o.key !== TAB_ICON_CUSTOM_KEY);
+
+type Props = {
+    tabIcon?: string;
+    tabIconCustom?: string;
+    onIconChange: (iconKey: string, customIcon: string) => void;
+    onRemove: () => void;
+    onClose: () => void;
+};
+
+export default function NotionTabIconPicker({
+    tabIcon,
+    tabIconCustom,
+    onIconChange,
+    onRemove,
+    onClose,
+}: Props) {
+    const [tab, setTab] = useState<TabId>('emoji');
+    const [filter, setFilter] = useState('');
+    const [emojiCategory, setEmojiCategory] = useState('people');
+    const [uploadError, setUploadError] = useState<string | null>(null);
+    const [uploading, setUploading] = useState(false);
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const activeCategory =
+        EMOJI_CATEGORIES.find((c) => c.id === emojiCategory) ?? EMOJI_CATEGORIES[0];
+
+    const filteredEmojis = useMemo(() => {
+        const q = filter.trim().toLowerCase();
+        if (!q) return activeCategory.emojis;
+        return EMOJI_CATEGORIES.flatMap((c) => c.emojis).filter((e) => e.includes(q) || c.label.toLowerCase().includes(q));
+    }, [filter, activeCategory.emojis]);
+
+    const filteredIcons = useMemo(() => {
+        const q = filter.trim().toLowerCase();
+        if (!q) return LUCIDE_ICONS;
+        return LUCIDE_ICONS.filter(
+            (o) => o.label.toLowerCase().includes(q) || o.key.toLowerCase().includes(q),
+        );
+    }, [filter]);
+
+    const pickEmoji = (emoji: string) => {
+        onIconChange(TAB_ICON_CUSTOM_KEY, emoji);
+    };
+
+    const pickLucide = (key: string) => {
+        onIconChange(key, '');
+    };
+
+    const onUploadFile = async (file: File | undefined) => {
+        if (!file) return;
+        setUploadError(null);
+        setUploading(true);
+        try {
+            const dataUrl = await uploadNotionFile(file);
+            onIconChange(TAB_ICON_CUSTOM_KEY, dataUrl);
+        } catch (err) {
+            setUploadError(err instanceof Error ? err.message : 'Upload failed.');
+        } finally {
+            setUploading(false);
+            if (fileInputRef.current) fileInputRef.current.value = '';
+        }
+    };
+
+    return (
+        <div className="notion-tab-icon-picker" data-notion-tab-icon-picker>
+            <header className="notion-tab-icon-picker__tabs">
+                <div className="notion-tab-icon-picker__tab-list" role="tablist">
+                    <button
+                        type="button"
+                        role="tab"
+                        aria-selected={tab === 'emoji'}
+                        className={cn('notion-tab-icon-picker__tab', tab === 'emoji' && 'is-active')}
+                        onClick={() => setTab('emoji')}
+                    >
+                        Emoji
+                    </button>
+                    <button
+                        type="button"
+                        role="tab"
+                        aria-selected={tab === 'icons'}
+                        className={cn('notion-tab-icon-picker__tab', tab === 'icons' && 'is-active')}
+                        onClick={() => setTab('icons')}
+                    >
+                        Icons
+                    </button>
+                    <button
+                        type="button"
+                        role="tab"
+                        aria-selected={tab === 'upload'}
+                        className={cn('notion-tab-icon-picker__tab', tab === 'upload' && 'is-active')}
+                        onClick={() => setTab('upload')}
+                    >
+                        Upload
+                    </button>
+                </div>
+                <button type="button" className="notion-tab-icon-picker__remove" onClick={onRemove}>
+                    Remove
+                </button>
+            </header>
+
+            <div className="notion-tab-icon-picker__toolbar">
+                <label className="notion-tab-icon-picker__search">
+                    <Search className="w-4 h-4 shrink-0 opacity-50" />
+                    <input
+                        type="search"
+                        value={filter}
+                        placeholder="Filterâ€¦"
+                        onChange={(e) => setFilter(e.target.value)}
+                        data-no-row-nav
+                    />
+                </label>
+                <button
+                    type="button"
+                    className="notion-tab-icon-picker__tool-btn"
+                    title="Random emoji"
+                    onClick={() => {
+                        const pool = activeCategory.emojis;
+                        pickEmoji(pool[Math.floor(Math.random() * pool.length)] ?? 'ðŸ˜€');
+                    }}
+                >
+                    <Shuffle className="w-4 h-4" />
+                </button>
+                <span className="notion-tab-icon-picker__preview" title="Current icon">
+                    <TabBarIcon iconKey={tabIcon} customIcon={tabIconCustom} size={18} />
+                </span>
+            </div>
+
+            <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="sr-only"
+                aria-hidden
+                onChange={(e) => void onUploadFile(e.target.files?.[0])}
+            />
+
+            <div className="notion-tab-icon-picker__body">
+                {tab === 'upload' ? (
+                    <div className="notion-tab-icon-picker__upload">
+                        <button
+                            type="button"
+                            className="notion-tab-icon-picker__upload-btn"
+                            disabled={uploading}
+                            onClick={() => fileInputRef.current?.click()}
+                        >
+                            <ImageUp className="w-5 h-5 shrink-0" />
+                            {uploading ? 'Uploadingâ€¦' : 'Choose image'}
+                        </button>
+                        <p className="notion-tab-icon-picker__upload-hint">
+                            PNG, JPG, GIF, or WebP up to 12MB
+                        </p>
+                        {uploadError ? (
+                            <p className="notion-tab-icon-picker__upload-error" role="alert">
+                                {uploadError}
+                            </p>
+                        ) : null}
+                        {tabIconCustom && /^(data:image\/|https?:\/\/)/i.test(tabIconCustom) ? (
+                            <img
+                                src={tabIconCustom}
+                                alt=""
+                                className="notion-tab-icon-picker__upload-preview"
+                            />
+                        ) : null}
+                    </div>
+                ) : tab === 'emoji' ? (
+                    <>
+                        <div className="notion-tab-icon-picker__section-label">{activeCategory.label}</div>
+                        <div className="notion-tab-icon-picker__emoji-grid" role="listbox">
+                            {filteredEmojis.map((emoji) => (
+                                <button
+                                    key={emoji}
+                                    type="button"
+                                    role="option"
+                                    className={cn(
+                                        'notion-tab-icon-picker__emoji-cell',
+                                        tabIconCustom === emoji && 'is-selected',
+                                    )}
+                                    onClick={() => pickEmoji(emoji)}
+                                >
+                                    {emoji}
+                                </button>
+                            ))}
+                        </div>
+                    </>
+                ) : (
+                    <div className="notion-tab-icon-picker__icon-grid" role="listbox">
+                        {filteredIcons.map(({ key, label, Icon }) => (
+                            <button
+                                key={key}
+                                type="button"
+                                role="option"
+                                title={label}
+                                className={cn(
+                                    'notion-tab-icon-picker__icon-cell',
+                                    tabIcon === key && !tabIconCustom && 'is-selected',
+                                )}
+                                onClick={() => pickLucide(key)}
+                            >
+                                <Icon className="w-[18px] h-[18px]" strokeWidth={1.75} />
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {tab === 'emoji' ? (
+                <footer className="notion-tab-icon-picker__categories">
+                    <button type="button" className="notion-tab-icon-picker__cat" title="Recent">
+                        <Clock3 className="w-4 h-4" />
+                    </button>
+                    {EMOJI_CATEGORIES.map(({ id, Icon }) => (
+                        <button
+                            key={id}
+                            type="button"
+                            className={cn('notion-tab-icon-picker__cat', emojiCategory === id && 'is-active')}
+                            onClick={() => setEmojiCategory(id)}
+                        >
+                            <Icon className="w-4 h-4" />
+                        </button>
+                    ))}
+                    <button type="button" className="notion-tab-icon-picker__cat" title="More">
+                        <Grid2X2 className="w-4 h-4" />
+                    </button>
+                    <button type="button" className="notion-tab-icon-picker__cat" title="Add">
+                        <Plus className="w-4 h-4" />
+                    </button>
+                </footer>
+            ) : null}
+
+            <button type="button" className="sr-only" onClick={onClose}>
+                Close
+            </button>
+        </div>
+    );
+}
+
+
+
+======== FILE: briselle-lightining.client\src\modules\notion-nest\components\NotionTabOverlaysRoot.tsx ========
+
+import type { Block } from '@blocknote/core';
+import { useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from 'react';
+
+import NotionTabRenameOverlay from './NotionTabRenameOverlay';
+import { useParams } from 'react-router-dom';
+
+import { TAB_ICON_CUSTOM_KEY } from '../../../components/ui/tabletemplates/utils/tabBarIcons';
+import type { NotionBlockNoteEditor } from '../notionBlockSchema';
+import { buildTabDeepLinkUrl, resolveEditorBlock } from '../utils/notionTabDeepLink';
+import { copyTextToClipboard } from '../utils/notionTabClipboard';
+import { renderTabOverlays } from '../utils/notionTabOverlaysHost';
+import { getTabPanelAnchorRect } from '../utils/notionTabMenuAnchor';
+import { startTabRename } from '../utils/notionTabRename';
+import { deleteNotionTabPanelAtIndex } from '../tabs';
+import { runIntentionalTabDelete } from '../tabs';
+import {
+    readPanelRegistry,
+    updateRegistryPanelIcon,
+    writePanelRegistry,
+} from '../tabs';
+import { getTabPanels } from '../tabs';
+import {
+    getTabContextMenu,
+    getTabDeleteConfirm,
+    getTabLinkCopiedToast,
+    getTabRename,
+    isAnyTabOverlayOpen,
+    setTabContextMenu,
+    setTabContextMenuMode,
+    setTabDeleteConfirm,
+    showTabLinkCopiedToast,
+    subscribeTabsUiSession,
+} from '../tabs';
+import NotionTabContextMenu from './NotionTabContextMenu';
+import NotionTabDeleteDialog from './NotionTabDeleteDialog';
+import NotionTabLinkToast from './NotionTabLinkToast';
+
+function buildGlobalOverlayKey(): string {
+    const menu = getTabContextMenu();
+    const deleteConfirm = getTabDeleteConfirm();
+    const toast = getTabLinkCopiedToast();
+    const rename = getTabRename();
+    return [
+        menu
+            ? `m:${menu.tabsBlockId}:${menu.panelId}:${menu.mode}:${menu.placement}:${menu.top}:${menu.left}`
+            : '',
+        deleteConfirm ? `d:${deleteConfirm.tabsBlockId}:${deleteConfirm.panelId}` : '',
+        rename ? `r:${rename.tabsBlockId}:${rename.panelId}:${rename.epoch}` : '',
+        toast ?? '',
+    ].join('|');
+}
+
+/** Single overlay tree for the editor â€” prevents per-tab-bar render loops. */
+export default function NotionTabOverlaysRoot({ editor }: { editor: NotionBlockNoteEditor }) {
+    const { objectId, recordId } = useParams<{ objectId: string; recordId: string }>();
+    const pagePath = useMemo(
+        () => `/notion/${encodeURIComponent(String(objectId ?? ''))}/${encodeURIComponent(String(recordId ?? ''))}`,
+        [objectId, recordId],
+    );
+
+    const overlayKey = useSyncExternalStore(
+        subscribeTabsUiSession,
+        buildGlobalOverlayKey,
+        buildGlobalOverlayKey,
+    );
+
+    const lastOverlayKeyRef = useRef('');
+
+    useEffect(() => {
+        if (overlayKey === lastOverlayKeyRef.current) return;
+        lastOverlayKeyRef.current = overlayKey;
+
+        const nodes: ReactNode[] = [];
+        const menu = getTabContextMenu();
+
+        if (menu) {
+            const tabs = editor.getBlock(menu.tabsBlockId);
+            if (tabs?.type === 'notionTabs') {
+                const panels = getTabPanels(tabs);
+                const registryPanel = panels.find((p) => p.id === menu.panelId);
+                if (registryPanel) {
+                    const livePanel = resolveEditorBlock(editor, menu.panelId);
+                    const panel = livePanel ?? registryPanel;
+                    const panelIndex = panels.findIndex((p) => p.id === menu.panelId);
+                    nodes.push(
+                        <NotionTabContextMenu
+                            key="menu"
+                            state={{
+                                panelId: menu.panelId,
+                                top: menu.top,
+                                left: menu.left,
+                                mode: menu.mode,
+                                placement: menu.placement,
+                            }}
+                            tabLabel={String(panel.props.label ?? 'Tab')}
+                            tabIcon={String(panel.props.tabIcon ?? '')}
+                            tabIconCustom={String(panel.props.tabIconCustom ?? '')}
+                            onCopyLink={async () => {
+                                const url = buildTabDeepLinkUrl(pagePath, menu.tabsBlockId, panel.id);
+                                const ok = await copyTextToClipboard(url);
+                                showTabLinkCopiedToast(
+                                    ok
+                                        ? 'Tab link copied'
+                                        : 'Could not copy â€” copy URL from address bar after switching tabs',
+                                );
+                                setTabContextMenu(null);
+                            }}
+                            onClose={() => setTabContextMenu(null)}
+                            onRename={() => {
+                                const label = String(panel.props.label ?? 'Tab');
+                                startTabRename(menu.tabsBlockId, panel.id, label);
+                                setTabContextMenu(null);
+                            }}
+                            onDelete={() => {
+                                setTabContextMenu(null);
+                                if (panels.length <= 1) {
+                                    showTabLinkCopiedToast('You must keep at least one tab.');
+                                    return;
+                                }
+                                setTabDeleteConfirm({
+                                    tabsBlockId: menu.tabsBlockId,
+                                    panelId: panel.id,
+                                    panelIndex,
+                                    label: String(panel.props.label ?? `Tab ${panelIndex + 1}`),
+                                });
+                            }}
+                            onOpenIconPicker={() => setTabContextMenuMode('icon')}
+                            onIconChange={(iconKey, customIcon) => {
+                                const custom =
+                                    iconKey === TAB_ICON_CUSTOM_KEY ? customIcon : '';
+                                const tabsLive = resolveEditorBlock(editor, menu.tabsBlockId);
+                                if (tabsLive?.type === 'notionTabs') {
+                                    const registry = updateRegistryPanelIcon(
+                                        readPanelRegistry(tabsLive),
+                                        panel.id,
+                                        iconKey,
+                                        custom,
+                                    );
+                                    editor.updateBlock(tabsLive, {
+                                        props: writePanelRegistry(tabsLive, registry),
+                                    });
+                                }
+                                const livePanel = resolveEditorBlock(editor, panel.id);
+                                if (livePanel) {
+                                    editor.updateBlock(livePanel, {
+                                        props: {
+                                            ...livePanel.props,
+                                            tabIcon: iconKey,
+                                            tabIconCustom: custom,
+                                        },
+                                    });
+                                }
+                            }}
+                        />,
+                    );
+                }
+            }
+        }
+
+        const deleteConfirm = getTabDeleteConfirm();
+        if (deleteConfirm) {
+            nodes.push(
+                <NotionTabDeleteDialog
+                    key="delete"
+                    label={deleteConfirm.label}
+                    onCancel={() => setTabDeleteConfirm(null)}
+                    onConfirm={() => {
+                        const { tabsBlockId, panelIndex } = deleteConfirm;
+                        setTabDeleteConfirm(null);
+                        runIntentionalTabDelete(() => {
+                            deleteNotionTabPanelAtIndex(editor, tabsBlockId, panelIndex, false);
+                        });
+                    }}
+                />,
+            );
+        }
+
+        const toast = getTabLinkCopiedToast();
+        if (toast) {
+            nodes.push(<NotionTabLinkToast key="toast" message={toast} />);
+        }
+
+        if (getTabRename()) {
+            nodes.push(<NotionTabRenameOverlay key="rename" editor={editor} />);
+        }
+
+        renderTabOverlays(nodes.length > 0 ? <>{nodes}</> : null);
+
+        return () => {
+            if (!isAnyTabOverlayOpen() && !getTabLinkCopiedToast()) {
+                renderTabOverlays(null);
+            }
+        };
+    }, [overlayKey, editor, pagePath]);
+
+    return null;
+}
+
+
+
+======== FILE: briselle-lightining.client\src\modules\notion-nest\components\NotionTabDeleteDialog.tsx ========
+
+import { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
+
+type Props = {
+    label: string;
+    onConfirm: () => void;
+    onCancel: () => void;
+};
+
+export default function NotionTabDeleteDialog({ label, onConfirm, onCancel }: Props) {
+    const rootRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const onKey = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') onCancel();
+        };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+    }, [onCancel]);
+
+    useEffect(() => {
+        const onOutside = (e: PointerEvent) => {
+            if (e.button !== 0) return;
+            const t = e.target;
+            if (!(t instanceof Node)) return;
+            if (rootRef.current?.contains(t)) return;
+            onCancel();
+        };
+        document.addEventListener('pointerdown', onOutside, true);
+        return () => document.removeEventListener('pointerdown', onOutside, true);
+    }, [onCancel]);
+
+    return createPortal(
+        <div className="notion-tab-dialog-backdrop" data-no-row-nav role="presentation">
+            <div
+                ref={rootRef}
+                className="notion-tab-dialog"
+                role="alertdialog"
+                aria-labelledby="notion-tab-delete-title"
+                aria-describedby="notion-tab-delete-desc"
+                data-notion-tab-dialog
+                onPointerDown={(e) => e.stopPropagation()}
+            >
+                <h3 id="notion-tab-delete-title" className="notion-tab-dialog__title">
+                    Delete tab?
+                </h3>
+                <p id="notion-tab-delete-desc" className="notion-tab-dialog__body">
+                    <strong>{label}</strong> and all of its content will be removed. This cannot be undone.
+                </p>
+                <div className="notion-tab-dialog__actions">
+                    <button type="button" className="notion-tab-dialog__btn" data-no-row-nav onClick={onCancel}>
+                        Cancel
+                    </button>
+                    <button
+                        type="button"
+                        className="notion-tab-dialog__btn notion-tab-dialog__btn--danger"
+                        data-no-row-nav
+                        onClick={onConfirm}
+                    >
+                        Delete tab
+                    </button>
+                </div>
+            </div>
+        </div>,
+        document.body,
+    );
+}
+
+
+
+======== FILE: briselle-lightining.client\src\modules\notion-nest\components\NotionTabLinkToast.tsx ========
+
+import { createPortal } from 'react-dom';
+
+type Props = {
+    message: string;
+};
+
+export default function NotionTabLinkToast({ message }: Props) {
+    return createPortal(
+        <div className="notion-tab-link-toast" role="status" aria-live="polite">
+            {message}
+        </div>,
+        document.body,
+    );
+}
+
+
+
+======== FILE: briselle-lightining.client\src\modules\notion-nest\components\NotionTabRenameOverlay.tsx ========
+
+import { useLayoutEffect, useRef, useState, useSyncExternalStore } from 'react';
+
+
+
+import type { NotionBlockNoteEditor } from '../notionBlockSchema';
+
+import { getTabPanelAnchorRect, getTabRenameTargetElement } from '../utils/notionTabMenuAnchor';
+
+import { commitTabRename } from '../utils/notionTabRename';
+
+import {
+
+    getTabRename,
+
+    isTabRenameGraceActive,
+
+    setTabRename,
+
+    subscribeTabsUiSession,
+
+    updateTabRenameDraft,
+
+} from '../tabs';
+
+
+
+type Props = {
+
+    editor: NotionBlockNoteEditor;
+
+};
+
+
+
+type RenameFieldBox = {
+
+    top: number;
+
+    left: number;
+
+    width: number;
+
+    height: number;
+
+    fontSize: string;
+
+    fontWeight: string;
+
+    textAlign: 'left' | 'center' | 'right';
+
+    paddingLeft: string;
+
+    paddingRight: string;
+
+};
+
+
+
+function measureRenameField(panelId: string, fallbackFontPx: number): RenameFieldBox {
+
+    const anchor = getTabPanelAnchorRect(panelId);
+
+    const tabEl = getTabRenameTargetElement(panelId);
+
+    if (!anchor || !tabEl) {
+
+        return {
+
+            top: 80,
+
+            left: 80,
+
+            width: 80,
+
+            height: 28,
+
+            fontSize: `${fallbackFontPx}px`,
+
+            fontWeight: '500',
+
+            textAlign: 'left',
+
+            paddingLeft: '0.75rem',
+
+            paddingRight: '0.75rem',
+
+        };
+
+    }
+
+    const cs = getComputedStyle(tabEl);
+
+    const justify = cs.justifyContent;
+
+    const textAlign: 'left' | 'center' | 'right' =
+
+        justify === 'center' || cs.textAlign === 'center'
+
+            ? 'center'
+
+            : justify === 'flex-end' || cs.textAlign === 'right'
+
+              ? 'right'
+
+              : 'left';
+
+    return {
+
+        top: anchor.top,
+
+        left: anchor.left,
+
+        width: anchor.width,
+
+        height: anchor.height,
+
+        fontSize: cs.fontSize,
+
+        fontWeight: cs.fontWeight,
+
+        textAlign,
+
+        paddingLeft: cs.paddingLeft,
+
+        paddingRight: cs.paddingRight,
+
+    };
+
+}
+
+
+
+/** Fixed-position rename field over the tab â€” survives tab-bar remounts from BlockNote. */
+
+export default function NotionTabRenameOverlay({ editor }: Props) {
+
+    const tabRename = useSyncExternalStore(subscribeTabsUiSession, getTabRename, getTabRename);
+
+    const inputRef = useRef<HTMLInputElement>(null);
+
+    const focusedEpochRef = useRef(-1);
+
+    const [fieldBox, setFieldBox] = useState<RenameFieldBox | null>(null);
+
+
+
+    const tabsBlock = tabRename ? editor.getBlock(tabRename.tabsBlockId) : null;
+
+    const tabProps = (tabsBlock?.props ?? {}) as Record<string, unknown>;
+
+    const tabHeight =
+
+        tabProps.tabHeight === 'small' || tabProps.tabHeight === 'large' ? tabProps.tabHeight : 'medium';
+
+    const fallbackFontPx = tabHeight === 'small' ? 12 : tabHeight === 'large' ? 15 : 14;
+
+    const tabAlignment =
+
+        tabProps.tabAlignment === 'center' || tabProps.tabAlignment === 'right'
+
+            ? tabProps.tabAlignment
+
+            : 'left';
+
+
+
+    useLayoutEffect(() => {
+
+        if (!tabRename) {
+
+            setFieldBox(null);
+
+            return;
+
+        }
+
+        const measured = measureRenameField(tabRename.panelId, fallbackFontPx);
+
+        setFieldBox({ ...measured, textAlign: tabAlignment });
+
+    }, [tabRename?.panelId, tabRename?.epoch, fallbackFontPx, tabAlignment]);
+
+
+
+    useLayoutEffect(() => {
+
+        if (!tabRename) return;
+
+        if (focusedEpochRef.current === tabRename.epoch) return;
+
+        focusedEpochRef.current = tabRename.epoch;
+
+        const id = requestAnimationFrame(() => {
+
+            inputRef.current?.focus();
+
+            inputRef.current?.select();
+
+        });
+
+        return () => cancelAnimationFrame(id);
+
+    }, [tabRename?.epoch, tabRename?.panelId]);
+
+
+
+    if (!tabRename || !fieldBox) return null;
+
+
+
+    const commit = (force = false) => {
+
+        if (!force && isTabRenameGraceActive()) return;
+
+        if (commitTabRename(editor, tabRename.draft, true)) {
+
+            focusedEpochRef.current = -1;
+
+        }
+
+    };
+
+
+
+    return (
+
+        <input
+
+            ref={inputRef}
+
+            className="notion-tabs-bar__rename-inline notion-tabs-bar__rename-overlay"
+
+            style={{
+
+                position: 'fixed',
+
+                top: fieldBox.top,
+
+                left: fieldBox.left,
+
+                width: fieldBox.width,
+
+                height: fieldBox.height,
+
+                fontSize: fieldBox.fontSize,
+
+                fontWeight: fieldBox.fontWeight,
+
+                textAlign: fieldBox.textAlign,
+
+                paddingLeft: fieldBox.paddingLeft,
+
+                paddingRight: fieldBox.paddingRight,
+
+                zIndex: 10060,
+
+            }}
+
+            value={tabRename.draft}
+
+            data-no-row-nav
+
+            data-notion-tab-rename-overlay
+
+            aria-label="Rename tab"
+
+            onChange={(e) => updateTabRenameDraft(e.target.value)}
+
+            onBlur={() => commit(true)}
+
+            onKeyDown={(e) => {
+
+                e.stopPropagation();
+
+                if (e.key === 'Enter') commit(true);
+
+                if (e.key === 'Escape') {
+
+                    focusedEpochRef.current = -1;
+
+                    setTabRename(null);
+
+                }
+
+            }}
+
+            onPointerDown={(e) => e.stopPropagation()}
+
+            onMouseDown={(e) => e.stopPropagation()}
+
+        />
+
+    );
+
+}
+
+
+
+
+
+======== FILE: briselle-lightining.client\src\modules\notion-nest\utils\notionTabMenuAnchor.ts ========
+
+/** DOM anchor for tab context menu (Notion-style: menu sits just above the tab). */
+
+export type TabMenuAnchor = {
+    top: number;
+    left: number;
+    width: number;
+    height: number;
+    bottom: number;
+};
+
+export type TabMenuPlacement = 'above-tab' | 'below-tab';
+
+export type FloatingMenuPosition = {
+    top: number;
+    left: number;
+    placement: TabMenuPlacement;
+};
+
+export const TAB_MENU_HEIGHT = 220;
+export const TAB_ICON_PICKER_HEIGHT = 400;
+
+export function getTabRenameTargetElement(panelId: string): HTMLElement | null {
+    const esc = typeof CSS !== 'undefined' && 'escape' in CSS ? CSS.escape(panelId) : panelId;
+    const wrap = document.querySelector(`[data-tab-panel-id="${esc}"]`);
+    if (!(wrap instanceof HTMLElement)) return null;
+    const tab =
+        wrap.querySelector<HTMLElement>('button[role="tab"]') ??
+        wrap.querySelector<HTMLElement>('[role="tab"]') ??
+        wrap.querySelector<HTMLElement>('button');
+    return tab ?? wrap;
+}
+
+export function getTabPanelAnchorRect(panelId: string): TabMenuAnchor | null {
+    const target = getTabRenameTargetElement(panelId);
+    if (!target) return null;
+    const rect = target.getBoundingClientRect();
+    if (rect.width <= 0 && rect.height <= 0) return null;
+    return {
+        top: rect.top,
+        left: rect.left,
+        width: rect.width,
+        height: rect.height,
+        bottom: rect.bottom,
+    };
+}
+
+export function resolveFloatingMenuPosition(
+    anchor: TabMenuAnchor,
+    menuWidth: number,
+    menuHeight: number,
+): FloatingMenuPosition {
+    const margin = 8;
+    const left = Math.max(margin, Math.min(anchor.left, window.innerWidth - menuWidth - margin));
+    const spaceAbove = anchor.top - margin;
+    const spaceBelow = window.innerHeight - anchor.bottom - margin;
+
+    if (spaceAbove >= menuHeight + margin || spaceAbove >= spaceBelow) {
+        return { top: anchor.top, left, placement: 'above-tab' };
+    }
+    return { top: anchor.bottom, left, placement: 'below-tab' };
+}
+
+export function menuPositionAboveTab(
+    anchor: TabMenuAnchor,
+    menuWidth: number,
+    menuHeight = TAB_MENU_HEIGHT,
+): FloatingMenuPosition {
+    return resolveFloatingMenuPosition(anchor, menuWidth, menuHeight);
+}
+
+
+
+======== FILE: briselle-lightining.client\src\modules\notion-nest\utils\notionTabRename.ts ========
+
+import type { NotionBlockNoteEditor } from '../notionBlockSchema';
+import { resolveEditorBlock } from './notionTabDeepLink';
+import { readPanelRegistry, writePanelRegistry } from '../tabs';
+import {
+    beginTabRenameSession,
+    getTabRename,
+    isTabRenameGraceActive,
+    setTabRename,
+} from '../tabs';
+
+export function startTabRename(tabsBlockId: string, panelId: string, label: string): void {
+    beginTabRenameSession(tabsBlockId, panelId, label);
+}
+
+export function commitTabRename(
+    editor: NotionBlockNoteEditor,
+    draft: string,
+    force = false,
+): boolean {
+    if (!force && isTabRenameGraceActive()) return false;
+    const state = getTabRename();
+    if (!state) return false;
+    const next = draft.trim() || 'Tab';
+    const tabs = resolveEditorBlock(editor, state.tabsBlockId);
+    if (tabs?.type === 'notionTabs') {
+        const registry = readPanelRegistry(tabs).map((e) =>
+            e.id === state.panelId ? { ...e, label: next } : e,
+        );
+        editor.updateBlock(tabs, { props: writePanelRegistry(tabs, registry) });
+    }
+    const livePanel = resolveEditorBlock(editor, state.panelId);
+    if (livePanel) {
+        editor.updateBlock(livePanel, { props: { ...livePanel.props, label: next } });
+    }
+    setTabRename(null);
+    return true;
+}
+
+
+
+======== FILE: briselle-lightining.client\src\modules\notion-nest\utils\notionTabDeepLink.ts ========
+
+import type { Block, BlockNoteEditor } from '@blocknote/core';
+import { activateNotionTab, findBlockInTree, getTabPanels } from '../tabs';
+
+const TAB_UUID =
+    '([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})';
+
+export function resolveEditorBlock(editor: BlockNoteEditor, blockId: string): Block | null {
+    const direct = editor.getBlock(blockId);
+    if (direct) return direct as Block;
+    const found = findBlockInTree(editor.document as Block[], blockId);
+    return found?.block ?? null;
+}
+
+/** Hash format: #tab:{tabsBlockId}:{panelId} (used for copy-link only; tab clicks do not update the URL). */
+export function buildTabDeepLinkHash(tabsBlockId: string, panelId: string): string {
+    return `tab:${tabsBlockId}:${panelId}`;
+}
+
+export function buildTabDeepLinkUrl(pagePath: string, tabsBlockId: string, panelId: string): string {
+    const path = pagePath.startsWith('/') ? pagePath : `/${pagePath}`;
+    return `${window.location.origin}${path}#${buildTabDeepLinkHash(tabsBlockId, panelId)}`;
+}
+
+export function parseTabDeepLinkHash(hash: string): { tabsBlockId: string; panelId: string } | null {
+    const raw = hash.startsWith('#') ? hash.slice(1) : hash;
+    const uuidPair = raw.match(new RegExp(`^tab:${TAB_UUID}:${TAB_UUID}$`, 'i'));
+    if (uuidPair) return { tabsBlockId: uuidPair[1], panelId: uuidPair[2] };
+
+    const loose = raw.match(/^tab:([^:]+):([^:]+)$/);
+    if (loose) return { tabsBlockId: loose[1], panelId: loose[2] };
+
+    if (raw.startsWith('tab-')) {
+        const rest = raw.slice(4);
+        const panelMatch = rest.match(
+            /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i,
+        );
+        if (panelMatch) {
+            const panelId = panelMatch[1];
+            const tabsBlockId = rest.slice(0, rest.length - panelId.length - 1);
+            if (tabsBlockId) return { tabsBlockId, panelId };
+        }
+    }
+    return null;
+}
+
+/** Remove tab deep-link hash from the address bar (tab clicks should not change the URL). */
+export function clearTabUrlHashIfPresent(): void {
+    const hash = window.location.hash;
+    if (!hash || !parseTabDeepLinkHash(hash)) return;
+    const base = `${window.location.pathname}${window.location.search}`;
+    window.history.replaceState(window.history.state, '', base);
+}
+
+function scrollTabsBlockIntoView(tabsBlockId: string): void {
+    const esc =
+        typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+            ? CSS.escape(tabsBlockId)
+            : tabsBlockId;
+    const outer = document.querySelector(
+        `.bn-block-outer[data-id="${esc}"].notion-tabs-outer`,
+    ) as HTMLElement | null;
+    outer?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+/**
+ * Open the tab from `#tab:{tabsBlockId}:{panelId}` when present in the URL.
+ * Returns true when the deep link was applied.
+ */
+export function applyTabDeepLinkFromHash(editor: BlockNoteEditor): boolean {
+    const parsed = parseTabDeepLinkHash(window.location.hash);
+    if (!parsed) return false;
+
+    const tabs = resolveEditorBlock(editor, parsed.tabsBlockId);
+    if (!tabs || tabs.type !== 'notionTabs') return false;
+
+    const panels = getTabPanels(tabs);
+    const index = panels.findIndex((p) => p.id === parsed.panelId);
+    if (index < 0) return false;
+
+    const ok = activateNotionTab(editor, parsed.tabsBlockId, index);
+    if (ok) {
+        requestAnimationFrame(() => scrollTabsBlockIntoView(parsed.tabsBlockId));
+    }
+    return ok;
+}
+
+
+
+======== FILE: briselle-lightining.client\src\modules\notion-nest\utils\notionTabClipboard.ts ========
+
+/** Copy text with Clipboard API, falling back to execCommand for non-secure contexts. */
+export async function copyTextToClipboard(text: string): Promise<boolean> {
+    try {
+        if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(text);
+            return true;
+        }
+    } catch {
+        /* fall through */
+    }
+    try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand('copy');
+        ta.remove();
+        return ok;
+    } catch {
+        return false;
+    }
+}
+
+
+
+======== FILE: briselle-lightining.client\src\modules\notion-nest\utils\notionTabShapes.ts ========
+
+import type { CSSProperties } from 'react';
+import { cn } from '../../../utils/helpers';
+import { normalizeTabShape, resolveTabShowUnderline } from '../../../components/ui/tabletemplates/utils/tabBarNormalize';
+
+export type NotionTabShapeId =
+    | 'standard'
+    | 'pill'
+    | 'button'
+    | 'segmented'
+    | 'trapezoid'
+    | 'trapezoid-asymmetric'
+    | 'minimal'
+    | 'tags'
+    | 'top-rounded';
+
+export const NOTION_TAB_SHAPE_OPTIONS: { value: NotionTabShapeId; label: string }[] = [
+    { value: 'standard', label: 'Standard' },
+    { value: 'pill', label: 'Pill' },
+    { value: 'button', label: 'Button' },
+    { value: 'segmented', label: 'Segmented' },
+    { value: 'trapezoid', label: 'Trapezoid (symmetric)' },
+    { value: 'trapezoid-asymmetric', label: 'Trapezoid (asymmetric)' },
+    { value: 'minimal', label: 'Minimal' },
+    { value: 'tags', label: 'Tags' },
+    { value: 'top-rounded', label: 'Top rounded' },
+];
+
+function tabUnderlineShadow(active: boolean, show: boolean, selectionColor?: string): CSSProperties {
+    if (!show) return {};
+    const c = active ? selectionColor || '#2563eb' : 'transparent';
+    return { boxShadow: `inset 0 -2px 0 0 ${c}` };
+}
+
+/** Active tab text color when Tab Highlight is enabled. */
+export function notionTabHighlightColorStyle(
+    active: boolean,
+    opts?: { tabShowUnderline?: boolean; selectionColor?: string },
+): CSSProperties {
+    if (!active || !opts?.tabShowUnderline) return {};
+    return { color: opts.selectionColor || '#2563eb' };
+}
+
+export function notionTabButtonClass(
+    shapeRaw: string,
+    active: boolean,
+    opts?: { tabShowUnderline?: boolean; selectionColor?: string },
+): string {
+    const shape = normalizeTabShape(shapeRaw);
+    const showUnderline = resolveTabShowUnderline(opts?.tabShowUnderline, shapeRaw);
+    const inactiveText = 'text-gray-600';
+    const hoverBg = 'hover:bg-gray-100';
+    const bb =
+        'flex items-center font-medium transition-colors shrink-0 outline-none focus:outline-none focus-visible:outline-none px-3 py-2 text-sm gap-2';
+
+    switch (shape) {
+        case 'pill':
+            return cn(
+                'inline-flex items-center justify-center font-medium transition-colors shrink-0 outline-none focus:outline-none focus-visible:outline-none',
+                'rounded-full px-4 py-1.5 text-sm leading-snug min-h-[1.75rem] whitespace-nowrap',
+                active
+                    ? 'bg-primary text-white shadow-sm'
+                    : 'bg-transparent text-gray-600 hover:bg-primary/10 hover:text-primary',
+            );
+        case 'button':
+            return cn(
+                bb,
+                'rounded-lg border border-gray-200',
+                active ? 'bg-white text-blue-700 border-blue-300 shadow-sm' : cn('bg-gray-50/80', inactiveText, hoverBg),
+            );
+        case 'segmented':
+            return cn(bb, 'rounded-md', active ? 'bg-white text-blue-700 shadow-sm' : cn(inactiveText, hoverBg));
+        case 'trapezoid':
+            return cn(
+                bb,
+                'px-4 py-2.5 [transform:skewX(-8deg)]',
+                active ? 'bg-blue-50 text-blue-700' : cn('bg-transparent', inactiveText, hoverBg),
+            );
+        case 'trapezoid-asymmetric':
+            return cn(
+                bb,
+                'px-4 py-2.5',
+                active ? 'bg-blue-50/90 text-blue-800' : cn('bg-gray-50/60', inactiveText, hoverBg),
+            );
+        case 'tags':
+            return cn(
+                bb,
+                'rounded-full border border-dashed border-gray-300 px-3 py-1.5',
+                active ? 'bg-amber-50 text-amber-900 border-amber-300' : cn('bg-gray-50', inactiveText, hoverBg),
+            );
+        case 'top-rounded':
+            return cn(
+                bb,
+                'rounded-t-lg border border-gray-200 px-4 py-2.5 -mb-px',
+                active ? 'bg-white text-blue-700 border-b-white z-[1]' : cn('bg-gray-50/90 border-b-transparent', inactiveText, hoverBg),
+            );
+        case 'minimal':
+            return cn(bb, active ? 'text-blue-600' : cn(inactiveText, hoverBg));
+        default:
+            return cn(bb, active ? 'text-blue-600 bg-blue-50/40' : cn(inactiveText, 'hover:text-gray-900'));
+    }
+}
+
+export function notionTabButtonStyle(
+    shapeRaw: string,
+    active: boolean,
+    opts?: { tabShowUnderline?: boolean; selectionColor?: string },
+): CSSProperties {
+    const showUnderline = resolveTabShowUnderline(opts?.tabShowUnderline, shapeRaw);
+    return tabUnderlineShadow(active, showUnderline, opts?.selectionColor);
+}
+
+
+
+======== FILE: briselle-lightining.client\src\modules\notion-nest\tabs\uiSession.ts ========
+
+import {
+    getTabPanelAnchorRect,
+    menuPositionAboveTab,
+    TAB_ICON_PICKER_HEIGHT,
+    TAB_MENU_HEIGHT,
+} from '../utils/notionTabMenuAnchor';
+
+const TAB_CONTEXT_MENU_WIDTH = 200;
+const TAB_ICON_MENU_WIDTH = 360;
+
+/** Survives BlockNote remounts when tab block props update (e.g. style changes). */
+const settingsMenuOpen = new Map<string, boolean>();
+
+export type TabContextMenuPlacement = 'above-tab' | 'below-tab' | 'pointer';
+
+export type TabContextMenuState = {
+    tabsBlockId: string;
+    panelId: string;
+    top: number;
+    left: number;
+    mode: 'menu' | 'icon';
+    /** Menu opens flush above the tab bar button (Notion-style). */
+    placement: TabContextMenuPlacement;
+};
+
+let tabContextMenu: TabContextMenuState | null = null;
+let tabContextMenuOpenedAt = 0;
+
+const uiSessionListeners = new Set<() => void>();
+
+function notifyTabsUiSession(): void {
+    for (const listener of uiSessionListeners) {
+        listener();
+    }
+}
+
+/** Re-render every tab settings anchor when any block opens/closes the panel. */
+export function subscribeTabsUiSession(onStoreChange: () => void): () => void {
+    uiSessionListeners.add(onStoreChange);
+    return () => uiSessionListeners.delete(onStoreChange);
+}
+
+/** Which field dropdown is open inside the settings popover (legacy; native selects do not use this). */
+const fieldMenuOpen = new Map<string, string | null>();
+
+/** Fixed position for portaled settings panel (survives React remounts). */
+const panelPosition = new Map<string, { top: number; left: number }>();
+
+export function getTabsSettingsMenuOpen(tabsBlockId: string): boolean {
+    return settingsMenuOpen.get(tabsBlockId) ?? false;
+}
+
+export function isAnyTabsSettingsOpen(): boolean {
+    for (const open of settingsMenuOpen.values()) {
+        if (open) return true;
+    }
+    return false;
+}
+
+export function setTabsSettingsMenuOpen(tabsBlockId: string, open: boolean): void {
+    if (open) {
+        for (const id of settingsMenuOpen.keys()) {
+            if (id !== tabsBlockId) {
+                settingsMenuOpen.set(id, false);
+                fieldMenuOpen.delete(id);
+                panelPosition.delete(id);
+            }
+        }
+    }
+    settingsMenuOpen.set(tabsBlockId, open);
+    if (!open) {
+        fieldMenuOpen.delete(tabsBlockId);
+        panelPosition.delete(tabsBlockId);
+    }
+    notifyTabsUiSession();
+}
+
+export function getTabsPanelPosition(tabsBlockId: string): { top: number; left: number } | null {
+    return panelPosition.get(tabsBlockId) ?? null;
+}
+
+export function setTabsPanelPosition(
+    tabsBlockId: string,
+    pos: { top: number; left: number } | null,
+): void {
+    if (pos) panelPosition.set(tabsBlockId, pos);
+    else panelPosition.delete(tabsBlockId);
+    notifyTabsUiSession();
+}
+
+export function getTabsFieldMenuOpen(tabsBlockId: string): string | null {
+    return fieldMenuOpen.get(tabsBlockId) ?? null;
+}
+
+export function setTabsFieldMenuOpen(tabsBlockId: string, field: string | null): void {
+    if (field === null) fieldMenuOpen.delete(tabsBlockId);
+    else fieldMenuOpen.set(tabsBlockId, field);
+}
+
+export function getTabContextMenu(): TabContextMenuState | null {
+    return tabContextMenu;
+}
+
+export function getTabContextMenuOpenedAt(): number {
+    return tabContextMenuOpenedAt;
+}
+
+export function isAnyTabContextMenuOpen(): boolean {
+    return tabContextMenu !== null;
+}
+
+export function isAnyTabOverlayOpen(): boolean {
+    return tabContextMenu !== null || tabDeleteConfirm !== null || tabRename !== null;
+}
+
+/** Survives tab-bar remount when the first click of a double-click activates another tab. */
+const TAB_DOUBLE_CLICK_MS = 420;
+let lastTabPointerTap: { panelId: string; at: number } | null = null;
+
+export function consumeTabDoublePointerDown(panelId: string): boolean {
+    const now = performance.now();
+    if (
+        lastTabPointerTap?.panelId === panelId &&
+        now - lastTabPointerTap.at <= TAB_DOUBLE_CLICK_MS
+    ) {
+        lastTabPointerTap = null;
+        return true;
+    }
+    lastTabPointerTap = { panelId, at: now };
+    return false;
+}
+
+export function clearTabDoublePointerDown(): void {
+    lastTabPointerTap = null;
+}
+
+export function setTabContextMenu(state: TabContextMenuState | null): void {
+    tabContextMenu = state;
+    if (state) tabContextMenuOpenedAt = performance.now();
+    else clearTabDoublePointerDown();
+    notifyTabsUiSession();
+}
+
+export function setTabContextMenuMode(mode: 'menu' | 'icon'): void {
+    if (!tabContextMenu) return;
+    const anchor = getTabPanelAnchorRect(tabContextMenu.panelId);
+    if (anchor) {
+        const w = mode === 'icon' ? TAB_ICON_MENU_WIDTH : TAB_CONTEXT_MENU_WIDTH;
+        const h = mode === 'icon' ? TAB_ICON_PICKER_HEIGHT : TAB_MENU_HEIGHT;
+        const pos = menuPositionAboveTab(anchor, w, h);
+        tabContextMenu = {
+            ...tabContextMenu,
+            mode,
+            top: pos.placement === 'above-tab' ? anchor.top : anchor.bottom,
+            left: pos.left,
+            placement: pos.placement,
+        };
+    } else {
+        tabContextMenu = { ...tabContextMenu, mode };
+    }
+    notifyTabsUiSession();
+}
+
+export type TabRenameState = {
+    tabsBlockId: string;
+    panelId: string;
+    draft: string;
+    /** Bumps when a new rename session starts (stable overlay focus). */
+    epoch: number;
+};
+
+let tabRename: TabRenameState | null = null;
+let tabRenameStartedAt = 0;
+let tabRenameEpoch = 0;
+
+export function getTabRename(): TabRenameState | null {
+    return tabRename;
+}
+
+export function isTabRenameGraceActive(): boolean {
+    return tabRename !== null && performance.now() - tabRenameStartedAt < 600;
+}
+
+export function setTabRename(state: TabRenameState | null): void {
+    tabRename = state;
+    if (state) tabRenameStartedAt = performance.now();
+    notifyTabsUiSession();
+}
+
+export function beginTabRenameSession(
+    tabsBlockId: string,
+    panelId: string,
+    draft: string,
+): void {
+    tabRenameEpoch += 1;
+    setTabRename({ tabsBlockId, panelId, draft, epoch: tabRenameEpoch });
+}
+
+export function updateTabRenameDraft(draft: string): void {
+    if (!tabRename || tabRename.draft === draft) return;
+    tabRename = { ...tabRename, draft };
+    notifyTabsUiSession();
+}
+
+export type TabDeleteConfirmState = {
+    tabsBlockId: string;
+    panelId: string;
+    panelIndex: number;
+    label: string;
+};
+
+let tabDeleteConfirm: TabDeleteConfirmState | null = null;
+
+export function getTabDeleteConfirm(): TabDeleteConfirmState | null {
+    return tabDeleteConfirm;
+}
+
+export function setTabDeleteConfirm(state: TabDeleteConfirmState | null): void {
+    tabDeleteConfirm = state;
+    notifyTabsUiSession();
+}
+
+let linkCopiedToast: string | null = null;
+let linkCopiedTimer: ReturnType<typeof setTimeout> | null = null;
+
+export function getTabLinkCopiedToast(): string | null {
+    return linkCopiedToast;
+}
+
+export function showTabLinkCopiedToast(message: string): void {
+    linkCopiedToast = message;
+    notifyTabsUiSession();
+    if (linkCopiedTimer) clearTimeout(linkCopiedTimer);
+    linkCopiedTimer = setTimeout(() => {
+        linkCopiedToast = null;
+        linkCopiedTimer = null;
+        notifyTabsUiSession();
+    }, 2200);
+}
+
+
+
+======== FILE: briselle-lightining.client\src\modules\notion-nest\notion-nest.css (lines 606-1195 — menu + settings CSS) ========
+
+.notion-tab-context-menu {
+    pointer-events: auto;
+    transform-origin: bottom left;
+    border-radius: 8px;
+    border: 1px solid #e5e7eb;
+    background: #fff;
+    box-shadow: 0 4px 24px rgba(15, 23, 42, 0.12);
+    padding: 4px 0;
+    font-size: 14px;
+    color: #37352f;
+}
+.notion-tab-context-menu--icon {
+    padding: 0;
+    overflow: hidden;
+    border-radius: 10px;
+}
+/* Notion-style tab icon / emoji picker (screenshot #1 layout, light theme) */
+.notion-tab-icon-picker {
+    display: flex;
+    flex-direction: column;
+    width: 360px;
+    max-width: min(360px, calc(100vw - 16px));
+    max-height: min(400px, 70vh);
+    background: #fff;
+    color: #37352f;
+    font-size: 13px;
+}
+.notion-tab-icon-picker__tabs {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px 6px;
+    border-bottom: 1px solid #f0f0f0;
+}
+.notion-tab-icon-picker__tab-list {
+    display: flex;
+    gap: 14px;
+}
+.notion-tab-icon-picker__tab {
+    border: none;
+    background: transparent;
+    color: #9ca3af;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 0 0 6px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+}
+.notion-tab-icon-picker__tab.is-active {
+    color: #111827;
+    border-bottom-color: #111827;
+}
+.notion-tab-icon-picker__remove {
+    border: none;
+    background: transparent;
+    color: #9ca3af;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 0 0 6px;
+}
+.notion-tab-icon-picker__remove:hover {
+    color: #374151;
+}
+.notion-tab-icon-picker__toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+}
+.notion-tab-icon-picker__search {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #f3f4f6;
+    border-radius: 8px;
+    padding: 6px 10px;
+    min-width: 0;
+}
+.notion-tab-icon-picker__search input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    outline: none;
+    font-size: 13px;
+    min-width: 0;
+}
+.notion-tab-icon-picker__tool-btn,
+.notion-tab-icon-picker__preview {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: #f3f4f6;
+    border-radius: 8px;
+    color: #6b7280;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.notion-tab-icon-picker__tool-btn:hover {
+    background: #e5e7eb;
+}
+.notion-tab-icon-picker__body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 0 10px 8px;
+}
+.notion-tab-icon-picker__section-label {
+    font-size: 11px;
+    color: #9ca3af;
+    margin: 4px 0 8px;
+}
+.notion-tab-icon-picker__emoji-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 2px;
+}
+.notion-tab-icon-picker__emoji-cell {
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    font-size: 20px;
+    line-height: 1.2;
+    padding: 4px 2px;
+    cursor: pointer;
+}
+.notion-tab-icon-picker__emoji-cell:hover,
+.notion-tab-icon-picker__emoji-cell.is-selected {
+    background: #f3f4f6;
+}
+.notion-tab-icon-picker__icon-grid {
+    display: grid;
+    grid-template-columns: repeat(10, 1fr);
+    gap: 4px;
+}
+.notion-tab-icon-picker__icon-cell {
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    padding: 8px;
+    color: #374151;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.notion-tab-icon-picker__icon-cell:hover,
+.notion-tab-icon-picker__icon-cell.is-selected {
+    background: #f3f4f6;
+    color: #111827;
+}
+.notion-tab-icon-picker__categories {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 8px 8px;
+    border-top: 1px solid #f0f0f0;
+    overflow-x: auto;
+}
+.notion-tab-icon-picker__cat {
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    padding: 6px 8px;
+    color: #9ca3af;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.notion-tab-icon-picker__cat:hover,
+.notion-tab-icon-picker__cat.is-active {
+    background: #f3f4f6;
+    color: #111827;
+}
+
+.notion-tab-icon-picker__upload {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 24px 16px;
+    text-align: center;
+}
+.notion-tab-icon-picker__upload-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #fff;
+    color: #374151;
+    font-size: 13px;
+    cursor: pointer;
+}
+.notion-tab-icon-picker__upload-btn:hover:not(:disabled) {
+    background: #f9fafb;
+}
+.notion-tab-icon-picker__upload-btn:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+.notion-tab-icon-picker__upload-hint {
+    margin: 0;
+    font-size: 12px;
+    color: #9ca3af;
+}
+.notion-tab-icon-picker__upload-error {
+    margin: 0;
+    font-size: 12px;
+    color: #dc2626;
+}
+.notion-tab-icon-picker__upload-preview {
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
+    object-fit: cover;
+    border: 1px solid #e5e7eb;
+}
+.notion-tab-context-menu__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    font-weight: 600;
+    font-size: 13px;
+    border-bottom: 1px solid #f0f0f0;
+}
+.notion-tab-context-menu__close {
+    border: none;
+    background: transparent;
+    font-size: 18px;
+    line-height: 1;
+    color: #6b7280;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+.notion-tab-context-menu__close:hover {
+    background: #f3f4f6;
+}
+.notion-tab-context-menu__item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    border: none;
+    background: transparent;
+    padding: 8px 12px;
+    text-align: left;
+    cursor: pointer;
+    color: inherit;
+}
+.notion-tab-context-menu__item:hover {
+    background: #f3f4f6;
+}
+.notion-tab-context-menu__item--danger {
+    color: #dc2626;
+}
+.notion-tab-context-menu__item--danger:hover {
+    background: #fef2f2;
+}
+.notion-tab-context-menu__divider {
+    height: 1px;
+    margin: 4px 0;
+    background: #f0f0f0;
+}
+.notion-tab-context-menu__emoji-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 10px;
+    font-size: 12px;
+    color: #6b7280;
+}
+.notion-tab-context-menu__emoji-field input {
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 18px;
+}
+.notion-tabs-bar__tab-icon {
+    display: inline-flex;
+    align-items: center;
+    margin-right: 4px;
+}
+.notion-tab-dialog-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 10060;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0.35);
+    padding: 16px;
+}
+.notion-tab-dialog {
+    width: min(100%, 360px);
+    border-radius: 10px;
+    border: 1px solid #e5e7eb;
+    background: #fff;
+    box-shadow: 0 12px 40px rgba(15, 23, 42, 0.18);
+    padding: 16px 18px;
+    pointer-events: auto;
+}
+.notion-tab-dialog__title {
+    margin: 0 0 8px;
+    font-size: 16px;
+    font-weight: 600;
+    color: #111827;
+}
+.notion-tab-dialog__body {
+    margin: 0 0 16px;
+    font-size: 14px;
+    line-height: 1.45;
+    color: #4b5563;
+}
+.notion-tab-dialog__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+.notion-tab-dialog__btn {
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #fff;
+    padding: 6px 12px;
+    font-size: 13px;
+    cursor: pointer;
+}
+.notion-tab-dialog__btn:hover {
+    background: #f9fafb;
+}
+.notion-tab-dialog__btn--danger {
+    border-color: #fecaca;
+    background: #fef2f2;
+    color: #b91c1c;
+}
+.notion-tab-dialog__btn--danger:hover {
+    background: #fee2e2;
+}
+.notion-tab-link-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10070;
+    padding: 10px 16px;
+    border-radius: 8px;
+    background: #1f2937;
+    color: #fff;
+    font-size: 13px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    pointer-events: none;
+}
+.notion-tabs-bar__rename {
+    font-size: 0.875rem;
+    border: 1px solid #3b82f6;
+    border-radius: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    margin-bottom: 0.15rem;
+    min-width: 5rem;
+    outline: none;
+}
+.notion-tabs-style-popover {
+    z-index: 10050;
+    pointer-events: auto;
+    width: 15rem;
+    max-width: min(15rem, calc(100vw - 1rem));
+    padding: 0;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    box-shadow:
+        0 4px 6px -1px rgba(0, 0, 0, 0.08),
+        0 12px 28px -4px rgba(15, 23, 42, 0.14);
+    overflow: visible;
+}
+#notion-tab-settings-host {
+    position: fixed;
+    inset: 0;
+    z-index: 10050;
+    pointer-events: none;
+}
+#notion-tab-settings-host > * {
+    pointer-events: auto;
+}
+.notion-tabs-style-popover--fixed {
+    margin: 0;
+    isolation: isolate;
+}
+.notion-tabs-style-popover--fixed,
+.notion-tabs-style-popover--fixed * {
+    pointer-events: auto;
+}
+.notion-tabs-style-popover__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.4rem 0.65rem;
+    border-bottom: 1px solid #f3f4f6;
+}
+.notion-tabs-style-popover__close {
+    border: none;
+    background: transparent;
+    color: #6b7280;
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 0.2rem;
+}
+.notion-tabs-style-popover__close:hover {
+    color: #111827;
+}
+.notion-tabs-style-popover__select-native {
+    width: 100%;
+    max-width: 9.5rem;
+    font-size: 0.75rem;
+    color: #111827;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.375rem;
+    padding: 0.3rem 0.45rem;
+    background: #fff;
+    cursor: pointer;
+    pointer-events: auto;
+}
+.notion-tabs-style-popover__select-native:focus {
+    outline: 2px solid #93c5fd;
+    outline-offset: 1px;
+}
+.notion-tabs-style-popover__heading {
+    margin: 0;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: #4b5563;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+.notion-tabs-style-popover__control-cluster {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.45rem;
+    flex-wrap: nowrap;
+}
+.notion-tabs-style-popover__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.4rem 0.75rem;
+}
+.notion-tabs-style-popover__label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #374151;
+    flex-shrink: 0;
+}
+.notion-tabs-style-popover__control {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    justify-content: flex-end;
+}
+.notion-tabs-style-popover__menu-select {
+    position: relative;
+    width: 100%;
+    max-width: 9.5rem;
+}
+.notion-tabs-style-popover__select-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.35rem;
+    width: 100%;
+    font-size: 0.75rem;
+    color: #111827;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.375rem;
+    padding: 0.3rem 0.45rem;
+    background: #fff;
+    cursor: pointer;
+    text-align: left;
+}
+.notion-tabs-style-popover__select-trigger:hover {
+    border-color: #d1d5db;
+    background: #f9fafb;
+}
+.notion-tabs-style-popover__select-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 2px);
+    z-index: 2500;
+    min-width: 100%;
+    max-width: 12rem;
+    max-height: 10rem;
+    overflow-y: auto;
+    margin: 0;
+    padding: 0.2rem;
+    list-style: none;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.375rem;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
+}
+.notion-tabs-style-popover__select-option {
+    display: block;
+    width: 100%;
+    text-align: left;
+    font-size: 0.72rem;
+    padding: 0.35rem 0.5rem;
+    border: none;
+    border-radius: 0.25rem;
+    background: transparent;
+    color: #374151;
+    cursor: pointer;
+}
+.notion-tabs-style-popover__select-option:hover {
+    background: #f3f4f6;
+}
+.notion-tabs-style-popover__select-option.is-active {
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-weight: 500;
+}
+.notion-tabs-style-popover__toggle {
+    position: relative;
+    display: inline-flex;
+    width: 2.125rem;
+    height: 1.25rem;
+    flex-shrink: 0;
+    border: none;
+    border-radius: 999px;
+    background: #e5e7eb;
+    cursor: pointer;
+    padding: 0;
+    transition: background-color 0.15s ease;
+}
+.notion-tabs-style-popover__toggle::after {
+    content: '';
+    position: absolute;
+    top: 0.125rem;
+    left: 0.125rem;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+    transition: transform 0.15s ease;
+}
+.notion-tabs-style-popover__toggle.is-on {
+    background: #2563eb;
+}
+.notion-tabs-style-popover__toggle.is-on::after {
+    transform: translateX(0.875rem);
+}
+.notion-tabs-style-popover__divider {
+    height: 1px;
+    margin: 0.15rem 0;
+    background: #f3f4f6;
+}
+.notion-tabs-style-popover__stepper {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.375rem;
+    overflow: hidden;
+    background: #f9fafb;
+}
+.notion-tabs-style-popover__step-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border: none;
+    background: transparent;
+    color: #374151;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+.notion-tabs-style-popover__step-btn:hover {
+    background: #f3f4f6;
+}
+.notion-tabs-style-popover__step-val {
+    min-width: 2.5rem;
+
+
+======== WIRING EXCERPT: NotionPageTabsBar.tsx (settings + menu open) ========
+
+function readStyleProps(props: Record<string, unknown>): NotionTabsStyleProps {
+    return {
+        tabStyle: String(props.tabStyle ?? 'standard'),
+        tabShowUnderline: props.tabShowUnderline === true,
+        tabGap: (() => {
+            const n = Number(props.tabGap);
+            return Number.isFinite(n) ? Math.min(32, Math.max(0, n)) : 8;
+        })(),
+        tabHeight:
+            props.tabHeight === 'small' || props.tabHeight === 'large'
+                ? props.tabHeight
+                : 'medium',
+        tabCustomSelection: props.tabCustomSelection === true,
+        tabSelectionColor: String(props.tabSelectionColor ?? '#2563eb'),
+        tabAlignment:
+            props.tabAlignment === 'center' || props.tabAlignment === 'right'
+                ? props.tabAlignment
+                : 'left',
+    };
+
+--- patchStyle ---
+    const patchStyle = useCallback(
+        (patch: Partial<NotionTabsStyleProps>) => {
+            const live = editor.getBlock(tabsId) ?? full;
+            editor.updateBlock(live, { props: { ...live.props, ...patch } });
+        },
+        [editor, tabsId, full],
+    );
+
+--- openTabMenuForPanel ---
+    const openTabMenuForPanel = useCallback(
+        (panel: Block, pointer?: { x: number; y: number }) => {
+            const anchor = getTabPanelAnchorRect(panel.id);
+            if (anchor) {
+                const pos = menuPositionAboveTab(anchor, 200, TAB_MENU_HEIGHT);
+                setTabContextMenu({
+                    tabsBlockId: tabsId,
+                    panelId: panel.id,
+                    top: pos.placement === 'above-tab' ? anchor.top : anchor.bottom,
+                    left: pos.left,
+                    mode: 'menu',
+                    placement: pos.placement,
+                });
+                return;
+            }
+            setTabContextMenu({
+                tabsBlockId: tabsId,
+                panelId: panel.id,
+                top: (pointer?.y ?? 80) + 4,
+                left: pointer?.x ?? 80,
+                mode: 'menu',
+                placement: 'pointer',
+            });
+        },
+        [tabsId],
+    );
+
+--- handleTabPointerDown ---
+    const handleTabPointerDown = useCallback(
+        (e: ReactPointerEvent, panel: Block, index: number) => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            e.stopPropagation();
+            setTabsInteracting(true);
+
+            const isDoubleTap = consumeTabDoublePointerDown(panel.id);
+
+            if (isDoubleTap) {
+                openTabMenuForPanel(panel, { x: e.clientX, y: e.clientY });
+                if (index !== active) {
+                    setActive(index, panel);
+                }
+                return;
+            }
+
+            if (index !== active) {
+                closeMenu();
+                setActive(index, panel);
+            }
+        },
+        [active, setActive, closeMenu, openTabMenuForPanel, setTabsInteracting],
+    );
+
+--- onContextMenu + NotionTabsStylePopover ---
+                                    onContextMenu={(e) => {
+                                        e.preventDefault();
+                                        e.stopPropagation();
+                                        openTabMenuForPanel(panel, { x: e.clientX, y: e.clientY });
+                                    }}
+                                >
+                                    {hasIcon ? (
+                                        <span className="notion-tabs-bar__tab-icon">
+                                            <TabBarIcon
+                                                iconKey={tabIcon}
+                                                customIcon={tabIconCustom}
+                                                size={14}
+                                            />
+                                        </span>
+                                    ) : null}
+                                    {showLabel ? (
+                                        <span className={shape === 'trapezoid' ? '[transform:skewX(8deg)]' : ''}>
+                                            {displayLabel}
+                                        </span>
+                                    ) : (
+                                        <span className="sr-only">Tab</span>
+                                    )}
+                                </button>
+                            </div>
+                        );
+                    })}
+                    <button
+                        type="button"
+                        className="notion-tabs-bar__add"
+                        title="Add tab"
+                        aria-label="Add tab"
+                        data-no-row-nav
+                        onPointerDown={(e) => {
+                            if (e.button !== 0) return;
+                            e.stopPropagation();
+                            closeMenu();
+                            addNotionTabPanel(editor, tabsId);
+                        }}
+                    >
+                        <Plus size={18} strokeWidth={2} />
+                    </button>
+                </div>
+
+                <NotionTabsStylePopover tabsBlockId={tabsId} value={style} onChange={patchStyle} />
+        </div>
+
+
+======== FILE: briselle-lightining.client\src\modules\notion-nest\utils\notionTabOverlaysHost.tsx ========
+
+import { createRoot, type Root } from 'react-dom/client';
+import type { ReactNode } from 'react';
+
+const OVERLAY_HOST_ID = 'notion-tab-overlays-host';
+
+let overlayRoot: Root | null = null;
+let overlayHost: HTMLDivElement | null = null;
+
+function ensureOverlayHost(): Root {
+    if (!overlayHost) {
+        overlayHost = document.createElement('div');
+        overlayHost.id = OVERLAY_HOST_ID;
+        overlayHost.style.position = 'fixed';
+        overlayHost.style.left = '0';
+        overlayHost.style.top = '0';
+        overlayHost.style.width = '0';
+        overlayHost.style.height = '0';
+        overlayHost.style.overflow = 'visible';
+        overlayHost.style.zIndex = '10050';
+        overlayHost.style.pointerEvents = 'none';
+        document.body.appendChild(overlayHost);
+        overlayRoot = createRoot(overlayHost);
+    }
+    return overlayRoot!;
+}
+
+export function renderTabOverlays(node: ReactNode | null): void {
+    if (!node) {
+        if (!overlayHost) return;
+        overlayRoot?.render(null);
+        overlayHost.remove();
+        overlayHost = null;
+        overlayRoot = null;
+        return;
+    }
+    ensureOverlayHost().render(node);
+}
+

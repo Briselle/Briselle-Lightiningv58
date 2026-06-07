@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="NotionNest — A powerful, minimal workspace for notes, tasks, and projects. Organize your thoughts and collaborate seamlessly.">
+  <meta name="theme-color" content="#ffffff">
+  <meta name="robots" content="index, follow">
+  <meta property="og:title" content="NotionNest">
+  <meta property="og:description" content="A powerful, minimal workspace for notes, tasks, and projects.">
+  <meta property="og:type" content="website">
+  <title>NotionNest</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏠</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+  <div class="notion-app" id="notionApp">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="sidebar-workspace">
+          <span class="workspace-icon">🏠</span>
+          <span class="workspace-name">NotionNest</span>
+        </div>
+        <button class="sidebar-collapse-btn" id="sidebarCollapseBtn" title="Close sidebar">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M7.07 11.35L3.72 8l3.35-3.35-.7-.71L2.3 8l4.07 4.06.7-.71zm5.66 0L9.38 8l3.35-3.35-.7-.71L7.96 8l4.07 4.06.7-.71z"/></svg>
+        </button>
+      </div>
+      <div class="sidebar-search" id="sidebarSearch">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><path d="M5.5 0a5.5 5.5 0 014.38 8.82l3.65 3.65-.71.71-3.65-3.65A5.5 5.5 0 115.5 0zm0 1a4.5 4.5 0 100 9 4.5 4.5 0 000-9z"/></svg>
+        <span>Search</span>
+      </div>
+      <nav class="sidebar-nav" id="sidebarNav">
+        <div class="sidebar-section">Private</div>
+        <div class="sidebar-item active" data-page="getting-started">
+          <span class="sidebar-item-icon">📝</span>
+          <span class="sidebar-item-name">Getting Started</span>
+        </div>
+        <div class="sidebar-item" data-page="tasks">
+          <span class="sidebar-item-icon">✅</span>
+          <span class="sidebar-item-name">Tasks</span>
+        </div>
+        <div class="sidebar-item" data-page="notes">
+          <span class="sidebar-item-icon">📒</span>
+          <span class="sidebar-item-name">Notes</span>
+        </div>
+        <div class="sidebar-item" data-page="projects">
+          <span class="sidebar-item-icon">🚀</span>
+          <span class="sidebar-item-name">Projects</span>
+        </div>
+      </nav>
+      <div class="sidebar-new-page" id="newPageBtn">
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor"><path d="M7 0v14M0 7h14" stroke="currentColor" stroke-width="1.5"/></svg>
+        <span>New page</span>
+      </div>
+    </aside>
+
+    <!-- Main Content -->
+    <div class="main-content" id="mainContent">
+      <!-- Top Bar -->
+      <div class="topbar" id="topbar">
+        <div class="topbar-left">
+          <button class="sidebar-toggle" id="sidebarToggle" title="Toggle sidebar">
+            <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h14M2 9h14M2 14h14"/></svg>
+          </button>
+          <div class="topbar-breadcrumb" id="topbarBreadcrumb">
+            <span class="breadcrumb-icon">📝</span>
+            <span class="breadcrumb-title">Getting Started</span>
+          </div>
+        </div>
+        <div class="topbar-actions">
+          <button class="topbar-btn" title="Share">
+            Share
+          </button>
+          <button class="topbar-btn topbar-btn-icon" id="favoriteBtn" title="Add to favorites">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.2"><path d="M8 1.5l2.1 4.3 4.7.7-3.4 3.3.8 4.7L8 12.2l-4.2 2.3.8-4.7L1.2 6.5l4.7-.7z"/></svg>
+          </button>
+          <button class="topbar-btn topbar-btn-icon" title="More options">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><circle cx="4" cy="8" r="1.5"/><circle cx="8" cy="8" r="1.5"/><circle cx="12" cy="8" r="1.5"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <!-- Page Content Area -->
+      <div class="page-scroll" id="pageScroll">
+        <div class="page-content" id="pageContent">
+          <!-- Page Header -->
+          <div class="page-header" id="pageHeader">
+            <div class="page-icon-wrapper" id="pageIconWrapper">
+              <span class="page-icon" id="pageIcon" title="Click to change icon">📝</span>
+            </div>
+            <div class="page-title" id="pageTitle" contenteditable="true" data-placeholder="Untitled" spellcheck="false">Getting Started</div>
+          </div>
+
+          <!-- Blocks Container - populated by JS -->
+          <div class="blocks-container" id="blocksContainer"></div>
+
+          <!-- Click area below blocks to add new block -->
+          <div class="page-bottom-space" id="pageBottomSpace"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Slash Command Menu (hidden by default, positioned by JS) -->
+  <div class="slash-menu hidden" id="slashMenu"></div>
+
+  <!-- Inline Formatting Toolbar (hidden by default) -->
+  <div class="inline-toolbar hidden" id="inlineToolbar">
+    <button class="inline-toolbar-btn" data-command="bold" title="Bold (Ctrl+B)">
+      <strong>B</strong>
+    </button>
+    <button class="inline-toolbar-btn" data-command="italic" title="Italic (Ctrl+I)">
+      <em>I</em>
+    </button>
+    <button class="inline-toolbar-btn" data-command="underline" title="Underline (Ctrl+U)">
+      <u>U</u>
+    </button>
+    <button class="inline-toolbar-btn" data-command="strikethrough" title="Strikethrough">
+      <s>S</s>
+    </button>
+    <span class="inline-toolbar-divider"></span>
+    <button class="inline-toolbar-btn" data-command="code" title="Inline Code (Ctrl+E)">
+      <code>&lt;&gt;</code>
+    </button>
+    <button class="inline-toolbar-btn" data-command="link" title="Link">
+      🔗
+    </button>
+  </div>
+
+  <!-- Context Menu (hidden by default) -->
+  <div class="context-menu hidden" id="contextMenu"></div>
+
+  <!-- Emoji Picker (hidden by default) -->
+  <div class="emoji-picker hidden" id="emojiPicker"></div>
+
+  <script src="app.js" defer></script>
+</body>
+</html>

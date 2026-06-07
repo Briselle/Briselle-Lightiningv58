@@ -1,7 +1,8 @@
 /**
- * Single source of truth for Lucide-based icon pickers (objects, tabs, presets, tab panel).
- * Curated to 100 popular SaaS-style icons; keys are stable kebab-case for JSON / platform_config.
+ * Single source of truth for icon pickers (objects, tabs, presets, sidebar): 100 Lucide icons
+ * plus one "Custom (emoji)" row. Keys are stable kebab-case for JSON / platform_config.
  */
+import type { ReactNode } from 'react';
 import { useMemo, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -82,6 +83,7 @@ import {
     ShoppingCart,
     SlidersHorizontal,
     Smartphone,
+    Sparkles,
     Star,
     Store,
     Table,
@@ -109,6 +111,9 @@ import {
 import { cn } from './helpers';
 
 export type UiIconPickerEntry = { key: string; label: string; Icon: LucideIcon };
+
+/** Stored value when the user picks emoji instead of a Lucide key (shared by objects, tabs, presets). */
+export const UI_ICON_CUSTOM_KEY = 'custom';
 
 /** Tab / table settings defaults + object legacy keys + SaaS staples — exactly 100 Lucide-backed options. */
 const CORE_TAB_AND_OBJECT_ICONS: UiIconPickerEntry[] = [
@@ -217,12 +222,22 @@ const EXTENDED_SAAS_ICONS: UiIconPickerEntry[] = [
     { key: 'book-open', label: 'Docs / guide', Icon: BookOpen },
 ];
 
-export const UI_ICON_PICKER_OPTIONS: UiIconPickerEntry[] = [...CORE_TAB_AND_OBJECT_ICONS, ...EXTENDED_SAAS_ICONS];
+/** Exactly 100 Lucide-only entries (before the custom row). */
+const UI_ICON_LUCIDE_PICKER_ENTRIES: UiIconPickerEntry[] = [...CORE_TAB_AND_OBJECT_ICONS, ...EXTENDED_SAAS_ICONS];
 
-if (import.meta.env.DEV && UI_ICON_PICKER_OPTIONS.length !== 100) {
+if (import.meta.env.DEV && UI_ICON_LUCIDE_PICKER_ENTRIES.length !== 100) {
     // eslint-disable-next-line no-console
-    console.warn(`[uiIconPickerCatalog] expected 100 icons, got ${UI_ICON_PICKER_OPTIONS.length}`);
+    console.warn(`[uiIconPickerCatalog] expected 100 Lucide icons, got ${UI_ICON_LUCIDE_PICKER_ENTRIES.length}`);
 }
+
+const UI_ICON_CUSTOM_ENTRY: UiIconPickerEntry = {
+    key: UI_ICON_CUSTOM_KEY,
+    label: 'Custom (emoji)',
+    Icon: Sparkles,
+};
+
+/** Full picker list: 100 Lucide icons + Custom (emoji). Default for `UiIconPickerSelect` and tabs/presets. */
+export const UI_ICON_PICKER_OPTIONS: UiIconPickerEntry[] = [...UI_ICON_LUCIDE_PICKER_ENTRIES, UI_ICON_CUSTOM_ENTRY];
 
 export const UI_ICON_MAP: Record<string, LucideIcon> = Object.fromEntries(
     UI_ICON_PICKER_OPTIONS.map((o) => [o.key, o.Icon]),
@@ -232,8 +247,47 @@ export const DEFAULT_UI_ICON_KEY = 'table';
 
 export function normalizeUiIconKey(raw: unknown, fallback: string = DEFAULT_UI_ICON_KEY): string {
     const v = String(raw ?? '').trim().toLowerCase();
+    if (v === UI_ICON_CUSTOM_KEY) return UI_ICON_CUSTOM_KEY;
     if (v && UI_ICON_MAP[v]) return v;
     return fallback;
+}
+
+/** Renders Lucide, Sparkles placeholder for custom-without-emoji, or emoji when `customEmoji` is set. */
+export function getPickerIconNode(
+    iconKey: unknown,
+    size = 20,
+    customEmoji?: unknown,
+    className?: string,
+): ReactNode {
+    const k = normalizeUiIconKey(iconKey);
+    const emoji = String(customEmoji ?? '').trim();
+    if (k === UI_ICON_CUSTOM_KEY && emoji) {
+        if (/^(data:image\/|https?:\/\/)/i.test(emoji)) {
+            return (
+                <img
+                    src={emoji}
+                    alt=""
+                    className={cn('shrink-0 rounded object-cover', className)}
+                    style={{ width: size, height: size }}
+                    aria-hidden
+                />
+            );
+        }
+        return (
+            <span
+                className={cn('inline-flex items-center justify-center leading-none select-none', className)}
+                style={{ fontSize: Math.max(size, 14) }}
+                aria-hidden
+            >
+                {emoji}
+            </span>
+        );
+    }
+    if (k === UI_ICON_CUSTOM_KEY) {
+        return <Sparkles size={size} className={cn('shrink-0 opacity-70', className)} aria-hidden />;
+    }
+    const Icon = UI_ICON_MAP[k] ?? Table;
+    return <Icon size={size} className={cn('shrink-0', className)} aria-hidden />;
 }
 
 /** Searchable icon picker: filter + native select (shared by objects, tabs, presets). */
@@ -257,7 +311,7 @@ export function UiIconPickerSelect({
     showSearch?: boolean;
     dense?: boolean;
     disabled?: boolean;
-    /** Defaults to the global 100-icon list; tabs/presets pass list + custom row separately. */
+    /** Defaults to the global list (100 Lucide + Custom emoji row). */
     options?: UiIconPickerEntry[];
 }) {
     const [q, setQ] = useState('');

@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { GripVertical, ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from '../../../../utils/helpers';
 import { getButtonOrder, BUTTON_DEFINITIONS } from '../utils/actionPanelOrder';
+import { TableSettingsColorFieldWithClear } from '../utils/tabSettingsColorInputs';
 
 function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
     return (
@@ -394,10 +395,11 @@ const DisplaySettingsSection: React.FC<DisplaySettingsSectionProps> = ({
                                 <div className="text-sm text-gray-700 px-3 py-2 border-b border-gray-100 flex items-center">Enable Title Background</div>
                                 <div className="px-3 py-2 border-b border-gray-100 flex items-center min-w-0">
                                     {config.enableTitleBackground && (
-                                        <div className="flex items-center gap-2">
-                                            <input type="color" value={config.titleBackgroundColor || '#ffffff'} onChange={(e) => onChange('titleBackgroundColor', e.target.value)} className="w-8 h-8 rounded border border-gray-300 cursor-pointer" />
-                                            <button type="button" onClick={() => onChange('titleBackgroundColor', '#ffffff')} className="text-xs px-2 py-1 bg-gray-200 rounded hover:bg-gray-300">Clear</button>
-                                        </div>
+                                        <TableSettingsColorFieldWithClear
+                                            value={config.titleBackgroundColor || '#ffffff'}
+                                            onChange={(hex) => onChange('titleBackgroundColor', hex)}
+                                            onClear={() => onChange('titleBackgroundColor', '#ffffff')}
+                                        />
                                     )}
                                 </div>
                                 <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-end">

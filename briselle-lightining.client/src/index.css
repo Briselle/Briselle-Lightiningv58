@@ -4,7 +4,7 @@
 
 @layer base {
     :root {
-        --color-primary: 1 118 211; /* Salesforce Blue */
+        --color-primary: 1 118 211; /* Primary brand blue */
         --color-secondary: 112 110 107; /* Gray */
         --color-accent: 72 26 90; /* Purple */
         --color-success: 4 132 75; /* Green */

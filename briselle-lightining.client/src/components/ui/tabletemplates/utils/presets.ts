@@ -139,7 +139,7 @@ export const DEFAULT_PRESETS: TablePreset[] = [
                 "enableSettings": true,
                 "freezePaneColumnIndexNo": 1,
                 "enableTooltips": true,
-                "enableInlineEdit": ["dobj_name_display", "dobj_description"],
+                "enableInlineEdit": [],
                 "enableBulkActions": true,
                 "editActionButtonType": "icon",
                 "editActionButtonAlign": "right",

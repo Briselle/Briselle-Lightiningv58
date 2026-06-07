@@ -1,0 +1,1496 @@
+/* ZIVA Chat – Briselle platform UI / Salesforce Lightning-inspired docked assistant */
+
+.ziva-chat-wrapper {
+  /* Matches app index.css --color-primary: 1 118 211 */
+  --ziva-brand: rgb(1, 118, 211);
+  --ziva-brand-hover: rgb(1, 97, 175);
+  --ziva-brand-tint: rgba(1, 118, 211, 0.1);
+  --ziva-brand-tint-strong: rgba(1, 118, 211, 0.16);
+  --ziva-brand-ring: rgba(1, 118, 211, 0.35);
+  --ziva-surface: #ffffff;
+  --ziva-surface-alt: #fafaf9;
+  --ziva-page: #f3f3f3;
+  --ziva-text: #111827;
+  --ziva-text-weak: #374151;
+  --ziva-text-muted: #6b7280;
+  --ziva-border: #e5e7eb;
+  --ziva-border-strong: #d1d5db;
+  --ziva-shadow-fab: 0 2px 8px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.06);
+  --ziva-shadow-panel: 0 -8px 32px rgba(0, 0, 0, 0.12), 0 0 0 1px rgba(0, 0, 0, 0.04);
+  --ziva-radius-sm: 4px;
+  --ziva-radius-md: 0.5rem;
+  --ziva-radius-lg: 12px;
+  --ziva-success: rgb(4, 132, 75);
+
+  position: fixed;
+  bottom: 0;
+  right: 0;
+  z-index: 9999;
+  font-family: inherit;
+  font-size: 0.875rem;
+  color: var(--ziva-text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* FAB – utility / docked assistant (Lightning “utility bar” feel) */
+.ziva-chat-fab {
+  position: absolute;
+  bottom: 24px;
+  right: 24px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 14px;
+  transition: transform 0.2s ease, opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.ziva-chat-wrapper:has(.ziva-chat-panel-open) .ziva-chat-fab {
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.ziva-chat-fab:hover {
+  transform: scale(1.04);
+}
+
+.ziva-chat-fab:focus-visible {
+  outline: 2px solid var(--ziva-brand);
+  outline-offset: 3px;
+}
+
+.ziva-fab-circle {
+  width: 56px;
+  height: 56px;
+  border-radius: 20px 20px 6px 20px;
+  background: var(--ziva-surface);
+  border: 1px solid var(--ziva-border);
+  box-shadow: var(--ziva-shadow-fab);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+  flex-shrink: 0;
+  position: relative;
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.ziva-chat-fab:hover .ziva-fab-circle {
+  border-color: var(--ziva-border-strong);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.1),
+    0 0 0 1px rgba(1, 118, 211, 0.12);
+}
+
+.ziva-fab-logo {
+  width: 26px;
+  height: auto;
+  object-fit: contain;
+  display: block;
+  position: relative;
+  z-index: 1;
+}
+
+.ziva-fab-sparkle {
+  position: absolute;
+  top: -1px;
+  right: -2px;
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  opacity: 0.95;
+  z-index: 2;
+  pointer-events: none;
+  /* White asset → brand blue on light FAB */
+  filter: brightness(0) saturate(100%) invert(27%) sepia(95%) saturate(3456%) hue-rotate(189deg)
+    brightness(95%) contrast(101%);
+}
+
+.ziva-fab-ai-tag {
+  position: absolute;
+  bottom: 4px;
+  right: 4px;
+  padding: 2px 6px;
+  border-radius: var(--ziva-radius-sm);
+  background: var(--ziva-brand);
+  color: #fff;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  z-index: 3;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.ziva-fab-label {
+  display: none;
+  font-weight: 600;
+  font-size: 0.875rem;
+  color: var(--ziva-text-weak);
+}
+
+.ziva-chat-fab-open {
+  width: auto;
+  border-radius: 28px;
+}
+
+.ziva-chat-fab-open .ziva-fab-label {
+  display: inline;
+}
+
+/* Panel – SLDS-style utility panel */
+.ziva-chat-panel {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 100vw;
+  max-width: 400px;
+  height: 0;
+  max-height: min(85vh, 620px);
+  background: var(--ziva-surface);
+  border: 1px solid var(--ziva-border);
+  border-radius: var(--ziva-radius-lg) var(--ziva-radius-lg) 0 0;
+  box-shadow: var(--ziva-shadow-panel);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(100%);
+  transition: height 0.25s ease, opacity 0.2s ease, visibility 0.2s ease, transform 0.25s ease;
+}
+
+.ziva-chat-panel-open {
+  height: min(85vh, 620px);
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+@media (max-width: 480px) {
+  .ziva-chat-wrapper {
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-width: 100vw;
+    box-sizing: border-box;
+    display: flex;
+    justify-content: flex-end;
+    padding: 0 8px;
+  }
+  .ziva-chat-panel {
+    left: auto;
+    right: 0;
+    width: calc(100% - 16px);
+    max-width: 360px;
+    max-height: min(90vh, 560px);
+    border-radius: var(--ziva-radius-md) var(--ziva-radius-md) 0 0;
+    box-sizing: border-box;
+  }
+  .ziva-chat-panel-open {
+    height: min(90vh, 560px);
+  }
+  .ziva-chat-fab {
+    bottom: 16px;
+    right: 16px;
+    width: 48px;
+    height: 48px;
+  }
+  .ziva-fab-circle {
+    width: 48px;
+    height: 48px;
+    border-radius: 16px 16px 4px 16px;
+  }
+  .ziva-fab-logo {
+    width: 22px;
+  }
+  .ziva-fab-sparkle {
+    width: 22px;
+    height: 22px;
+  }
+  .ziva-fab-ai-tag {
+    font-size: 0.55rem;
+    padding: 1px 4px;
+    bottom: 2px;
+    right: 2px;
+  }
+  .ziva-chat-header {
+    padding: 10px 12px;
+  }
+  .ziva-chat-logo {
+    font-size: 1.05rem;
+  }
+  .ziva-chat-tagline {
+    font-size: 0.65rem;
+  }
+  .ziva-chat-link-page {
+    font-size: 0.75rem;
+    padding: 4px 8px;
+  }
+  .ziva-chat-close {
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    min-height: 32px;
+  }
+  .ziva-chat-welcome {
+    padding: 12px;
+  }
+  .ziva-chat-welcome-text {
+    font-size: 0.88rem;
+    margin-bottom: 6px;
+  }
+  .ziva-chat-role-prompt {
+    font-size: 0.75rem;
+    margin-bottom: 10px;
+  }
+  .ziva-chat-roles {
+    gap: 6px;
+  }
+  .ziva-role-tag {
+    padding: 5px 10px;
+    font-size: 0.75rem;
+  }
+  .ziva-chat-messages {
+    padding: 10px 12px;
+    gap: 10px;
+  }
+  .ziva-msg {
+    max-width: 95%;
+    gap: 8px;
+  }
+  .ziva-msg-avatar {
+    width: 28px;
+    height: 28px;
+    min-width: 28px;
+    min-height: 28px;
+  }
+  .ziva-msg-bubble {
+    padding: 8px 12px;
+    border-radius: var(--ziva-radius-md);
+    font-size: 0.85rem;
+  }
+  .ziva-msg-nav,
+  .ziva-msg-contact {
+    padding-left: 36px;
+  }
+  .ziva-chat-panel .ziva-nav-links .ziva-nav-link,
+  .ziva-chat-panel .ziva-nav-links a.ziva-nav-link,
+  .ziva-chat-panel .ziva-nav-links button.ziva-nav-link {
+    height: 26px !important;
+    min-height: 26px !important;
+    max-height: 26px !important;
+    padding: 0 8px !important;
+    font-size: 0.65rem !important;
+    white-space: normal !important;
+  }
+  .ziva-chat-suggestions {
+    padding: 6px 12px 10px;
+  }
+  .ziva-suggestions-label {
+    font-size: 0.7rem;
+    margin-bottom: 6px;
+  }
+  .ziva-suggestion-chip {
+    padding: 5px 10px;
+    font-size: 0.75rem;
+  }
+  .ziva-footer-ai-suggestions .ziva-ai-suggestion-chip {
+    padding: 3px 7px;
+    font-size: 0.65rem;
+  }
+  .ziva-composer {
+    margin: 6px 10px 10px;
+    border-radius: 10px;
+  }
+  .ziva-composer-input {
+    font-size: 0.85rem;
+    padding: 10px 12px 2px;
+  }
+  .ziva-composer-model-select {
+    max-width: 5.5rem;
+  }
+}
+
+@media (max-width: 360px) {
+  .ziva-chat-fab {
+    bottom: 12px;
+    right: 12px;
+  }
+}
+
+/* Header – matches app chrome (white bar + hairline border) */
+.ziva-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  background: var(--ziva-surface);
+  border-bottom: 1px solid var(--ziva-border);
+  flex-shrink: 0;
+}
+
+.ziva-chat-header-brand {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.ziva-chat-logo {
+  font-weight: 700;
+  font-size: 1.125rem;
+  letter-spacing: 0.06em;
+  color: var(--ziva-text);
+}
+
+.ziva-logo-i-wrap {
+  position: relative;
+  display: inline-block;
+  vertical-align: baseline;
+  padding-top: 0.15em;
+}
+
+.ziva-logo-sparkle {
+  position: absolute;
+  left: 50%;
+  top: -0.35em;
+  transform: translateX(-50%);
+  width: 0.65em;
+  height: 0.65em;
+  object-fit: contain;
+  opacity: 0.95;
+  pointer-events: none;
+  filter: brightness(0) saturate(100%) invert(27%) sepia(95%) saturate(3456%) hue-rotate(189deg)
+    brightness(95%) contrast(101%);
+}
+
+.ziva-chat-tagline {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ziva-text-muted);
+  margin-top: 2px;
+}
+
+.ziva-chat-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ziva-chat-link-page {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--ziva-brand);
+  text-decoration: none;
+  padding: 6px 10px;
+  border-radius: var(--ziva-radius-md);
+  border: 1px solid transparent;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.ziva-chat-link-page:hover {
+  color: var(--ziva-brand-hover);
+  background: var(--ziva-brand-tint);
+  border-color: rgba(1, 118, 211, 0.2);
+}
+
+.ziva-chat-close {
+  width: 36px;
+  height: 36px;
+  border: none;
+  background: transparent;
+  color: var(--ziva-text-muted);
+  border-radius: var(--ziva-radius-md);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ziva-chat-close:hover {
+  color: var(--ziva-text);
+  background: var(--ziva-page);
+}
+
+.ziva-chat-close:focus-visible {
+  outline: 2px solid var(--ziva-brand);
+  outline-offset: 2px;
+}
+
+/* Body */
+.ziva-chat-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--ziva-page);
+}
+
+.ziva-chat-welcome {
+  padding: 16px;
+  flex-shrink: 0;
+  background: var(--ziva-surface);
+  border-bottom: 1px solid var(--ziva-border);
+}
+
+.ziva-chat-welcome-text {
+  font-size: 0.9375rem;
+  color: var(--ziva-text);
+  margin-bottom: 8px;
+  line-height: 1.5;
+  font-weight: 500;
+}
+
+.ziva-chat-role-prompt {
+  font-size: 0.8125rem;
+  color: var(--ziva-text-muted);
+  margin-bottom: 12px;
+  line-height: 1.45;
+}
+
+.ziva-chat-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ziva-chat-roles-tight {
+  margin-top: 4px;
+}
+
+.ziva-wizard-block {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.ziva-wizard-back {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--ziva-brand);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.ziva-wizard-back:hover {
+  color: var(--ziva-brand-hover);
+  text-decoration: underline;
+}
+
+.ziva-role-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: 9999px;
+  border: 1px solid var(--ziva-border-strong);
+  background: var(--ziva-surface-alt);
+  color: var(--ziva-text-weak);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ziva-role-tag:hover {
+  border-color: var(--ziva-brand);
+  background: var(--ziva-surface);
+  color: var(--ziva-text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+
+.ziva-role-tag-active {
+  border-color: var(--ziva-brand);
+  background: var(--ziva-brand-tint);
+  color: var(--ziva-brand-hover);
+  box-shadow: inset 0 0 0 1px rgba(1, 118, 211, 0.15);
+}
+
+.ziva-role-tag i {
+  font-size: 0.85rem;
+  color: var(--ziva-text-muted);
+}
+
+.ziva-role-tag-active i {
+  color: var(--ziva-brand);
+}
+
+.ziva-role-tag-muted {
+  border-style: dashed;
+  opacity: 0.92;
+}
+
+/* Messages */
+.ziva-chat-messages {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  scrollbar-width: thin;
+  scrollbar-color: var(--ziva-border-strong) transparent;
+}
+
+.ziva-chat-messages::-webkit-scrollbar {
+  width: 8px;
+}
+
+.ziva-chat-messages::-webkit-scrollbar-thumb {
+  background: var(--ziva-border-strong);
+  border-radius: 8px;
+}
+
+.ziva-chat-messages::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.ziva-msg {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  max-width: 92%;
+}
+
+.ziva-msg-user {
+  align-self: flex-end;
+  flex-direction: row-reverse;
+}
+
+.ziva-msg-bot .ziva-msg-bubble {
+  background: var(--ziva-surface);
+  border: 1px solid var(--ziva-border);
+  color: var(--ziva-text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.ziva-msg-user .ziva-msg-bubble {
+  background: var(--ziva-brand);
+  border: 1px solid transparent;
+  color: #ffffff;
+  box-shadow: 0 1px 2px rgba(1, 118, 211, 0.25);
+}
+
+.ziva-msg-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--ziva-surface);
+  border: 1px solid var(--ziva-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: visible;
+  padding: 4px;
+  position: relative;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.ziva-avatar-logo {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.ziva-msg-bubble {
+  padding: 10px 14px;
+  border-radius: var(--ziva-radius-lg);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.ziva-msg-bubble p {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ziva-typewriter-cursor {
+  display: inline-block;
+  font-weight: 300;
+  color: var(--ziva-brand);
+  animation: ziva-cursor-blink 0.8s step-end infinite;
+}
+
+@keyframes ziva-cursor-blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+.ziva-msg-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ziva-msg-nav,
+.ziva-msg-contact {
+  padding-left: 42px;
+}
+
+.ziva-nav-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ziva-text-muted);
+  display: block;
+  margin-bottom: 6px;
+}
+
+.ziva-nav-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.ziva-chat-panel .ziva-nav-links .ziva-nav-link,
+.ziva-chat-panel .ziva-nav-links a.ziva-nav-link,
+.ziva-chat-panel .ziva-nav-links button.ziva-nav-link {
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  height: 28px !important;
+  min-height: 28px !important;
+  max-height: 28px !important;
+  padding: 0 10px !important;
+  line-height: 1 !important;
+  border-radius: var(--ziva-radius-md) !important;
+  border: 1px solid var(--ziva-border-strong) !important;
+  background: var(--ziva-surface) !important;
+  color: var(--ziva-text-weak) !important;
+  font-size: 0.7rem !important;
+  font-weight: 600 !important;
+  text-decoration: none !important;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease, box-shadow 0.15s ease;
+  box-sizing: border-box !important;
+  white-space: nowrap !important;
+  margin: 0 !important;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, 0.04);
+}
+
+.ziva-chat-panel .ziva-nav-links .ziva-nav-link:hover {
+  border-color: var(--ziva-brand) !important;
+  background: var(--ziva-brand-tint) !important;
+  color: var(--ziva-brand-hover) !important;
+}
+
+.ziva-nav-action {
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Suggestions */
+.ziva-chat-suggestions {
+  padding: 8px 16px 12px;
+  border-top: 1px solid var(--ziva-border);
+  background: var(--ziva-surface);
+  flex-shrink: 0;
+}
+
+.ziva-suggestions-label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ziva-text-muted);
+  display: block;
+  margin-bottom: 8px;
+}
+
+.ziva-suggestions-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ziva-suggestion-chip {
+  padding: 6px 12px;
+  border-radius: 9999px;
+  border: 1px solid var(--ziva-border-strong);
+  background: var(--ziva-surface-alt);
+  color: var(--ziva-text-weak);
+  font-size: 0.8125rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+
+.ziva-suggestion-chip:hover {
+  border-color: var(--ziva-brand);
+  background: var(--ziva-brand-tint);
+  color: var(--ziva-brand-hover);
+}
+
+.ziva-msg-related {
+  padding: 8px 16px 4px 56px;
+}
+
+.ziva-msg-related .ziva-panel-header {
+  margin-bottom: 6px;
+}
+
+.ziva-footer-ai-suggestions .ziva-panel-header {
+  margin-bottom: 6px;
+}
+
+.ziva-panel-header {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.25rem 0.35rem;
+  margin: 0 0 6px;
+  line-height: 1.2;
+}
+
+.ziva-panel-header-title {
+  font-size: 0.75rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--ziva-text-muted);
+}
+
+.ziva-panel-header-hint {
+  font-size: 0.625rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  color: var(--ziva-text-muted);
+  opacity: 0.9;
+}
+
+.ziva-related-control-chip {
+  border-color: var(--ziva-border-strong);
+  background: var(--ziva-surface-alt);
+  color: var(--ziva-text-weak);
+}
+
+.ziva-ai-suggestion-chip {
+  border-color: var(--ziva-brand);
+  background: var(--ziva-brand-tint);
+  color: var(--ziva-brand-hover);
+  font-weight: 600;
+}
+
+.ziva-ai-suggestion-chip:hover {
+  background: var(--ziva-brand);
+  color: #fff;
+  border-color: var(--ziva-brand);
+}
+
+.ziva-workflow-exit {
+  padding: 8px 16px 8px 56px;
+}
+
+.ziva-workflow-exit-text {
+  font-size: 0.8125rem;
+  color: var(--ziva-text-muted);
+  margin: 0 0 8px;
+}
+
+.ziva-schema-add-suggestions {
+  padding-top: 0;
+  border-top: none;
+}
+
+.ziva-schema-add-chip {
+  border-color: var(--ziva-brand);
+  background: var(--ziva-brand-tint);
+  color: var(--ziva-brand-hover);
+  font-weight: 600;
+}
+
+.ziva-schema-add-chip:hover {
+  background: var(--ziva-brand);
+  color: #fff;
+  border-color: var(--ziva-brand);
+}
+
+.ziva-chat-footer-wrap {
+  flex-shrink: 0;
+  border-top: 1px solid var(--ziva-border);
+  background: var(--ziva-surface);
+}
+
+.ziva-footer-ai-suggestions {
+  padding: 8px 16px 4px;
+  border-bottom: 1px solid var(--ziva-border);
+}
+
+.ziva-footer-ai-suggestions .ziva-suggestions-chips {
+  gap: 6px;
+}
+
+.ziva-footer-ai-suggestions .ziva-ai-suggestion-chip {
+  padding: 3px 8px;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  line-height: 1.25;
+}
+
+/* Cursor-style composer: textarea + bottom toolbar in one rounded box */
+.ziva-composer {
+  display: flex;
+  flex-direction: column;
+  margin: 8px 12px 12px;
+  border: 1px solid var(--ziva-border-strong);
+  border-radius: 12px;
+  background: var(--ziva-surface);
+  flex-shrink: 0;
+  overflow: hidden;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+
+.ziva-composer:focus-within {
+  border-color: var(--ziva-brand);
+  box-shadow: 0 0 0 1px var(--ziva-brand-ring);
+}
+
+.ziva-composer-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.ziva-composer-input {
+  display: block;
+  width: 100%;
+  min-height: 2.75rem;
+  max-height: 8rem;
+  padding: 12px 14px 4px;
+  border: none;
+  background: transparent;
+  color: var(--ziva-text);
+  font-size: 0.875rem;
+  line-height: 1.35;
+  resize: none;
+  font-family: inherit;
+}
+
+.ziva-composer-input::placeholder {
+  color: var(--ziva-text-muted);
+}
+
+.ziva-composer-input:focus {
+  outline: none;
+}
+
+.ziva-composer-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 8px 8px;
+  min-height: 36px;
+}
+
+.ziva-composer-toolbar-left,
+.ziva-composer-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.ziva-composer-toolbar-right {
+  flex-shrink: 0;
+}
+
+.ziva-composer-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: 9999px;
+  border: 1px solid var(--ziva-border);
+  background: var(--ziva-surface-alt);
+  color: var(--ziva-text-weak);
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1;
+  cursor: default;
+}
+
+.ziva-composer-agent-pill {
+  padding: 0 6px 0 8px;
+  color: var(--ziva-text-muted);
+}
+
+.ziva-composer-agent-pill .fa-infinity {
+  font-size: 0.7rem;
+  opacity: 0.85;
+}
+
+.ziva-composer-model-pill {
+  position: relative;
+  padding: 0 6px 0 4px;
+  cursor: pointer;
+}
+
+.ziva-composer-model-pill:hover {
+  border-color: var(--ziva-border-strong);
+  background: var(--ziva-brand-tint);
+}
+
+.ziva-composer-model-select {
+  appearance: none;
+  -webkit-appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--ziva-text-weak);
+  font-size: 0.75rem;
+  font-weight: 500;
+  font-family: inherit;
+  line-height: 1;
+  padding: 0 2px 0 4px;
+  max-width: 7.5rem;
+  cursor: pointer;
+}
+
+.ziva-composer-model-select:focus {
+  outline: none;
+}
+
+.ziva-composer-chevron {
+  font-size: 0.55rem;
+  opacity: 0.65;
+  pointer-events: none;
+}
+
+.ziva-composer-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ziva-text-muted);
+  font-size: 0.95rem;
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.ziva-composer-icon-btn:hover:not(:disabled) {
+  color: var(--ziva-text-weak);
+  background: var(--ziva-surface-alt);
+}
+
+.ziva-composer-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.ziva-composer-send {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--ziva-border);
+  color: var(--ziva-text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.12s ease;
+}
+
+.ziva-composer-send:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.ziva-composer-send-active {
+  background: var(--ziva-brand);
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(1, 118, 211, 0.35);
+}
+
+.ziva-composer-send-active:hover {
+  background: var(--ziva-brand-hover);
+  transform: scale(1.05);
+}
+
+.ziva-composer-send:focus-visible {
+  outline: 2px solid var(--ziva-brand);
+  outline-offset: 2px;
+}
+
+/* ─────────────────────────────────────────────────────────
+   ZivaModelPicker  –  Cursor-style model selector
+───────────────────────────────────────────────────────── */
+
+.zmp-root {
+  position: relative;
+  display: inline-flex;
+}
+
+/* Pill */
+.zmp-pill {
+  /* width auto-fits text; override max-width from .ziva-composer-model-select */
+  width: auto;
+  max-width: none;
+  padding: 0 7px 0 9px;
+  gap: 4px;
+  white-space: nowrap;
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--ziva-text-weak);
+  cursor: pointer;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.zmp-pill:hover,
+.zmp-pill--open {
+  border-color: var(--ziva-border-strong);
+  background: var(--ziva-brand-tint);
+  color: var(--ziva-text);
+}
+.zmp-pill-label {
+  line-height: 1;
+}
+.zmp-chevron {
+  font-size: 0.5rem;
+  opacity: 0.65;
+  transition: transform 0.15s ease;
+  flex-shrink: 0;
+}
+.zmp-chevron--up {
+  transform: rotate(180deg);
+}
+
+/* Popover (portaled — position set via inline fixed styles) */
+.zmp-popover {
+  min-width: 232px;
+  max-width: 280px;
+  background: var(--ziva-surface, #fff);
+  border: 1px solid var(--ziva-border, #e2e8f0);
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.13), 0 2px 6px rgba(0,0,0,.07);
+  overflow: hidden;
+  animation: zmp-pop-in 0.12s ease;
+}
+
+.zmp-popover--portal {
+  /* fixed top/left/bottom/width/z-index applied inline in JSX */
+}
+@keyframes zmp-pop-in {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0)   scale(1);    }
+}
+
+/* Auto toggle row */
+.zmp-auto-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 11px 13px 10px;
+}
+.zmp-auto-info {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.zmp-auto-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ziva-text, #111);
+  line-height: 1.2;
+}
+.zmp-auto-hint {
+  font-size: 0.6875rem;
+  color: var(--ziva-text-muted, #94a3b8);
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Toggle switch */
+.zmp-toggle {
+  flex-shrink: 0;
+  position: relative;
+  width: 32px;
+  height: 18px;
+  border: none;
+  border-radius: 9999px;
+  background: var(--ziva-border-strong, #cbd5e1);
+  cursor: pointer;
+  padding: 0;
+  transition: background 0.18s ease;
+}
+.zmp-toggle--on {
+  background: var(--ziva-brand, #2563eb);
+}
+.zmp-toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0,0,0,.25);
+  transition: transform 0.18s ease;
+  pointer-events: none;
+}
+.zmp-toggle--on .zmp-toggle-knob {
+  transform: translateX(14px);
+}
+
+/* Divider */
+.zmp-divider {
+  height: 1px;
+  background: var(--ziva-border, #e2e8f0);
+  margin: 0;
+}
+
+/* Search */
+.zmp-search-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+  padding: 8px 10px 6px;
+  gap: 6px;
+  border-bottom: 1px solid var(--ziva-border, #e2e8f0);
+}
+.zmp-search-icon {
+  font-size: 0.7rem;
+  color: var(--ziva-text-muted, #94a3b8);
+  flex-shrink: 0;
+}
+.zmp-search {
+  flex: 1;
+  border: none;
+  background: transparent;
+  font-size: 0.78rem;
+  color: var(--ziva-text, #111);
+  font-family: inherit;
+  outline: none;
+  line-height: 1;
+  min-width: 0;
+}
+.zmp-search::placeholder {
+  color: var(--ziva-text-muted, #94a3b8);
+}
+.zmp-search-clear {
+  border: none;
+  background: transparent;
+  color: var(--ziva-text-muted, #94a3b8);
+  font-size: 0.65rem;
+  cursor: pointer;
+  padding: 2px 3px;
+  border-radius: 4px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.zmp-search-clear:hover {
+  color: var(--ziva-text, #111);
+  background: var(--ziva-surface-alt, #f1f5f9);
+}
+
+/* Model list */
+.zmp-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0 6px;
+  max-height: 240px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.zmp-list::-webkit-scrollbar { width: 4px; }
+.zmp-list::-webkit-scrollbar-track { background: transparent; }
+.zmp-list::-webkit-scrollbar-thumb {
+  background: var(--ziva-border, #e2e8f0);
+  border-radius: 2px;
+}
+
+.zmp-group {
+  list-style: none;
+}
+.zmp-group + .zmp-group {
+  margin-top: 2px;
+}
+.zmp-group > ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.zmp-group-label {
+  display: block;
+  padding: 5px 13px 3px;
+  font-size: 0.6125rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ziva-text-muted, #94a3b8);
+  user-select: none;
+}
+
+/* Model item */
+.zmp-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 13px;
+  font-size: 0.8rem;
+  color: var(--ziva-text, #111);
+  cursor: pointer;
+  border-radius: 0;
+  user-select: none;
+  transition: background 0.1s ease;
+}
+.zmp-item:hover:not(.zmp-item--disabled) {
+  background: var(--ziva-surface-alt, #f1f5f9);
+}
+.zmp-item:focus-visible {
+  outline: none;
+  background: var(--ziva-surface-alt, #f1f5f9);
+}
+.zmp-item--selected {
+  color: var(--ziva-brand, #2563eb);
+  font-weight: 600;
+}
+.zmp-item--disabled {
+  color: var(--ziva-text-muted, #94a3b8);
+  cursor: not-allowed;
+}
+.zmp-item-label {
+  flex: 1;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.zmp-item-check {
+  font-size: 0.65rem;
+  color: var(--ziva-brand, #2563eb);
+  flex-shrink: 0;
+}
+.zmp-item-badge {
+  font-size: 0.55rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--ziva-surface-alt, #f1f5f9);
+  color: var(--ziva-text-muted, #94a3b8);
+  border: 1px solid var(--ziva-border, #e2e8f0);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.zmp-empty {
+  padding: 10px 13px;
+  font-size: 0.78rem;
+  color: var(--ziva-text-muted, #94a3b8);
+  font-style: italic;
+}
+
+/* Remove the old select styles (no longer used, kept for safety) */
+.ziva-composer-model-pill { display: none; }
+.ziva-composer-model-select { display: none; }
+
+/* ── Assistant mode picker (Control / Plan / Learn / Explore) ── */
+.zmode-root {
+  position: relative;
+  display: inline-flex;
+}
+
+.zmode-pill {
+  gap: 5px;
+  padding: 0 7px 0 8px;
+  max-width: none;
+}
+
+.zmode-pill-icon {
+  font-size: 0.68rem;
+  opacity: 0.9;
+  flex-shrink: 0;
+}
+
+.zmode-pill-label {
+  line-height: 1;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+/* Floating panel = compact composer: icon-only mode pill (popover unchanged) */
+.ziva-chat-panel .zmode-pill-label {
+  display: none;
+}
+
+.ziva-chat-panel .zmode-pill {
+  padding: 0 6px;
+  gap: 3px;
+  min-width: 28px;
+  justify-content: center;
+}
+
+.zmode-popover .zmode-popover-header {
+  padding: 10px 13px 6px;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ziva-text-muted, #94a3b8);
+  border-bottom: 1px solid var(--ziva-border, #e2e8f0);
+}
+
+.zmode-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px 0 6px;
+}
+
+.zmode-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.1s ease;
+}
+
+.zmode-item:hover {
+  background: var(--ziva-surface-alt, #f1f5f9);
+}
+
+.zmode-item--active {
+  background: var(--ziva-brand-tint, #eff6ff);
+}
+
+.zmode-item-icon {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  background: var(--ziva-surface-alt, #f1f5f9);
+  color: var(--ziva-text-muted, #64748b);
+  font-size: 0.7rem;
+}
+
+.zmode-item--active .zmode-item-icon {
+  background: var(--ziva-brand, #2563eb);
+  color: #fff;
+}
+
+.zmode-item-body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.zmode-item-label {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--ziva-text, #111);
+  line-height: 1.2;
+}
+
+.zmode-item-desc {
+  font-size: 0.6875rem;
+  color: var(--ziva-text-muted, #94a3b8);
+  line-height: 1.35;
+}
+
+.zmode-item-check {
+  flex-shrink: 0;
+  font-size: 0.65rem;
+  color: var(--ziva-brand, #2563eb);
+  margin-top: 4px;
+}
+
+/* Plan-mode checklist */
+.ziva-plan-checklist {
+  margin: 0.5rem 0 0 2.75rem;
+  padding: 0.65rem 0.75rem;
+  border-radius: 10px;
+  border: 1px solid var(--ziva-border, #e2e8f0);
+  background: var(--ziva-surface-alt, #f8fafc);
+}
+
+.ziva-plan-checklist-title {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ziva-text-muted, #64748b);
+  margin-bottom: 0.4rem;
+}
+
+.ziva-plan-checklist-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.ziva-plan-step-label {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  line-height: 1.35;
+  color: var(--ziva-text, #1e293b);
+}
+
+.ziva-plan-step--done .ziva-plan-step-text {
+  text-decoration: line-through;
+  color: var(--ziva-text-muted, #94a3b8);
+}
+
+.ziva-plan-step-check {
+  margin-top: 0.15rem;
+  flex-shrink: 0;
+}
+
+.ziva-plan-checklist-hint {
+  margin: 0.5rem 0 0;
+  font-size: 0.6875rem;
+  color: var(--ziva-text-muted, #94a3b8);
+  line-height: 1.4;
+}

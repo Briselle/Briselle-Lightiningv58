@@ -11,11 +11,10 @@ import {
     Building2,
     Package,
     Table,
-    Zap
 } from 'lucide-react';
 import { cn } from '../../utils/helpers';
 import { supabase } from '../../utils/supabase';
-import { getObjectIconNode, normalizeObjectIconKey, type ObjectIconKey } from '../../utils/objectIconCatalog';
+import { getPickerIconNode, normalizeUiIconKey } from '../../utils/uiIconPickerCatalog';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -29,28 +28,40 @@ interface NavItem {
 }
 
 function Sidebar({ isOpen, currentPath }: SidebarProps) {
-  const [activeObjectDataTarget, setActiveObjectDataTarget] = useState<{ id: string; name: string; icon: ObjectIconKey }>({
+  const [activeObjectDataTarget, setActiveObjectDataTarget] = useState<{
+    id: string;
+    name: string;
+    icon: string;
+    objectCustomIcon?: string;
+  }>({
     id: '1000000001',
     name: 'Accounts',
     icon: 'table',
+    objectCustomIcon: '',
   });
 
   useEffect(() => {
-    const readFromStorage = (): { id: string; name: string; icon: ObjectIconKey } | null => {
+    const readFromStorage = (): { id: string; name: string; icon: string; objectCustomIcon?: string } | null => {
       try {
         const raw = localStorage.getItem('activeObjectDataTarget');
         if (!raw) return null;
-        const parsed = JSON.parse(raw) as { id?: unknown; name?: unknown; icon?: unknown };
+        const parsed = JSON.parse(raw) as { id?: unknown; name?: unknown; icon?: unknown; objectCustomIcon?: unknown };
         const id = String(parsed?.id ?? '').trim();
         const name = String(parsed?.name ?? '').trim();
         if (!id) return null;
-        return { id, name: name || `Object ${id}`, icon: normalizeObjectIconKey(parsed?.icon) };
+        const custom = String(parsed?.objectCustomIcon ?? '').trim();
+        return {
+          id,
+          name: name || `Object ${id}`,
+          icon: normalizeUiIconKey(parsed?.icon),
+          objectCustomIcon: custom || undefined,
+        };
       } catch {
         return null;
       }
     };
 
-    const apply = (next: { id: string; name: string; icon: ObjectIconKey } | null) => {
+    const apply = (next: { id: string; name: string; icon: string; objectCustomIcon?: string } | null) => {
       if (next) {
         setActiveObjectDataTarget(next);
       }
@@ -70,7 +81,7 @@ function Sidebar({ isOpen, currentPath }: SidebarProps) {
         const id = String(data?.sys_id ?? 1000000001);
         const objectName = String(data?.dobj_name_display ?? data?.dobj_name_system ?? 'Accounts').trim() || 'Accounts';
         const fallback = { id, name: objectName };
-        const payload = { ...fallback, icon: 'table' as ObjectIconKey };
+        const payload = { ...fallback, icon: 'table', objectCustomIcon: '' };
         setActiveObjectDataTarget(payload);
         try {
           localStorage.setItem('activeObjectDataTarget', JSON.stringify(payload));
@@ -82,11 +93,17 @@ function Sidebar({ isOpen, currentPath }: SidebarProps) {
     }
 
     const onCustom = (event: Event) => {
-      const detail = (event as CustomEvent<{ id?: string; name?: string; icon?: unknown }>).detail;
+      const detail = (event as CustomEvent<{ id?: string; name?: string; icon?: unknown; objectCustomIcon?: unknown }>).detail;
       const id = String(detail?.id ?? '').trim();
       if (!id) return;
       const name = String(detail?.name ?? '').trim() || `Object ${id}`;
-      setActiveObjectDataTarget({ id, name, icon: normalizeObjectIconKey(detail?.icon) });
+      const custom = String(detail?.objectCustomIcon ?? '').trim();
+      setActiveObjectDataTarget({
+        id,
+        name,
+        icon: normalizeUiIconKey(detail?.icon),
+        objectCustomIcon: custom || undefined,
+      });
     };
     const onStorage = () => {
       apply(readFromStorage());
@@ -118,7 +135,7 @@ function Sidebar({ isOpen, currentPath }: SidebarProps) {
     {
       title: activeObjectDataTarget.name,
       path: `/objects/${activeObjectDataTarget.id}/records`,
-      icon: getObjectIconNode(activeObjectDataTarget.icon, 20),
+      icon: getPickerIconNode(activeObjectDataTarget.icon, 20, activeObjectDataTarget.objectCustomIcon),
     },
     {
       title: 'Data',
@@ -134,22 +151,12 @@ function Sidebar({ isOpen, currentPath }: SidebarProps) {
       title: 'Settings',
       path: '/settings',
       icon: <Settings size={20} />,
-      },
-      {
-          title: 'OLD Templates',
-          path: '/templist',
-          icon: <Table size={20} />,
-      },
-      {
-          title: 'Master Template',
-          path: '/templist2',
-          icon: <Table size={20} />,
-      },
-      {
-          title: 'Demo Table',
-          path: '/demo',
-          icon: <Zap size={20} />,
-      },
+    },
+    {
+      title: 'Master Template',
+      path: '/templist2',
+      icon: <Table size={20} />,
+    },
   ];
 
   const isItemActive = (itemPath: string): boolean => {

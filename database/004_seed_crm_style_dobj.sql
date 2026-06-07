@@ -26,7 +26,7 @@ INSERT INTO public.dobj (
     sys_status
 )
 VALUES
-    (2000000101, 1000000000, 'Opportunity', 'Opportunity', 'Salesforce-style opportunities pipeline', 'System', 1, null, now(), now(), 1200, 3901, 0, 1),
+    (2000000101, 1000000000, 'Opportunity', 'Opportunity', 'CRM-style opportunities pipeline', 'System', 1, null, now(), now(), 1200, 3901, 0, 1),
     (2000000102, 1000000000, 'Deal', 'Deal', 'Closed-won / closed-lost commercial deals', 'System', 1, null, now(), now(), 1200, 3901, 0, 1),
     (2000000103, 1000000000, 'Lead', 'Lead', 'Inbound and outbound leads', 'System', 1, null, now(), now(), 1200, 3901, 0, 1),
     (2000000104, 1000000000, 'Account2', 'Account2', 'Customer and partner accounts', 'System', 1, null, now(), now(), 1200, 3901, 0, 1),
