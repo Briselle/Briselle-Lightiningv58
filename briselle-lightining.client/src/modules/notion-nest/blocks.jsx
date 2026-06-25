@@ -3,7 +3,8 @@
    ============================================================ */
 import { useRef, useCallback, useEffect, useState, memo } from 'react';
 import { usePageContext } from './PageContext';
-import { NotionIconPicker } from './menus';
+import { NotionIconPicker, SVG_ICONS, renderIconSvg, hasPageIcon, renderPageIcon } from './menus';
+import UploadZone from './components/UploadZone';
 import { getCaretPosition, setCaretToEnd, getCaretCoordinates, findBlockContainer, flatVisibleBlocks as flatVis, markdownShortcuts } from './utils';
 
 /* ---- Shared: focus helper ---- */
@@ -177,15 +178,20 @@ export const CalloutBlock = memo(function CalloutBlock({ block }) {
   const { updateBlockProperty } = usePageContext();
   const [showPicker, setShowPicker] = useState(false);
   
+  const icon = block.calloutIcon || '💡';
+
   return (
     <div className="block-content" style={{ position: 'relative' }}>
-      <span className="block-callout-icon" onClick={() => setShowPicker(!showPicker)}>{block.calloutIcon || '💡'}</span>
+      <span className="block-callout-icon" onClick={() => setShowPicker(!showPicker)}>
+        {renderPageIcon(icon, '20px') || '💡'}
+      </span>
       <div ref={ref} contentEditable suppressContentEditableWarning data-placeholder="Callout"
         onInput={handleInput} onKeyDown={handleKeyDown} onFocus={handleFocus} style={{ flex: 1 }} />
       {showPicker && (
         <NotionIconPicker
           position={{ x: 0, y: 30 }}
-          onSelect={(icon) => { updateBlockProperty(block.id, 'calloutIcon', icon); setShowPicker(false); }}
+          currentIcon={icon}
+          onSelect={(icon) => { updateBlockProperty(block.id, 'calloutIcon', icon); }}
           onClose={() => setShowPicker(false)}
         />
       )}
@@ -218,15 +224,140 @@ export const CodeBlock = memo(function CodeBlock({ block }) {
   );
 });
 
+const UNSPLASH_PRESETS_MINI = [
+  { name: 'Forest', url: 'https://images.unsplash.com/photo-1447752875215-b2761acb3c5d?q=80&w=800' },
+  { name: 'Mountain', url: 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?q=80&w=800' },
+  { name: 'Ocean', url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=800' },
+  { name: 'Space', url: 'https://images.unsplash.com/photo-1506318137071-a8e063b4bec0?q=80&w=800' },
+  { name: 'Minimal', url: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=80&w=800' },
+  { name: 'Abstract', url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800' }
+];
+
+function MediaBlockPicker({ blockType, onSelect }) {
+  const [tab, setTab] = useState('upload');
+  const [unsplashQuery, setUnsplashQuery] = useState('');
+  const [unsplashResults, setUnsplashResults] = useState([]);
+  const [searchTriggered, setSearchTriggered] = useState(false);
+
+  const handleUnsplashSearch = (e) => {
+    if (e) e.preventDefault();
+    if (unsplashQuery.trim()) {
+      const q = unsplashQuery.trim().toLowerCase();
+      const results = Array.from({ length: 6 }).map((_, i) => ({
+        name: `${q.charAt(0).toUpperCase() + q.slice(1)} ${i + 1}`,
+        url: `https://images.unsplash.com/featured/800x600/?${encodeURIComponent(q)}&sig=${i + 1}`
+      }));
+      setUnsplashResults(results);
+      setSearchTriggered(true);
+    } else {
+      setSearchTriggered(false);
+      setUnsplashResults([]);
+    }
+  };
+
+  const getIcon = () => {
+    switch (blockType) {
+      case 'image': return '🖼';
+      case 'video': return '🎬';
+      case 'audio': return '🎵';
+      default: return '📎';
+    }
+  };
+
+  const getPlaceholderText = () => {
+    switch (blockType) {
+      case 'image': return 'Drop image file here';
+      case 'video': return 'Drop video file here';
+      case 'audio': return 'Drop audio file here';
+      default: return 'Drop file here';
+    }
+  };
+
+  const getSubtext = () => {
+    switch (blockType) {
+      case 'image': return 'or click to select an image';
+      case 'video': return 'or click to select a video';
+      case 'audio': return 'or click to select an audio file';
+      default: return 'or click to select a file';
+    }
+  };
+
+  return (
+    <div className="nn-media-picker" onClick={e => e.stopPropagation()}>
+      <div className="nmp-header">
+        <span className="nmp-icon">{getIcon()}</span>
+        <span className="nmp-title">Add {blockType.charAt(0).toUpperCase() + blockType.slice(1)}</span>
+      </div>
+      
+      <div className="nip-tabs" style={{ borderBottom: '1px solid #F3F4F6', marginBottom: '12px' }}>
+        <button className={`nip-tab${tab === 'upload' ? ' active' : ''}`} onClick={() => setTab('upload')}>Upload</button>
+        <button className={`nip-tab${tab === 'link' ? ' active' : ''}`} onClick={() => setTab('link')}>Embed Link</button>
+        {blockType === 'image' && (
+          <button className={`nip-tab${tab === 'unsplash' ? ' active' : ''}`} onClick={() => setTab('unsplash')}>Unsplash</button>
+        )}
+      </div>
+
+      <div className="nmp-body">
+        {tab === 'upload' && (
+          <div style={{ padding: '8px 0' }}>
+            <UploadZone
+              onSelect={(url, fileName) => onSelect(url, fileName)}
+              accept={blockType === 'image' ? 'image/*' : blockType === 'video' ? 'video/*' : blockType === 'audio' ? 'audio/*' : '*'}
+              placeholderText={getPlaceholderText()}
+              subtext={getSubtext()}
+              allowLink={false}
+            />
+          </div>
+        )}
+        {tab === 'link' && (
+          <div style={{ padding: '8px 0' }}>
+            <UploadZone
+              onSelect={(url) => onSelect(url)}
+              onlyLink={true}
+            />
+          </div>
+        )}
+        {tab === 'unsplash' && blockType === 'image' && (
+          <div className="ncp-unsplash-container">
+            <form onSubmit={handleUnsplashSearch} className="ncp-unsplash-search">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></svg>
+              <input
+                type="text"
+                placeholder="Search Unsplash..."
+                value={unsplashQuery}
+                onChange={e => setUnsplashQuery(e.target.value)}
+              />
+              <button type="submit">Search</button>
+            </form>
+            
+            <div className="ncp-gallery-scroll" style={{ maxHeight: '180px' }}>
+              <div className="ncp-grid">
+                {(searchTriggered ? unsplashResults : UNSPLASH_PRESETS_MINI).map(p => (
+                  <div key={p.url} className="ncp-thumb" style={{ backgroundImage: `url(${p.url})` }} onClick={() => onSelect(p.url)}>
+                    <div className="ncp-thumb-overlay">{p.name}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export const ImageBlock = memo(function ImageBlock({ block }) {
   const { updateBlockProperty } = usePageContext();
   return (
     <div className="block-content">
       {block.url ? (
-        <><img src={block.url} alt="" /><div className="image-caption" contentEditable suppressContentEditableWarning
-          data-placeholder="Add a caption" onBlur={e => updateBlockProperty(block.id, 'caption', e.target.textContent)}>{block.caption || ''}</div></>
+        <>
+          <img src={block.url} alt="" />
+          <div className="image-caption" contentEditable suppressContentEditableWarning
+            data-placeholder="Add a caption" onBlur={e => updateBlockProperty(block.id, 'caption', e.target.textContent)}>{block.caption || ''}</div>
+        </>
       ) : (
-        <div className="image-placeholder" onClick={() => { const u = prompt('Enter image URL:'); if (u) updateBlockProperty(block.id, 'url', u); }}>🖼 Click to add an image URL</div>
+        <MediaBlockPicker blockType="image" onSelect={(url) => updateBlockProperty(block.id, 'url', url)} />
       )}
     </div>
   );
@@ -330,9 +461,11 @@ export const VideoBlock = memo(function VideoBlock({ block }) {
   return (
     <div className="block-content">
       {block.url ? (
-        <div className="block-video"><iframe src={getEmbedUrl(block.url)} title="Video" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen style={{ width: '100%', height: '400px', borderRadius: '4px' }} /></div>
+        <div className="block-video">
+          <iframe src={getEmbedUrl(block.url)} title="Video" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen style={{ width: '100%', height: '400px', borderRadius: '4px' }} />
+        </div>
       ) : (
-        <div className="image-placeholder" onClick={() => { const u = prompt('Enter video URL (YouTube, Vimeo, or direct):'); if (u) updateBlockProperty(block.id, 'url', u); }}>🎬 Click to embed a video</div>
+        <MediaBlockPicker blockType="video" onSelect={(url) => updateBlockProperty(block.id, 'url', url)} />
       )}
     </div>
   );
@@ -343,9 +476,11 @@ export const AudioBlock = memo(function AudioBlock({ block }) {
   return (
     <div className="block-content">
       {block.url ? (
-        <div className="block-audio"><audio controls src={block.url} style={{ width: '100%' }}>Your browser does not support audio.</audio></div>
+        <div className="block-audio">
+          <audio controls src={block.url} style={{ width: '100%' }}>Your browser does not support audio.</audio>
+        </div>
       ) : (
-        <div className="image-placeholder" onClick={() => { const u = prompt('Enter audio URL:'); if (u) updateBlockProperty(block.id, 'url', u); }}>🎵 Click to embed audio</div>
+        <MediaBlockPicker blockType="audio" onSelect={(url) => updateBlockProperty(block.id, 'url', url)} />
       )}
     </div>
   );
@@ -363,7 +498,13 @@ export const FileBlock = memo(function FileBlock({ block }) {
           </a>
         </div>
       ) : (
-        <div className="image-placeholder" onClick={() => { const u = prompt('Enter file URL:'); if (u) { updateBlockProperty(block.id, 'url', u); updateBlockProperty(block.id, 'fileName', u.split('/').pop()); } }}>📎 Click to add a file</div>
+        <MediaBlockPicker
+          blockType="file"
+          onSelect={(url, fileName) => {
+            updateBlockProperty(block.id, 'url', url);
+            updateBlockProperty(block.id, 'fileName', fileName || url.split('/').pop());
+          }}
+        />
       )}
     </div>
   );

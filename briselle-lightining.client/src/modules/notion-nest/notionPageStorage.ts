@@ -43,7 +43,7 @@ export async function loadNotionRecordContext(
     const numericRecordId = Number(recordId);
     let recQuery = supabase
         .from('ddata')
-        .select('ddata_id,dobj_id,entity_id,ddata_values')
+        .select('ddata_id,dobj_id,entity_id,ddata_values,ddata_created_at,ddata_updated_at,ddata_created_by_id,ddata_modified_by_id')
         .eq('dobj_id', dobjId)
         .eq('entity_id', FIXED_ENTITY_ID)
         .eq('ddata_status', 1)
@@ -62,7 +62,10 @@ export async function loadNotionRecordContext(
             ? (recRow.ddata_values as Record<string, unknown>)
             : {};
     const page = parseNotionPageFromValues(values);
-    const title = String(values.sys_record_name ?? values.name ?? `Page ${recRow.ddata_id}`).trim();
+    let title = String(values.sys_record_name ?? values.name ?? '').trim();
+    if (!title || title.toLowerCase() === 'untitled') {
+        title = String(values.sys_record_id ?? values.sys_id ?? recRow.ddata_id).trim();
+    }
 
     return {
         data: {
@@ -71,9 +74,13 @@ export async function loadNotionRecordContext(
             entityId: FIXED_ENTITY_ID,
             objectLabel: String(objRow.dobj_name_display ?? objRow.dobj_name_system ?? 'Object'),
             objectRouteId,
-            title: title || 'Untitled',
+            title,
             page,
             rawValues: values,
+            createdAt: recRow.ddata_created_at,
+            updatedAt: recRow.ddata_updated_at,
+            createdById: recRow.ddata_created_by_id,
+            modifiedById: recRow.ddata_modified_by_id,
         },
         error: null,
     };
@@ -112,11 +119,15 @@ export async function createNotionNestRecord(params: {
     dobjId: number;
     title: string;
     actorId: number;
+    /** Optional additional schema field values captured from the standard record creation form. */
+    extraValues?: Record<string, unknown>;
 }): Promise<{ recordId: number | null; error: string | null }> {
     const title = params.title.trim() || 'Untitled';
     const page = createDefaultNotionPage(title);
     const nowIso = new Date().toISOString();
+    // Merge extra schema values first so the notion page key always wins on conflict.
     const ddataValues: Record<string, unknown> = {
+        ...(params.extraValues ?? {}),
         sys_record_name: title,
         [NOTION_PAGE_STORAGE_KEY]: page,
     };
@@ -137,6 +148,7 @@ export async function createNotionNestRecord(params: {
     if (error) return { recordId: null, error: error.message };
     return { recordId: data?.ddata_id ?? null, error: null };
 }
+
 
 export function mergeObjectConfigIcon(config: unknown): Record<string, unknown> {
     return safeParseConfig(config);

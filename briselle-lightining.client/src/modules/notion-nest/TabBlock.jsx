@@ -5,7 +5,7 @@
 import { useState, useCallback, useRef, useEffect, memo, useMemo } from 'react';
 import { usePageContext } from './PageContext';
 import { generateId, makeBlock } from './utils';
-import { NotionIconPicker } from './menus';
+import { NotionIconPicker, SVG_ICONS, renderIconSvg, hasPageIcon, renderPageIcon } from './menus';
 
 /* ---- Helpers ---- */
 function hexToRgba(hex, alpha) {
@@ -24,15 +24,18 @@ const TAB_SHAPE_OPTIONS = [
   { value: 'pill', label: 'Pill' },
   { value: 'rounded', label: 'Top Rounded' },
   { value: 'square', label: 'Square' },
-  { value: 'underline', label: 'Underline Only' },
-  { value: 'trapezoid', label: 'Trapezoid' },
+  { value: 'parallelogram', label: 'Parallelogram' },
   { value: 'trapezoid-asym', label: 'Trapezoid Asymmetric' },
-  { value: 'minimal', label: 'Minimal' },
+  { value: 'trapezoid-sym', label: 'Trapezoid Symmetric' },
   { value: 'tags', label: 'Tags' },
   { value: 'segment', label: 'Segment' },
   { value: 'button', label: 'Button' },
   { value: 'lifted', label: 'Lifted' },
 ];
+
+function renderTabIcon(icon) {
+  return renderPageIcon(icon, '14px');
+}
 
 const HEIGHT_MAP = { small: 32, medium: 40, large: 48 };
 
@@ -42,6 +45,31 @@ const HEIGHT_MAP = { small: 32, medium: 40, large: 48 };
 /* ============ Tab Settings Popover ============ */
 const TabSettingsPopover = memo(function TabSettingsPopover({ style, position, onPatch, onClose }) {
   const panelRef = useRef(null);
+  const [adjustedPos, setAdjustedPos] = useState({ top: position.top, left: position.left });
+
+  useEffect(() => {
+    setAdjustedPos({ top: position.top, left: position.left });
+
+    requestAnimationFrame(() => {
+      if (panelRef.current) {
+        const rect = panelRef.current.getBoundingClientRect();
+        const winWidth = window.innerWidth;
+        const winHeight = window.innerHeight;
+
+        let top = position.top;
+        let left = position.left;
+
+        if (left + rect.width > winWidth) {
+          left = Math.max(8, winWidth - rect.width - 8);
+        }
+        if (top + rect.height > winHeight) {
+          top = Math.max(8, winHeight - rect.height - 8);
+        }
+
+        setAdjustedPos({ top, left });
+      }
+    });
+  }, [position.top, position.left]);
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === 'Escape') onClose(); };
@@ -63,10 +91,10 @@ const TabSettingsPopover = memo(function TabSettingsPopover({ style, position, o
   const selColor = (style.tabSelectionColor && style.tabSelectionColor.startsWith('#')) ? style.tabSelectionColor : DEFAULT_SELECTION_COLOR;
 
   return (
-    <div ref={panelRef} className="tab-settings-popover" style={{ top: position.top, left: position.left }} onPointerDown={(e) => e.stopPropagation()}>
+    <div ref={panelRef} className="tab-settings-popover" style={{ top: adjustedPos.top, left: adjustedPos.left }} onPointerDown={(e) => e.stopPropagation()}>
       <header className="tab-settings-header">
         <span className="tab-settings-heading">Tab settings</span>
-        <button className="tab-settings-close" onClick={onClose}>×</button>
+        <button className="tab-settings-close" onClick={onClose}>{"\u00d7"}</button>
       </header>
 
       {/* Shape */}
@@ -77,25 +105,64 @@ const TabSettingsPopover = memo(function TabSettingsPopover({ style, position, o
         </select>
       </div>
 
-      {/* Tab Highlight */}
+      {/* Tab Highlight (Background tint) */}
       <div className="tab-settings-row">
         <span className="tab-settings-label">Tab Highlight</span>
         <div className="tab-settings-control-cluster">
-          {style.tabShowUnderline && (
+          {style.tabCustomSelection && (
             <>
               <input type="color" className="tab-settings-color-input" value={selColor}
                 onChange={(e) => onPatch({ tabSelectionColor: e.target.value, tabCustomSelection: true })} />
               <button className="tab-settings-clear-btn" title="Reset to default"
-                onClick={() => onPatch({ tabSelectionColor: DEFAULT_SELECTION_COLOR, tabCustomSelection: true })}>✕</button>
+                onClick={() => onPatch({ tabSelectionColor: DEFAULT_SELECTION_COLOR, tabCustomSelection: false })}>{"\u2715"}</button>
+            </>
+          )}
+          <button
+            className={`tab-settings-toggle${style.tabCustomSelection ? ' is-on' : ''}`}
+            onClick={() => onPatch({
+              tabCustomSelection: !style.tabCustomSelection,
+              ...(!style.tabCustomSelection ? { tabSelectionColor: DEFAULT_SELECTION_COLOR } : {})
+            })}
+          />
+        </div>
+      </div>
+
+      {/* Tab Underline */}
+      <div className="tab-settings-row">
+        <span className="tab-settings-label">Tab Underline</span>
+        <div className="tab-settings-control-cluster">
+          {style.tabShowUnderline && (
+            <>
+              <input type="color" className="tab-settings-color-input" value={style.tabUnderlineColor || DEFAULT_SELECTION_COLOR}
+                onChange={(e) => onPatch({ tabUnderlineColor: e.target.value, tabCustomUnderline: true })} />
+              <button className="tab-settings-clear-btn" title="Reset to default"
+                onClick={() => onPatch({ tabUnderlineColor: DEFAULT_SELECTION_COLOR, tabCustomUnderline: false })}>{"\u2715"}</button>
             </>
           )}
           <button
             className={`tab-settings-toggle${style.tabShowUnderline ? ' is-on' : ''}`}
             onClick={() => onPatch({
-              tabShowUnderline: !style.tabShowUnderline,
-              tabCustomSelection: !style.tabShowUnderline,
-              ...(!style.tabShowUnderline ? { tabSelectionColor: DEFAULT_SELECTION_COLOR } : {}),
+              tabShowUnderline: !style.tabShowUnderline
             })}
+          />
+        </div>
+      </div>
+
+      {/* Background */}
+      <div className="tab-settings-row">
+        <span className="tab-settings-label">Background</span>
+        <div className="tab-settings-control-cluster">
+          {style.tabShowBg && (
+            <>
+              <input type="color" className="tab-settings-color-input" value={style.tabBgColor || '#f3f2f1'}
+                onChange={(e) => onPatch({ tabBgColor: e.target.value, tabCustomBg: true })} />
+              <button className="tab-settings-clear-btn" title="Reset to default"
+                onClick={() => onPatch({ tabBgColor: '#f3f2f1', tabCustomBg: false })}>{"\u2715"}</button>
+            </>
+          )}
+          <button
+            className={`tab-settings-toggle${style.tabShowBg ? ' is-on' : ''}`}
+            onClick={() => onPatch({ tabShowBg: !style.tabShowBg })}
           />
         </div>
       </div>
@@ -157,12 +224,17 @@ const TabBlock = memo(function TabBlock({ block }) {
   const tabStyle = useMemo(() => ({
     tabStyle: block.tabStyle || 'standard',
     tabShowUnderline: block.tabShowUnderline !== undefined ? block.tabShowUnderline : true,
+    tabUnderlineColor: block.tabUnderlineColor || DEFAULT_SELECTION_COLOR,
+    tabCustomUnderline: block.tabCustomUnderline || false,
+    tabShowBg: block.tabShowBg !== undefined ? block.tabShowBg : false,
+    tabBgColor: block.tabBgColor || '#f3f2f1',
+    tabCustomBg: block.tabCustomBg !== undefined ? block.tabCustomBg : false,
     tabGap: block.tabGap || 0,
     tabHeight: block.tabHeight || 'medium',
     tabCustomSelection: block.tabCustomSelection || false,
     tabSelectionColor: block.tabSelectionColor || DEFAULT_SELECTION_COLOR,
     tabAlignment: block.tabAlignment || 'left',
-  }), [block.tabStyle, block.tabShowUnderline, block.tabGap, block.tabHeight, block.tabCustomSelection, block.tabSelectionColor, block.tabAlignment]);
+  }), [block.tabStyle, block.tabShowUnderline, block.tabUnderlineColor, block.tabCustomUnderline, block.tabShowBg, block.tabBgColor, block.tabCustomBg, block.tabGap, block.tabHeight, block.tabCustomSelection, block.tabSelectionColor, block.tabAlignment]);
 
   const patchStyle = useCallback((patch) => {
     for (const [key, val] of Object.entries(patch)) {
@@ -177,6 +249,12 @@ const TabBlock = memo(function TabBlock({ block }) {
     s.gap = `${tabStyle.tabGap}px`;
     if (tabStyle.tabAlignment === 'center') s.justifyContent = 'center';
     else if (tabStyle.tabAlignment === 'right') s.justifyContent = 'flex-end';
+    if (!tabStyle.tabShowBg) {
+      s.background = 'transparent';
+    } else {
+      s.background = tabStyle.tabCustomBg ? tabStyle.tabBgColor : '#f3f2f1';
+    }
+    s.paddingRight = '40px'; // reserve space for absolute settings button
     return s;
   }, [tabStyle]);
 
@@ -186,26 +264,75 @@ const TabBlock = memo(function TabBlock({ block }) {
     const isActive = tab.id === activeTabId;
     const shape = tabStyle.tabStyle;
 
-    // Underline/highlight
-    if (!tabStyle.tabShowUnderline) {
-      s.borderBottom = '2px solid transparent';
-    } else if (isActive && tabStyle.tabCustomSelection) {
-      s.borderBottomColor = tabStyle.tabSelectionColor;
-      // Auto-tint the active tab background with a pale shade of the selection color
-      s.background = hexToRgba(tabStyle.tabSelectionColor, 0.12);
+    // Highlight (Background tint)
+    if (isActive) {
+      if (tabStyle.tabCustomSelection) {
+        s.background = hexToRgba(tabStyle.tabSelectionColor, 0.12);
+      }
+    }
+
+    // Underline (only applied if not tags, button, or segment shape)
+    if (shape !== 'tags' && shape !== 'button' && shape !== 'segment') {
+      if (tabStyle.tabShowUnderline) {
+        const uColor = tabStyle.tabCustomUnderline 
+          ? tabStyle.tabUnderlineColor 
+          : (tabStyle.tabCustomSelection ? tabStyle.tabSelectionColor : DEFAULT_SELECTION_COLOR);
+        if (isActive) {
+          s.borderBottom = `2px solid ${uColor}`;
+        } else {
+          s.borderBottom = '2px solid transparent';
+        }
+      } else {
+        s.borderBottom = 'none';
+      }
     }
 
     // Shape-specific overrides
-    if (shape === 'pill' && isActive) s.background = s.background || 'rgba(255,255,255,.08)';
-    else if (shape === 'square' && isActive) s.background = s.background || 'rgba(255,255,255,.06)';
-    else if (shape === 'rounded' && isActive) s.background = s.background || 'rgba(255,255,255,.06)';
+    if (shape === 'pill' && isActive) {
+      s.background = tabStyle.tabCustomSelection 
+        ? hexToRgba(tabStyle.tabSelectionColor, 0.12) 
+        : 'rgba(1, 118, 211, 0.08)';
+    }
 
     return s;
   }, [activeTabId, tabStyle]);
 
+  /* URL Hash anchor navigation navigation */
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash;
+      if (hash && hash.startsWith('#tab:')) {
+        const parts = hash.split(':');
+        if (parts.length === 3) {
+          const targetBlockId = parts[1];
+          const targetTabId = parts[2];
+          if (targetBlockId === block.id) {
+            const exists = tabs.some(t => t.id === targetTabId);
+            if (exists && activeTabId !== targetTabId) {
+              updateBlockProperty(block.id, 'activeTabId', targetTabId);
+              requestAnimationFrame(() => {
+                const el = document.querySelector(`[data-tab-block="${block.id}"]`);
+                if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+              });
+            }
+          }
+        }
+      }
+    };
+
+    handleHashChange();
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
+  }, [block.id, tabs, activeTabId, updateBlockProperty]);
+
   /* Tab actions */
   const switchTab = useCallback((tabId) => {
-    if (tabId !== activeTabId) updateBlockProperty(block.id, 'activeTabId', tabId);
+    if (tabId !== activeTabId) {
+      updateBlockProperty(block.id, 'activeTabId', tabId);
+      if (window.location.hash) {
+        window.history.replaceState(null, null, window.location.pathname + window.location.search);
+      }
+    }
   }, [block.id, activeTabId, updateBlockProperty]);
 
   const addTab = useCallback(() => {
@@ -224,6 +351,9 @@ const TabBlock = memo(function TabBlock({ block }) {
     if (activeTabId === tabId) {
       const newActive = newTabs[Math.min(idx, newTabs.length - 1)]?.id;
       updateBlockProperty(block.id, 'activeTabId', newActive);
+    }
+    if (window.location.hash) {
+      window.history.replaceState(null, null, window.location.pathname + window.location.search);
     }
   }, [block.id, tabs, activeTabId, updateBlockProperty]);
 
@@ -252,6 +382,21 @@ const TabBlock = memo(function TabBlock({ block }) {
     const newTabs = tabs.map(t => t.id === tabId ? { ...t, icon } : t);
     updateBlockProperty(block.id, 'tabs', newTabs);
   }, [block.id, tabs, updateBlockProperty]);
+
+  /* Click empty tab content area to insert paragraph */
+  const handleTabContentClick = useCallback(() => {
+    if (!activeTab) return;
+    if (!activeTab.blocks || activeTab.blocks.length === 0) {
+      const newBlock = makeBlock('paragraph', '');
+      const newTabs = tabs.map(t => t.id === activeTab.id ? { ...t, blocks: [newBlock] } : t);
+      updateBlockProperty(block.id, 'tabs', newTabs);
+      
+      requestAnimationFrame(() => {
+        const el = document.querySelector(`[data-block-id="${newBlock.id}"] [contenteditable]`);
+        if (el) el.focus();
+      });
+    }
+  }, [block.id, tabs, activeTab, updateBlockProperty]);
 
   /* Drag reorder */
   const handleDragStart = useCallback((e, tabId) => {
@@ -287,15 +432,42 @@ const TabBlock = memo(function TabBlock({ block }) {
     e.stopPropagation();
     const idx = tabs.findIndex(t => t.id === tab.id);
     showContextMenu(e.clientX, e.clientY, [
-      { label: '✏️  Rename', action: () => startRename(tab.id) },
-      { label: `${tab.icon || '😊'}  Edit icon`, action: () => {
-        const tabEl = document.querySelector(`[data-tab-block="${block.id}"] [data-tab-id="${tab.id}"]`);
-        const rect = tabEl?.getBoundingClientRect();
-        setIconPickerState({ tabId: tab.id, top: rect ? rect.bottom + 4 : e.clientY, left: rect ? rect.left : e.clientX });
-      }},
-      { label: '🔗  Copy link', action: () => {
-        navigator.clipboard?.writeText(`${window.location.href}#tab:${block.id}:${tab.id}`);
-      }},
+      {
+        label: (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+            <span>{"\u270F\uFE0F"}</span>
+            <span>Rename</span>
+          </span>
+        ),
+        action: () => startRename(tab.id)
+      },
+      {
+        label: (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ width: '16px', height: '16px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+              {tab.icon ? renderTabIcon(tab.icon) : "\ud83d\ude0a"}
+            </span>
+            <span>Edit icon</span>
+          </span>
+        ),
+        action: () => {
+          const tabEl = document.querySelector(`[data-tab-block="${block.id}"] [data-tab-id="${tab.id}"]`);
+          const rect = tabEl?.getBoundingClientRect();
+          setIconPickerState({ tabId: tab.id, top: rect ? rect.bottom + 4 : e.clientY, left: rect ? rect.left : e.clientX });
+        }
+      },
+      {
+        label: (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+            <span>{"\ud83d\udd17"}</span>
+            <span>Copy link</span>
+          </span>
+        ),
+        action: () => {
+          const baseUrl = window.location.href.split('#')[0];
+          navigator.clipboard?.writeText(`${baseUrl}#tab:${block.id}:${tab.id}`);
+        }
+      },
       { divider: true },
       { label: 'Duplicate tab', action: () => {
         const clone = JSON.parse(JSON.stringify(tab));
@@ -309,11 +481,21 @@ const TabBlock = memo(function TabBlock({ block }) {
       { label: 'Move left', disabled: idx === 0, action: () => { const nt = [...tabs]; [nt[idx - 1], nt[idx]] = [nt[idx], nt[idx - 1]]; updateBlockProperty(block.id, 'tabs', nt); }},
       { label: 'Move right', disabled: idx === tabs.length - 1, action: () => { const nt = [...tabs]; [nt[idx], nt[idx + 1]] = [nt[idx + 1], nt[idx]]; updateBlockProperty(block.id, 'tabs', nt); }},
       { divider: true },
-      { label: '🗑️  Delete tab', danger: true, disabled: tabs.length <= 1, action: () => {
-        const nt = tabs.filter(t => t.id !== tab.id);
-        updateBlockProperty(block.id, 'tabs', nt);
-        if (activeTabId === tab.id) updateBlockProperty(block.id, 'activeTabId', nt[Math.min(idx, nt.length - 1)]?.id);
-      }},
+      {
+        label: (
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
+            <span>{"\ud83d\uddd1\ufe0f"}</span>
+            <span>Delete tab</span>
+          </span>
+        ),
+        danger: true,
+        disabled: tabs.length <= 1,
+        action: () => {
+          const nt = tabs.filter(t => t.id !== tab.id);
+          updateBlockProperty(block.id, 'tabs', nt);
+          if (activeTabId === tab.id) updateBlockProperty(block.id, 'activeTabId', nt[Math.min(idx, nt.length - 1)]?.id);
+        }
+      },
     ]);
   }, [block.id, tabs, activeTabId, showContextMenu, startRename, updateBlockProperty]);
 
@@ -324,13 +506,13 @@ const TabBlock = memo(function TabBlock({ block }) {
     return { top: r.bottom + 4, left: Math.max(8, r.right - 240) };
   }, [settingsOpen]);
 
-  const showSpacer = tabStyle.tabAlignment === 'left';
+  const barStyleWithPadding = { ...barStyle, paddingRight: '40px' };
 
   return (
     <div className="block-content">
       <div className={`tab-block tab-shape-${tabStyle.tabStyle}`} data-tab-block={block.id}>
         {/* Tab bar */}
-        <div className="tab-bar" ref={barRef} style={barStyle}>
+        <div className="tab-bar" ref={barRef} style={barStyleWithPadding}>
           {tabs.map(tab => (
             <div
               key={tab.id}
@@ -338,7 +520,7 @@ const TabBlock = memo(function TabBlock({ block }) {
               data-tab-id={tab.id}
               style={getTabItemStyle(tab)}
               onClick={() => switchTab(tab.id)}
-              onDoubleClick={() => startRename(tab.id)}
+              onDoubleClick={(e) => handleContextMenu(e, tab)}
               onContextMenu={(e) => handleContextMenu(e, tab)}
               draggable
               onDragStart={(e) => handleDragStart(e, tab.id)}
@@ -347,7 +529,7 @@ const TabBlock = memo(function TabBlock({ block }) {
               onDragLeave={() => { setDragOverTabId(null); setDragSide(null); }}
               onDrop={(e) => handleDrop(e, tab.id)}
             >
-              {tab.icon && <span className="tab-icon">{tab.icon}</span>}
+              {tab.icon && <span className="tab-icon">{renderTabIcon(tab.icon)}</span>}
               <span className="tab-name" contentEditable={editingTabId === tab.id} suppressContentEditableWarning
                 onBlur={() => finishRename(tab.id)}
                 onKeyDown={(e) => {
@@ -356,12 +538,36 @@ const TabBlock = memo(function TabBlock({ block }) {
                 }}
                 onClick={(e) => { if (editingTabId === tab.id) e.stopPropagation(); }}
               >{tab.name}</span>
-              {tabs.length > 1 && <span className="tab-close" onClick={(e) => closeTab(tab.id, e)}>×</span>}
             </div>
           ))}
           <div className="tab-add-btn" onClick={addTab} title="Add tab">+</div>
-          {showSpacer && <div className="tab-bar-spacer" />}
-          <div ref={settingsBtnRef} className="tab-settings-btn" title="Tab settings" onClick={() => setSettingsOpen(v => !v)}>
+        </div>
+
+        {/* Fixed settings wrapper (placed inside the border of tab-block to prevent covering the corners/edges) */}
+        <div 
+          style={{
+            position: 'absolute',
+            right: '1px',
+            top: '1px',
+            height: ((HEIGHT_MAP[tabStyle.tabHeight] || 40) - 2) + 'px',
+            width: '38px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            background: tabStyle.tabShowBg ? (tabStyle.tabCustomBg ? tabStyle.tabBgColor : '#f3f2f1') : '#ffffff',
+            zIndex: 2,
+            borderBottom: '1px solid #dddbda',
+            borderTopRightRadius: '3px',
+            boxShadow: '-10px 0 10px -10px rgba(0,0,0,0.15)'
+          }}
+        >
+          <div 
+            ref={settingsBtnRef} 
+            className="tab-settings-btn" 
+            title="Tab settings" 
+            onClick={() => setSettingsOpen(v => !v)}
+            style={{ margin: 0 }} // clear any defaults
+          >
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"/>
               <circle cx="12" cy="12" r="3"/>
@@ -373,17 +579,28 @@ const TabBlock = memo(function TabBlock({ block }) {
         {iconPickerState && (
           <NotionIconPicker
             position={{ x: iconPickerState.left, y: iconPickerState.top }}
-            onSelect={(val) => { setTabIcon(iconPickerState.tabId, val || ''); setIconPickerState(null); }}
+            currentIcon={block.tabs?.find(t => t.id === iconPickerState.tabId)?.icon}
+            onSelect={(val) => { setTabIcon(iconPickerState.tabId, val || ''); }}
             onClose={() => setIconPickerState(null)}
           />
         )}
 
         {/* Tab content */}
-        <div className="tab-content" key={activeTabId}>
+        <div 
+          className="tab-content" 
+          key={activeTabId} 
+          onClick={handleTabContentClick}
+          style={{ cursor: (!activeTab || !activeTab.blocks || activeTab.blocks.length === 0) ? 'text' : 'default' }}
+        >
           <div className="blocks-container">
             {BR && activeTab && activeTab.blocks.map((b, i) => (
               <BR key={b.id} block={b} blocksArray={activeTab.blocks} blockIndex={i} />
             ))}
+            {activeTab && (!activeTab.blocks || activeTab.blocks.length === 0) && (
+              <div className="tab-empty-placeholder">
+                Type '/' for commands
+              </div>
+            )}
           </div>
         </div>
       </div>

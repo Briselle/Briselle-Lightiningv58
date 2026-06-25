@@ -7,7 +7,23 @@ export type NotionPagePayload = {
     fullWidth: boolean;
     smallText: boolean;
     blocks: any[];
+    comments?: any[];
+    commentsAlwaysShow?: boolean;
+    commentsAlwaysOff?: boolean;
+    commentsAutoHideDelay?: number;
+    commentsHoverMode?: 'text' | 'region' | 'both';
+    coverPosition?: number;
     updatedAt?: string;
+    showAuditMetadata?: boolean;
+    showAuditCreatedOn?: boolean;
+    showAuditCreatedBy?: boolean;
+    showAuditModifiedOn?: boolean;
+    showAuditModifiedBy?: boolean;
+    showAuditWordCount?: boolean;
+    freezeTitle?: boolean;
+    fontFamily?: string;
+    fontFavorites?: string[];
+    fontSize?: -2 | -1 | 0 | 1 | 2;
 };
 
 export type NotionRecordContext = {
@@ -19,4 +35,8 @@ export type NotionRecordContext = {
     title: string;
     page: NotionPagePayload;
     rawValues: Record<string, unknown>;
+    createdAt?: string;
+    updatedAt?: string;
+    createdById?: number;
+    modifiedById?: number;
 };

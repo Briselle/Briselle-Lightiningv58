@@ -192,6 +192,9 @@ export function createDefaultNotionPage(title?: string): NotionPagePayload {
         coverUrl: '',
         fullWidth: false,
         smallText: false,
+        fontFamily: 'sans-serif',
+        fontFavorites: ['sans-serif', 'serif', 'mono'],
+        fontSize: 0,
         blocks,
         updatedAt: new Date().toISOString(),
     };
@@ -209,6 +212,30 @@ export function parseNotionPageFromValues(values: Record<string, unknown> | null
             fullWidth: p.fullWidth === true,
             smallText: p.smallText === true,
             blocks: sanitizeNotionBlocks(p.blocks),
+            comments: Array.isArray(p.comments) ? p.comments : [],
+            commentsAlwaysShow: p.commentsAlwaysShow === true,
+            commentsAlwaysOff: p.commentsAlwaysOff === true,
+            coverPosition: typeof p.coverPosition === 'number' ? p.coverPosition : 50,
+            commentsAutoHideDelay: typeof p.commentsAutoHideDelay === 'number' ? p.commentsAutoHideDelay : 30,
+            commentsHoverMode: (p.commentsHoverMode === 'text' || p.commentsHoverMode === 'region' || p.commentsHoverMode === 'both') ? p.commentsHoverMode : 'text',
+            showAuditMetadata: p.showAuditMetadata === true,
+            showAuditCreatedOn: p.showAuditCreatedOn !== false,
+            showAuditCreatedBy: p.showAuditCreatedBy !== false,
+            showAuditModifiedOn: p.showAuditModifiedOn !== false,
+            showAuditModifiedBy: p.showAuditModifiedBy !== false,
+            showAuditWordCount: p.showAuditWordCount !== false,
+            freezeTitle: p.freezeTitle === true,
+            fontFamily: typeof p.fontFamily === 'string' ? p.fontFamily : 'sans-serif',
+            fontFavorites: Array.isArray(p.fontFavorites) ? p.fontFavorites : ['sans-serif', 'serif', 'mono'],
+            fontSize: (() => {
+                const fs = p.fontSize;
+                if (fs === -2 || fs === -1 || fs === 0 || fs === 1 || fs === 2) return fs;
+                if (fs === 'small') return -1;
+                if (fs === 'medium') return 0;
+                if (fs === 'large') return 1;
+                if (fs === 'extra-large') return 2;
+                return 0;
+            })(),
             updatedAt: typeof p.updatedAt === 'string' ? p.updatedAt : undefined,
         };
     }

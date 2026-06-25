@@ -589,12 +589,8 @@ export default function RecordsList() {
     };
 
     const handleNewRecordClick = () => {
-        if (isNotionNestObjectType(objectType)) {
-            setNotionPageTitle('');
-            setCreateError(null);
-            setShowCreateModal(true);
-            return;
-        }
+        // Always use the standard schema-driven form for every object type.
+        // NotionNest objects will derive their page title from sys_record_name / sys_record_id.
         void openCreateModal();
     };
 
@@ -612,7 +608,22 @@ export default function RecordsList() {
         if (resolvedDobjId == null) return;
 
         if (isNotionNestObjectType(objectType)) {
-            const title = notionPageTitle.trim() || 'Untitled';
+            // Validate required fields first (same as standard objects)
+            const missingRequired = schemaFields.filter((f) => {
+                if (!isRequiredField(f)) return false;
+                const key = getFieldApiName(f);
+                if (!key) return false;
+                return String(createValues[key] ?? '').trim() === '';
+            });
+            if (missingRequired.length > 0) {
+                setCreateError('Please fill all required fields.');
+                return;
+            }
+            // Derive the notion page title from sys_record_name or sys_record_id, falling back to 'Untitled'
+            const titleFromName = String(createValues['sys_record_name'] ?? '').trim();
+            const titleFromId   = String(createValues['sys_record_id']   ?? '').trim();
+            const derivedTitle  = titleFromName || titleFromId || 'Untitled';
+
             setCreating(true);
             setCreateError(null);
             let { data: authSessionData } = await supabase.auth.getSession();
@@ -630,10 +641,32 @@ export default function RecordsList() {
                 null;
             const actorIdNum = Number(candidateActorId);
             const actorId = Number.isFinite(actorIdNum) && actorIdNum > 0 ? actorIdNum : FIXED_USER_ID;
+
+            // Allocate auto-number values (same logic as standard objects)
+            const ddataValuesForNotion: Record<string, unknown> = schemaFields.reduce<Record<string, unknown>>((acc, field) => {
+                const key = getFieldApiName(field);
+                if (key) acc[key] = String(createValues[key] ?? '');
+                return acc;
+            }, {});
+            for (const field of schemaFields) {
+                if (!isAutoNumberField(field)) continue;
+                const key = getFieldApiName(field);
+                if (!key) continue;
+                const allocated = await allocateAutoNumberFromLedger(FIXED_ENTITY_ID, resolvedDobjId, field);
+                if (allocated.error || !allocated.value) {
+                    setCreating(false);
+                    setCreateError(`${String(field.label ?? key)}: ${allocated.error ?? 'Unable to allocate a unique auto number.'}`);
+                    return;
+                }
+                ddataValuesForNotion[key] = allocated.value;
+            }
+            // createNotionNestRecord handles inserting the record with the notion page structure;
+            // we pass the extra schema values so they are stored too.
             const { recordId, error: createErr } = await createNotionNestRecord({
                 dobjId: resolvedDobjId,
-                title,
+                title: derivedTitle,
                 actorId,
+                extraValues: ddataValuesForNotion,
             });
             setCreating(false);
             if (createErr || recordId == null) {
@@ -796,7 +829,7 @@ export default function RecordsList() {
                     <div className="bg-white rounded-lg shadow-xl max-w-3xl w-full max-h-[90vh] flex flex-col border border-gray-200">
                         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
                             <h2 className="text-lg font-semibold text-gray-900">
-                                {isNotionNestObjectType(objectType) ? `New ${objectLabel} page` : `New ${objectLabel}`}
+                                New {objectLabel}
                             </h2>
                             <button
                                 type="button"
@@ -821,26 +854,11 @@ export default function RecordsList() {
                             ) : null}
                             {createError ? <p className="text-sm text-red-600 mb-3">{createError}</p> : null}
                             {isNotionNestObjectType(objectType) ? (
-                                <div className="space-y-3">
-                                    <p className="text-sm text-gray-600">
-                                        Create a Notion-style page. Add blocks, cover, and icon after the page opens.
-                                    </p>
-                                    <div>
-                                        <label className="block text-xs font-medium text-gray-600 mb-1">Page title</label>
-                                        <input
-                                            className="input text-sm py-1.5 w-full"
-                                            value={notionPageTitle}
-                                            placeholder="Untitled"
-                                            disabled={creating}
-                                            onChange={(e) => setNotionPageTitle(e.target.value)}
-                                            onKeyDown={(e) => {
-                                                if (e.key === 'Enter') void handleSaveNewRecord();
-                                            }}
-                                        />
-                                    </div>
-                                </div>
+                                <p className="text-sm text-gray-600 mb-2">
+                                    Fill in the fields below. The page title will be set from the Name field (or ID) and you can edit it after the page opens.
+                                </p>
                             ) : null}
-                            {!isNotionNestObjectType(objectType) && objectType === 'hierarchy' ? (
+                            {objectType === 'hierarchy' ? (
                                 <div className="mb-3 rounded border border-blue-200 bg-blue-50/50 p-3">
                                     <div className="flex items-center gap-2 mb-2">
                                         <button
@@ -897,7 +915,6 @@ export default function RecordsList() {
                                     )}
                                 </div>
                             ) : null}
-                            {!isNotionNestObjectType(objectType) ? (
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                                 {schemaFields
                                     .filter((field) => getFieldApiName(field))
@@ -1010,7 +1027,6 @@ export default function RecordsList() {
                                         );
                                     })}
                             </div>
-                            ) : null}
                         </div>
                         <div className="px-4 py-3 border-t border-gray-200 flex flex-wrap justify-end gap-2">
                             <button

@@ -353,3 +353,28 @@ export const markdownShortcuts = [
   { pattern: /^```$/, type: 'code' },
   { pattern: /^\|\| $/, type: 'toggle' },
 ];
+
+export function calculateInitials(title, type, customVal = '') {
+  if (type === 'custom') {
+    return (customVal || '').slice(0, 2).toUpperCase();
+  }
+  
+  const cleanTitle = (title || 'Untitled').trim();
+  const words = cleanTitle.split(/\s+/).filter(Boolean);
+  
+  if (type === 'single') {
+    if (words.length > 0) {
+      return words[0].charAt(0).toUpperCase();
+    }
+    return 'U';
+  }
+  
+  // Default: two letters
+  if (words.length >= 2) {
+    return (words[0].charAt(0) + words[1].charAt(0)).toUpperCase();
+  } else if (words.length === 1) {
+    const word = words[0];
+    return word.slice(0, 2).toUpperCase();
+  }
+  return 'UN';
+}
