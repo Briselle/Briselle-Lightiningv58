@@ -107,131 +107,80 @@ export function loadGoogleFont(fontFamilyName: string) {
     }
 }
 
-export default function NotionNestPage() {
-    const { objectId, recordId } = useParams<{ objectId: string; recordId: string }>();
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState<string | null>(null);
-    const [ctx, setCtx] = useState<NotionRecordContext | null>(null);
-    const [title, setTitle] = useState('');
-    const [page, setPage] = useState<NotionPagePayload | null>(null);
-    const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
-    const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-    const dirtyRef = useRef(false);
-    // Comments visibility settings (persisted in page state/payload)
-    const [showCommentSettings, setShowCommentSettings] = useState(false);
-    const commentSettingsRef = useRef<HTMLDivElement>(null);
-    const [showAuditSettings, setShowAuditSettings] = useState(false);
-    const auditSettingsRef = useRef<HTMLDivElement>(null);
-    const [showFreezeSettings, setShowFreezeSettings] = useState(false);
-    const freezeSettingsRef = useRef<HTMLDivElement>(null);
-    const [showFontSettings, setShowFontSettings] = useState(false);
-    const fontSettingsRef = useRef<HTMLDivElement>(null);
+export function clearBlockFonts(blocks: any[]): any[] {
+    if (!blocks) return [];
+    return blocks.map(b => {
+        const nextBlock = { ...b };
+        delete nextBlock.fontFamily;
+        delete nextBlock.fontSize;
+        if (nextBlock.children) {
+            nextBlock.children = clearBlockFonts(nextBlock.children);
+        }
+        if (nextBlock.tabs) {
+            nextBlock.tabs = nextBlock.tabs.map((t: any) => ({
+                ...t,
+                blocks: clearBlockFonts(t.blocks)
+            }));
+        }
+        if (nextBlock.columns) {
+            nextBlock.columns = nextBlock.columns.map((c: any) => ({
+                ...c,
+                blocks: clearBlockFonts(c.blocks)
+            }));
+        }
+        return nextBlock;
+    });
+}
+
+interface FontSettingsPanelProps {
+    fontFamily: string;
+    fontSize: number;
+    fontFavorites: string[];
+    onChangeFontFamily: (fontId: string) => void;
+    onChangeFontSize: (fontSize: number) => void;
+    onChangeFavorites: (favorites: string[]) => void;
+    onReset?: () => void;
+    showReset?: boolean;
+}
+
+export function FontSettingsPanel({
+    fontFamily,
+    fontSize,
+    fontFavorites,
+    onChangeFontFamily,
+    onChangeFontSize,
+    onChangeFavorites,
+    onReset,
+    showReset = true,
+}: FontSettingsPanelProps) {
+    const [dropdownFont, setDropdownFont] = useState(fontFamily);
     const [dropdownOpen, setDropdownOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
     const [favoriteWarning, setFavoriteWarning] = useState<string | null>(null);
+
     const fontDropdownRef = useRef<HTMLDivElement>(null);
     const dropdownBtnRef = useRef<HTMLButtonElement>(null);
-    const [dropdownFont, setDropdownFont] = useState('Inter');
     const searchInputRef = useRef<HTMLInputElement>(null);
 
-    const commentsAlwaysShow = page?.commentsAlwaysShow ?? false;
-    const commentsAlwaysOff = page?.commentsAlwaysOff ?? false;
-    const autoHideDelay = page?.commentsAutoHideDelay ?? 30;
-    const commentsHoverMode = page?.commentsHoverMode ?? 'text';
-    const showAuditMetadata = page?.showAuditMetadata ?? false;
-    const showAuditCreatedOn = page?.showAuditCreatedOn ?? true;
-    const showAuditCreatedBy = page?.showAuditCreatedBy ?? true;
-    const showAuditModifiedOn = page?.showAuditModifiedOn ?? true;
-    const showAuditModifiedBy = page?.showAuditModifiedBy ?? true;
-    const showAuditWordCount = page?.showAuditWordCount ?? true;
-    const freezeTitle = page?.freezeTitle ?? false;
-    const fontFamily = page?.fontFamily ?? 'sans-serif';
-    const fontFavorites = page?.fontFavorites ?? ['sans-serif', 'serif', 'mono'];
-    const fontSize = page?.fontSize ?? 0;
-
-    // Keep dropdownFont in sync with page loading/font changes
     useEffect(() => {
-        if (page?.fontFamily) {
-            setDropdownFont(page.fontFamily);
-        }
-    }, [page?.fontFamily]);
+        setDropdownFont(fontFamily);
+    }, [fontFamily]);
 
-    // Load google fonts when fontFamily or favorites list changes
     useEffect(() => {
-        if (fontFamily) {
-            loadGoogleFont(fontFamily);
-        }
-        fontFavorites.forEach(fav => {
-            loadGoogleFont(fav);
-        });
-    }, [fontFamily, fontFavorites]);
-
-    const updatePageSettings = (patch: {
-        commentsAlwaysShow?: boolean;
-        commentsAlwaysOff?: boolean;
-        commentsAutoHideDelay?: number;
-        commentsHoverMode?: 'text' | 'region' | 'both';
-        showAuditMetadata?: boolean;
-        showAuditCreatedOn?: boolean;
-        showAuditCreatedBy?: boolean;
-        showAuditModifiedOn?: boolean;
-        showAuditModifiedBy?: boolean;
-        showAuditWordCount?: boolean;
-        freezeTitle?: boolean;
-        fontFamily?: string;
-        fontFavorites?: string[];
-        fontSize?: -2 | -1 | 0 | 1 | 2;
-    }) => {
-        if (!page) return;
-        const next = {
-            ...page,
-            commentsAlwaysShow: patch.commentsAlwaysShow !== undefined ? patch.commentsAlwaysShow : commentsAlwaysShow,
-            commentsAlwaysOff: patch.commentsAlwaysOff !== undefined ? patch.commentsAlwaysOff : commentsAlwaysOff,
-            commentsAutoHideDelay: patch.commentsAutoHideDelay !== undefined ? patch.commentsAutoHideDelay : autoHideDelay,
-            commentsHoverMode: patch.commentsHoverMode !== undefined ? patch.commentsHoverMode : commentsHoverMode,
-            showAuditMetadata: patch.showAuditMetadata !== undefined ? patch.showAuditMetadata : showAuditMetadata,
-            showAuditCreatedOn: patch.showAuditCreatedOn !== undefined ? patch.showAuditCreatedOn : showAuditCreatedOn,
-            showAuditCreatedBy: patch.showAuditCreatedBy !== undefined ? patch.showAuditCreatedBy : showAuditCreatedBy,
-            showAuditModifiedOn: patch.showAuditModifiedOn !== undefined ? patch.showAuditModifiedOn : showAuditModifiedOn,
-            showAuditModifiedBy: patch.showAuditModifiedBy !== undefined ? patch.showAuditModifiedBy : showAuditModifiedBy,
-            showAuditWordCount: patch.showAuditWordCount !== undefined ? patch.showAuditWordCount : showAuditWordCount,
-            freezeTitle: patch.freezeTitle !== undefined ? patch.freezeTitle : freezeTitle,
-            fontFamily: patch.fontFamily !== undefined ? patch.fontFamily : fontFamily,
-            fontFavorites: patch.fontFavorites !== undefined ? patch.fontFavorites : fontFavorites,
-            fontSize: patch.fontSize !== undefined ? patch.fontSize : fontSize
+        if (!dropdownOpen) return;
+        const handler = (e: MouseEvent) => {
+            if (fontDropdownRef.current && !fontDropdownRef.current.contains(e.target as Node)) {
+                setDropdownOpen(false);
+            }
         };
-        setPage(next);
-        scheduleSave(title, next);
-    };
-
-    const resetAllSettingsToDefault = () => {
-        if (!page) return;
-        const next: NotionPagePayload = {
-            ...page,
-            fontFamily: 'sans-serif',
-            fontFavorites: ['sans-serif', 'serif', 'mono'],
-            fontSize: 0,
-            fullWidth: false,
-            commentsAlwaysShow: false,
-            commentsAlwaysOff: false,
-            commentsAutoHideDelay: 30,
-            commentsHoverMode: 'text',
-            showAuditMetadata: false,
-            showAuditCreatedOn: true,
-            showAuditCreatedBy: true,
-            showAuditModifiedOn: true,
-            showAuditModifiedBy: true,
-            showAuditWordCount: true,
-            freezeTitle: false,
-        };
-        setPage(next);
-        scheduleSave(title, next);
-    };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, [dropdownOpen]);
 
     const handleToggleFavorite = (fontId: string) => {
         if (fontFavorites.includes(fontId)) {
             const nextFavs = fontFavorites.filter(id => id !== fontId);
-            updatePageSettings({ fontFavorites: nextFavs });
+            onChangeFavorites(nextFavs);
         } else {
             if (fontFavorites.length >= 3) {
                 setFavoriteWarning('Only 3 favorites allowed');
@@ -239,7 +188,7 @@ export default function NotionNestPage() {
                 return;
             }
             const nextFavs = [...fontFavorites, fontId];
-            updatePageSettings({ fontFavorites: nextFavs });
+            onChangeFavorites(nextFavs);
         }
     };
 
@@ -264,14 +213,14 @@ export default function NotionNestPage() {
             const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % filtered.length;
             const targetFont = filtered[nextIndex];
             setDropdownFont(targetFont.id);
-            updatePageSettings({ fontFamily: targetFont.id });
+            onChangeFontFamily(targetFont.id);
             scrollSelectedItemIntoView(targetFont.id);
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
             const prevIndex = currentIndex === -1 ? filtered.length - 1 : (currentIndex - 1 + filtered.length) % filtered.length;
             const targetFont = filtered[prevIndex];
             setDropdownFont(targetFont.id);
-            updatePageSettings({ fontFamily: targetFont.id });
+            onChangeFontFamily(targetFont.id);
             scrollSelectedItemIntoView(targetFont.id);
         } else if (e.key === 'Enter') {
             e.preventDefault();
@@ -293,15 +242,355 @@ export default function NotionNestPage() {
             const nextIndex = currentIndex === -1 ? 0 : (currentIndex + 1) % POPULAR_FONTS.length;
             const targetFont = POPULAR_FONTS[nextIndex];
             setDropdownFont(targetFont.id);
-            updatePageSettings({ fontFamily: targetFont.id });
+            onChangeFontFamily(targetFont.id);
         } else if (e.key === 'ArrowUp') {
             e.preventDefault();
             const currentIndex = POPULAR_FONTS.findIndex(f => f.id === dropdownFont);
             const prevIndex = currentIndex === -1 ? POPULAR_FONTS.length - 1 : (currentIndex - 1 + POPULAR_FONTS.length) % POPULAR_FONTS.length;
             const targetFont = POPULAR_FONTS[prevIndex];
             setDropdownFont(targetFont.id);
-            updatePageSettings({ fontFamily: targetFont.id });
+            onChangeFontFamily(targetFont.id);
         }
+    };
+
+    return (
+        <div className="nn-font-dropdown-content">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <div className="nncs-label" style={{ margin: 0 }}>Font Style</div>
+                {showReset && onReset && (
+                    <button
+                        type="button"
+                        onClick={onReset}
+                        className="nn-font-reset-btn"
+                        style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#706e6b',
+                            fontSize: '11px',
+                            cursor: 'pointer',
+                            padding: '2px 4px',
+                            borderRadius: '3px',
+                        }}
+                        onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f3f2f1'}
+                        onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
+                    >
+                        Reset
+                    </button>
+                )}
+            </div>
+            <div className="nn-font-row">
+                {Array.from({ length: 3 }).map((_, i) => {
+                    if (i < fontFavorites.length) {
+                        const favId = fontFavorites[i];
+                        const font = POPULAR_FONTS.find(f => f.id === favId) || { id: favId, name: favId, css: favId };
+                        const isActive = fontFamily === favId;
+                        return (
+                            <button
+                                key={`fav-${favId}`}
+                                type="button"
+                                className={`nn-font-card ${isActive ? 'active' : ''}`}
+                                onClick={() => {
+                                    onChangeFontFamily(favId);
+                                    setDropdownFont(favId);
+                                }}
+                            >
+                                <span className="nn-font-preview" style={{ fontFamily: font.css }}>Ag</span>
+                                <span className="nn-font-name">{font.name}</span>
+                                <button
+                                    type="button"
+                                    className="nn-card-fav-star"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        handleToggleFavorite(favId);
+                                    }}
+                                    title="Remove from favorites"
+                                >
+                                    <Star className="w-3.5 h-3.5 fill-yellow-400 stroke-yellow-500" style={{ fill: '#ffb024', color: '#ffb024' }} />
+                                </button>
+                            </button>
+                        );
+                    } else {
+                        return (
+                            <div key={`empty-fav-${i}`} className="nn-font-card placeholder-slot">
+                                <span className="placeholder-icon">+</span>
+                                <span className="placeholder-label">Empty</span>
+                            </div>
+                        );
+                    }
+                })}
+                {(() => {
+                    const font = POPULAR_FONTS.find(f => f.id === dropdownFont) || { id: dropdownFont, name: dropdownFont, css: dropdownFont };
+                    const isActive = fontFamily === dropdownFont;
+                    const isFav = fontFavorites.includes(dropdownFont);
+                    return (
+                        <button
+                            type="button"
+                            className={`nn-font-card custom-selected-card ${isActive ? 'active' : ''}`}
+                            onClick={() => onChangeFontFamily(dropdownFont)}
+                        >
+                            <span className="nn-font-custom-badge">Selected</span>
+                            <span className="nn-font-preview" style={{ fontFamily: font.css }}>Ag</span>
+                            <span className="nn-font-name">{font.name}</span>
+                            <button
+                                type="button"
+                                className="nn-card-fav-star"
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleToggleFavorite(dropdownFont);
+                                }}
+                                title={isFav ? "Remove from favorites" : "Add to favorites"}
+                            >
+                                <Star
+                                    className="w-3.5 h-3.5"
+                                    style={{
+                                        fill: isFav ? '#ffb024' : 'none',
+                                        color: isFav ? '#ffb024' : '#706e6b'
+                                    }}
+                                />
+                            </button>
+                        </button>
+                    );
+                })()}
+            </div>
+
+            {favoriteWarning && (
+                <div className="nn-font-warning">
+                    {favoriteWarning}
+                </div>
+            )}
+
+            <div className="nncs-divider" />
+
+            <div className="nn-font-select-container" ref={fontDropdownRef}>
+                <button
+                    ref={dropdownBtnRef}
+                    type="button"
+                    className="nn-font-dropdown-select-btn"
+                    onClick={() => setDropdownOpen(v => !v)}
+                    onKeyDown={handleSelectBtnKeyDown}
+                >
+                    <span>{POPULAR_FONTS.find(f => f.id === dropdownFont)?.name || dropdownFont}</span>
+                    <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
+                </button>
+                {dropdownOpen && (
+                    <div className="nn-font-dropdown-select-panel">
+                        <input
+                            ref={searchInputRef}
+                            type="text"
+                            className="nn-font-search-input"
+                            placeholder="Search fonts..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            onKeyDown={handleSearchInputKeyDown}
+                            autoFocus
+                        />
+                        <div className="nn-font-dropdown-list">
+                            {POPULAR_FONTS.filter(f =>
+                                f.name.toLowerCase().includes(searchQuery.toLowerCase())
+                            ).map(font => {
+                                const isFav = fontFavorites.includes(font.id);
+                                return (
+                                    <div
+                                        id={`nn-font-item-${font.id.replace(/\s+/g, '-')}`}
+                                        key={font.id}
+                                        className={`nn-font-dropdown-item ${font.id === dropdownFont ? 'selected' : ''}`}
+                                        onClick={() => {
+                                            setDropdownFont(font.id);
+                                            onChangeFontFamily(font.id);
+                                            setDropdownOpen(false);
+                                            setSearchQuery('');
+                                            setTimeout(() => dropdownBtnRef.current?.focus(), 50);
+                                        }}
+                                    >
+                                        <span style={{ fontFamily: font.css }}>{font.name}</span>
+                                        <button
+                                            type="button"
+                                            className="nn-font-fav-btn"
+                                            onClick={(e) => {
+                                                e.stopPropagation();
+                                                handleToggleFavorite(font.id);
+                                            }}
+                                            title={isFav ? "Remove from favorites" : "Add to favorites"}
+                                        >
+                                            <Star
+                                                className="w-3.5 h-3.5"
+                                                style={{
+                                                    fill: isFav ? '#ffb024' : 'none',
+                                                    color: isFav ? '#ffb024' : '#706e6b'
+                                                }}
+                                            />
+                                        </button>
+                                    </div>
+                                );
+                            })}
+                            {POPULAR_FONTS.filter(f =>
+                                f.name.toLowerCase().includes(searchQuery.toLowerCase())
+                            ).length === 0 && (
+                                <div className="text-xs text-gray-500 p-2 text-center">No fonts found</div>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            <div className="nncs-divider" />
+            <div className="nncs-label">Font Size</div>
+            <div className="nn-size-slider-container">
+                <input
+                    type="range"
+                    min="-2"
+                    max="2"
+                    step="1"
+                    value={fontSize}
+                    onChange={(e) => {
+                        onChangeFontSize(Number(e.target.value));
+                    }}
+                    className="nn-size-slider"
+                />
+                <div className="nn-size-labels">
+                    <span className={fontSize === -2 ? 'active' : ''}>-2</span>
+                    <span className={fontSize === -1 ? 'active' : ''}>-1</span>
+                    <span className={fontSize === 0 ? 'active' : ''}>0</span>
+                    <span className={fontSize === 1 ? 'active' : ''}>+1</span>
+                    <span className={fontSize === 2 ? 'active' : ''}>+2</span>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+export default function NotionNestPage() {
+    const { objectId, recordId } = useParams<{ objectId: string; recordId: string }>();
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState<string | null>(null);
+    const [ctx, setCtx] = useState<NotionRecordContext | null>(null);
+    const [title, setTitle] = useState('');
+    const [page, setPage] = useState<NotionPagePayload | null>(null);
+    const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
+    const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const dirtyRef = useRef(false);
+    // Comments visibility settings (persisted in page state/payload)
+    const [showCommentSettings, setShowCommentSettings] = useState(false);
+    const commentSettingsRef = useRef<HTMLDivElement>(null);
+    const [showAuditSettings, setShowAuditSettings] = useState(false);
+    const auditSettingsRef = useRef<HTMLDivElement>(null);
+    const [showFreezeSettings, setShowFreezeSettings] = useState(false);
+    const freezeSettingsRef = useRef<HTMLDivElement>(null);
+    const [showFontSettings, setShowFontSettings] = useState(false);
+    const fontSettingsRef = useRef<HTMLDivElement>(null);
+
+
+    const commentsAlwaysShow = page?.commentsAlwaysShow ?? false;
+    const commentsAlwaysOff = page?.commentsAlwaysOff ?? false;
+    const autoHideDelay = page?.commentsAutoHideDelay ?? 30;
+    const commentsHoverMode = page?.commentsHoverMode ?? 'text';
+    const showAuditMetadata = page?.showAuditMetadata ?? false;
+    const showAuditCreatedOn = page?.showAuditCreatedOn ?? true;
+    const showAuditCreatedBy = page?.showAuditCreatedBy ?? true;
+    const showAuditModifiedOn = page?.showAuditModifiedOn ?? true;
+    const showAuditModifiedBy = page?.showAuditModifiedBy ?? true;
+    const showAuditWordCount = page?.showAuditWordCount ?? true;
+    const freezeTitle = page?.freezeTitle ?? false;
+    const fontFamily = page?.fontFamily ?? 'sans-serif';
+    const fontFavorites = page?.fontFavorites ?? ['sans-serif', 'serif', 'mono'];
+    const fontSize = page?.fontSize ?? 0;
+
+
+    // Load google fonts when fontFamily or favorites list changes
+    useEffect(() => {
+        if (fontFamily) {
+            loadGoogleFont(fontFamily);
+        }
+        fontFavorites.forEach(fav => {
+            loadGoogleFont(fav);
+        });
+    }, [fontFamily, fontFavorites]);
+
+    // Dynamic Font Loader: Scan active blocks for custom block-level fontFamily and load them
+    useEffect(() => {
+        if (!page?.blocks) return;
+        const fontFamilies = new Set<string>();
+        const collectFonts = (blocks: any[]) => {
+            for (const b of blocks) {
+                if (b.fontFamily) {
+                    fontFamilies.add(b.fontFamily);
+                }
+                if (b.children) collectFonts(b.children);
+                if (b.tabs) b.tabs.forEach((t: any) => collectFonts(t.blocks));
+                if (b.columns) b.columns.forEach((c: any) => collectFonts(c.blocks));
+            }
+        };
+        collectFonts(page.blocks);
+        fontFamilies.forEach(f => {
+            loadGoogleFont(f);
+        });
+    }, [page?.blocks]);
+
+    const updatePageSettings = (patch: {
+        commentsAlwaysShow?: boolean;
+        commentsAlwaysOff?: boolean;
+        commentsAutoHideDelay?: number;
+        commentsHoverMode?: 'text' | 'region' | 'both';
+        showAuditMetadata?: boolean;
+        showAuditCreatedOn?: boolean;
+        showAuditCreatedBy?: boolean;
+        showAuditModifiedOn?: boolean;
+        showAuditModifiedBy?: boolean;
+        showAuditWordCount?: boolean;
+        freezeTitle?: boolean;
+        fontFamily?: string;
+        fontFavorites?: string[];
+        fontSize?: -2 | -1 | 0 | 1 | 2;
+    }) => {
+        if (!page) return;
+        const nextBlocks = (patch.fontFamily !== undefined || patch.fontSize !== undefined)
+            ? clearBlockFonts(page.blocks)
+            : page.blocks;
+        const next = {
+            ...page,
+            blocks: nextBlocks,
+            commentsAlwaysShow: patch.commentsAlwaysShow !== undefined ? patch.commentsAlwaysShow : commentsAlwaysShow,
+            commentsAlwaysOff: patch.commentsAlwaysOff !== undefined ? patch.commentsAlwaysOff : commentsAlwaysOff,
+            commentsAutoHideDelay: patch.commentsAutoHideDelay !== undefined ? patch.commentsAutoHideDelay : autoHideDelay,
+            commentsHoverMode: patch.commentsHoverMode !== undefined ? patch.commentsHoverMode : commentsHoverMode,
+            showAuditMetadata: patch.showAuditMetadata !== undefined ? patch.showAuditMetadata : showAuditMetadata,
+            showAuditCreatedOn: patch.showAuditCreatedOn !== undefined ? patch.showAuditCreatedOn : showAuditCreatedOn,
+            showAuditCreatedBy: patch.showAuditCreatedBy !== undefined ? patch.showAuditCreatedBy : showAuditCreatedBy,
+            showAuditModifiedOn: patch.showAuditModifiedOn !== undefined ? patch.showAuditModifiedOn : showAuditModifiedOn,
+            showAuditModifiedBy: patch.showAuditModifiedBy !== undefined ? patch.showAuditModifiedBy : showAuditModifiedBy,
+            showAuditWordCount: patch.showAuditWordCount !== undefined ? patch.showAuditWordCount : showAuditWordCount,
+            freezeTitle: patch.freezeTitle !== undefined ? patch.freezeTitle : freezeTitle,
+            fontFamily: patch.fontFamily !== undefined ? patch.fontFamily : fontFamily,
+            fontFavorites: patch.fontFavorites !== undefined ? patch.fontFavorites : fontFavorites,
+            fontSize: patch.fontSize !== undefined ? patch.fontSize : fontSize
+        };
+        setPage(next);
+        scheduleSave(title, next);
+    };
+
+    const resetAllSettingsToDefault = () => {
+        if (!page) return;
+        const next: NotionPagePayload = {
+            ...page,
+            blocks: clearBlockFonts(page.blocks),
+            fontFamily: 'sans-serif',
+            fontFavorites: ['sans-serif', 'serif', 'mono'],
+            fontSize: 0,
+            fullWidth: false,
+            commentsAlwaysShow: false,
+            commentsAlwaysOff: false,
+            commentsAutoHideDelay: 30,
+            commentsHoverMode: 'text',
+            showAuditMetadata: false,
+            showAuditCreatedOn: true,
+            showAuditCreatedBy: true,
+            showAuditModifiedOn: true,
+            showAuditModifiedBy: true,
+            showAuditWordCount: true,
+            freezeTitle: false,
+        };
+        setPage(next);
+        scheduleSave(title, next);
     };
 
     useEffect(() => {
@@ -344,16 +633,7 @@ export default function NotionNestPage() {
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
     }, [showFontSettings]);
-    useEffect(() => {
-        if (!dropdownOpen) return;
-        const handler = (e: MouseEvent) => {
-            if (fontDropdownRef.current && !fontDropdownRef.current.contains(e.target as Node)) {
-                setDropdownOpen(false);
-            }
-        };
-        document.addEventListener('mousedown', handler);
-        return () => document.removeEventListener('mousedown', handler);
-    }, [dropdownOpen]);
+
     useEffect(() => {
         let cancelled = false;
         const run = async () => {
@@ -411,6 +691,43 @@ export default function NotionNestPage() {
             cancelled = true;
         };
     }, [objectId, recordId]);
+
+    // URL Hash Block Navigation & Address Bar Clean-up
+    useEffect(() => {
+        if (loading) return;
+
+        const handleHashChange = () => {
+            const hash = window.location.hash ? window.location.hash.substring(1) : '';
+            if (!hash) return;
+
+            // Try to find the block element after render completes
+            setTimeout(() => {
+                const blockEl = document.querySelector(`[data-block-id="${hash}"]`);
+                if (blockEl) {
+                    blockEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    blockEl.classList.add('nn-block-highlight');
+                    // Remove highlight class after animation finishes (e.g. 3s)
+                    setTimeout(() => {
+                        blockEl.classList.remove('nn-block-highlight');
+                    }, 3000);
+                    
+                    // Clear the hash from address bar
+                    window.history.replaceState(
+                        null,
+                        document.title,
+                        window.location.pathname + window.location.search
+                    );
+                }
+            }, 100);
+        };
+
+        handleHashChange();
+        window.addEventListener('hashchange', handleHashChange);
+        return () => {
+            window.removeEventListener('hashchange', handleHashChange);
+        };
+    }, [loading]);
+
     const recordsListPath = useMemo(
         () => `/objects/${encodeURIComponent(String(objectId ?? ''))}/records`,
         [objectId],
@@ -603,201 +920,16 @@ export default function NotionNestPage() {
                             </button>
                             {showFontSettings && (
                                 <div className="nn-comment-settings-dropdown nn-font-dropdown">
-                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
-                                        <div className="nncs-label" style={{ margin: 0 }}>Font Style</div>
-                                        <button
-                                            type="button"
-                                            onClick={() => updatePageSettings({ fontFamily: 'sans-serif', fontFavorites: ['sans-serif', 'serif', 'mono'], fontSize: 0 })}
-                                            className="nn-font-reset-btn"
-                                            style={{
-                                                background: 'none',
-                                                border: 'none',
-                                                color: '#706e6b',
-                                                fontSize: '11px',
-                                                cursor: 'pointer',
-                                                padding: '2px 4px',
-                                                borderRadius: '3px',
-                                            }}
-                                            onMouseOver={(e) => e.currentTarget.style.backgroundColor = '#f3f2f1'}
-                                            onMouseOut={(e) => e.currentTarget.style.backgroundColor = 'transparent'}
-                                        >
-                                            Reset
-                                        </button>
-                                    </div>
-                                    <div className="nn-font-row">
-                                        {Array.from({ length: 3 }).map((_, i) => {
-                                            if (i < fontFavorites.length) {
-                                                const favId = fontFavorites[i];
-                                                const font = POPULAR_FONTS.find(f => f.id === favId) || { id: favId, name: favId, css: favId };
-                                                const isActive = fontFamily === favId;
-                                                return (
-                                                    <button
-                                                        key={`fav-${favId}`}
-                                                        type="button"
-                                                        className={`nn-font-card ${isActive ? 'active' : ''}`}
-                                                        onClick={() => updatePageSettings({ fontFamily: favId })}
-                                                    >
-                                                        <span className="nn-font-preview" style={{ fontFamily: font.css }}>Ag</span>
-                                                        <span className="nn-font-name">{font.name}</span>
-                                                        <button
-                                                            type="button"
-                                                            className="nn-card-fav-star"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                handleToggleFavorite(favId);
-                                                            }}
-                                                            title="Remove from favorites"
-                                                        >
-                                                            <Star className="w-3 h-3 fill-yellow-400 stroke-yellow-500" style={{ fill: '#ffb024', color: '#ffb024' }} />
-                                                        </button>
-                                                    </button>
-                                                );
-                                            } else {
-                                                return (
-                                                    <div key={`empty-fav-${i}`} className="nn-font-card placeholder-slot">
-                                                        <span className="placeholder-icon">+</span>
-                                                        <span className="placeholder-label">Empty</span>
-                                                    </div>
-                                                );
-                                            }
-                                        })}
-                                        {(() => {
-                                            const font = POPULAR_FONTS.find(f => f.id === dropdownFont) || { id: dropdownFont, name: dropdownFont, css: dropdownFont };
-                                            const isActive = fontFamily === dropdownFont;
-                                            const isFav = fontFavorites.includes(dropdownFont);
-                                            return (
-                                                <button
-                                                    type="button"
-                                                    className={`nn-font-card custom-selected-card ${isActive ? 'active' : ''}`}
-                                                    onClick={() => updatePageSettings({ fontFamily: dropdownFont })}
-                                                >
-                                                    <span className="nn-font-custom-badge">Selected</span>
-                                                    <span className="nn-font-preview" style={{ fontFamily: font.css }}>Ag</span>
-                                                    <span className="nn-font-name">{font.name}</span>
-                                                    <button
-                                                        type="button"
-                                                        className="nn-card-fav-star"
-                                                        onClick={(e) => {
-                                                            e.stopPropagation();
-                                                            handleToggleFavorite(dropdownFont);
-                                                        }}
-                                                        title={isFav ? "Remove from favorites" : "Add to favorites"}
-                                                    >
-                                                        <Star
-                                                            className="w-3 h-3"
-                                                            style={{
-                                                                fill: isFav ? '#ffb024' : 'none',
-                                                                color: isFav ? '#ffb024' : '#706e6b'
-                                                            }}
-                                                        />
-                                                    </button>
-                                                </button>
-                                            );
-                                        })()}
-                                    </div>
-
-                                    {favoriteWarning && (
-                                        <div className="nn-font-warning">
-                                            {favoriteWarning}
-                                        </div>
-                                    )}
-
-                                    <div className="nncs-divider" />
-
-                                    <div className="nn-font-select-container" ref={fontDropdownRef}>
-                                        <button
-                                            ref={dropdownBtnRef}
-                                            type="button"
-                                            className="nn-font-dropdown-select-btn"
-                                            onClick={() => setDropdownOpen(v => !v)}
-                                            onKeyDown={handleSelectBtnKeyDown}
-                                        >
-                                            <span>{POPULAR_FONTS.find(f => f.id === dropdownFont)?.name || dropdownFont}</span>
-                                            <ChevronDown className="w-3.5 h-3.5 text-gray-500" />
-                                        </button>
-                                        {dropdownOpen && (
-                                            <div className="nn-font-dropdown-select-panel">
-                                                <input
-                                                    ref={searchInputRef}
-                                                    type="text"
-                                                    className="nn-font-search-input"
-                                                    placeholder="Search fonts..."
-                                                    value={searchQuery}
-                                                    onChange={(e) => setSearchQuery(e.target.value)}
-                                                    onKeyDown={handleSearchInputKeyDown}
-                                                    autoFocus
-                                                />
-                                                <div className="nn-font-dropdown-list">
-                                                    {POPULAR_FONTS.filter(f =>
-                                                        f.name.toLowerCase().includes(searchQuery.toLowerCase())
-                                                    ).map(font => {
-                                                        const isFav = fontFavorites.includes(font.id);
-                                                        return (
-                                                            <div
-                                                                id={`nn-font-item-${font.id.replace(/\s+/g, '-')}`}
-                                                                key={font.id}
-                                                                className={`nn-font-dropdown-item ${font.id === dropdownFont ? 'selected' : ''}`}
-                                                                onClick={() => {
-                                                                    setDropdownFont(font.id);
-                                                                    updatePageSettings({ fontFamily: font.id });
-                                                                    setDropdownOpen(false);
-                                                                    setSearchQuery('');
-                                                                    setTimeout(() => dropdownBtnRef.current?.focus(), 50);
-                                                                }}
-                                                            >
-                                                                <span style={{ fontFamily: font.css }}>{font.name}</span>
-                                                                <button
-                                                                    type="button"
-                                                                    className="nn-font-fav-btn"
-                                                                    onClick={(e) => {
-                                                                        e.stopPropagation();
-                                                                        handleToggleFavorite(font.id);
-                                                                    }}
-                                                                    title={isFav ? "Remove from favorites" : "Add to favorites"}
-                                                                >
-                                                                    <Star
-                                                                        className="w-3.5 h-3.5"
-                                                                        style={{
-                                                                            fill: isFav ? '#ffb024' : 'none',
-                                                                            color: isFav ? '#ffb024' : '#706e6b'
-                                                                        }}
-                                                                    />
-                                                                </button>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                    {POPULAR_FONTS.filter(f =>
-                                                        f.name.toLowerCase().includes(searchQuery.toLowerCase())
-                                                    ).length === 0 && (
-                                                        <div className="text-xs text-gray-500 p-2 text-center">No fonts found</div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    <div className="nncs-divider" />
-                                    <div className="nncs-label">Font Size</div>
-                                    <div className="nn-size-slider-container">
-                                        <input
-                                            type="range"
-                                            min="-2"
-                                            max="2"
-                                            step="1"
-                                            value={fontSize}
-                                            onChange={(e) => {
-                                                updatePageSettings({ fontSize: Number(e.target.value) as any });
-                                            }}
-                                            className="nn-size-slider"
-                                        />
-                                        <div className="nn-size-labels">
-                                            <span className={fontSize === -2 ? 'active' : ''}>-2</span>
-                                            <span className={fontSize === -1 ? 'active' : ''}>-1</span>
-                                            <span className={fontSize === 0 ? 'active' : ''}>0</span>
-                                            <span className={fontSize === 1 ? 'active' : ''}>+1</span>
-                                            <span className={fontSize === 2 ? 'active' : ''}>+2</span>
-                                        </div>
-                                    </div>
+                                    <FontSettingsPanel
+                                        fontFamily={fontFamily}
+                                        fontSize={fontSize}
+                                        fontFavorites={fontFavorites}
+                                        onChangeFontFamily={(f) => updatePageSettings({ fontFamily: f })}
+                                        onChangeFontSize={(s) => updatePageSettings({ fontSize: s as any })}
+                                        onChangeFavorites={(favs) => updatePageSettings({ fontFavorites: favs })}
+                                        onReset={resetAllSettingsToDefault}
+                                        showReset={true}
+                                    />
                                 </div>
                             )}
                         </div>

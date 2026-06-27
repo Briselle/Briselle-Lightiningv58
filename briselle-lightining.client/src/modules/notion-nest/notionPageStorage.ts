@@ -150,6 +150,23 @@ export async function createNotionNestRecord(params: {
 }
 
 
+export async function listNotionPages(dobjId: number): Promise<{ id: number; title: string }[]> {
+    const { data, error } = await supabase
+        .from('ddata')
+        .select('ddata_id,ddata_values')
+        .eq('dobj_id', dobjId)
+        .eq('entity_id', FIXED_ENTITY_ID)
+        .eq('ddata_status', 1)
+        .limit(20);
+    if (error || !data) return [];
+    return data.map(row => {
+        const values = (row.ddata_values || {}) as Record<string, any>;
+        let title = String(values.sys_record_name ?? values.name ?? '').trim();
+        if (!title) title = `Page #${row.ddata_id}`;
+        return { id: row.ddata_id, title };
+    });
+}
+
 export function mergeObjectConfigIcon(config: unknown): Record<string, unknown> {
     return safeParseConfig(config);
 }

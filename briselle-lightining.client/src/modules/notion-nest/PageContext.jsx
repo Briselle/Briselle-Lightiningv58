@@ -7,8 +7,11 @@ import {
   buildDefaultBlocks, fixTabDefaults, generateId, makeBlock,
   getBlockById as _getBlockById, findBlockContainer as _findBlockContainer,
   flatVisibleBlocks as _flatVisibleBlocks, createNewBlock, deepCloneBlock,
-  calculateInitials,
+  calculateInitials, setCaretToEnd,
 } from './utils';
+import { supabase } from '../../utils/supabase';
+import { parseNotionPageFromValues } from './notionPageDefaults';
+import { NOTION_PAGE_STORAGE_KEY } from './types';
 const PageContext = createContext(null);
 export function usePageContext() {
   const ctx = useContext(PageContext);
@@ -28,7 +31,7 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     };
   });
   const [slashMenu, setSlashMenu] = useState({ open: false, blockId: null, position: null, filter: '' });
-  const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, items: [] });
+  const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, items: [], triggerRect: null, type: null, blockId: null, initialSubmenu: null });
   const [activeBlockId, setActiveBlockId] = useState(null);
   // Load persisted comments from initialComments (db)
   const [comments, setComments] = useState(() => {
@@ -48,7 +51,21 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     }
   }, [initialComments]);
   const [activeCommentId, setActiveCommentId] = useState(null);
+  const [undoPopover, setUndoPopover] = useState({ open: false, x: 0, y: 0, blockId: null, type: null, originalText: null });
+  const showUndoPopover = useCallback((x, y, blockId, type, originalText) => {
+    setUndoPopover({ open: true, x, y, blockId, type, originalText });
+  }, []);
+  const hideUndoPopover = useCallback(() => {
+    setUndoPopover(prev => ({ ...prev, open: false }));
+  }, []);
   const [commentSidebarOpen, setCommentSidebarOpen] = useState(false);
+  const [aiRephrase, setAiRephrase] = useState({ open: false, blockId: null, tone: null, originalText: '', rephrasedText: '', x: 0, y: 0 });
+  const openAiRephrase = useCallback((blockId, tone, originalText, rephrasedText, x, y) => {
+    setAiRephrase({ open: true, blockId, tone, originalText, rephrasedText, x, y });
+  }, []);
+  const closeAiRephrase = useCallback(() => {
+    setAiRephrase(prev => ({ ...prev, open: false }));
+  }, []);
   const [showPageCommentComposer, setShowPageCommentComposer] = useState(false);
   const [deleteConfirm, setDeleteConfirm] = useState(null);
   const [hoveredCommentId, setHoveredCommentId] = useState(null);
@@ -96,8 +113,11 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     return _flatVisibleBlocks(pageRef.current.blocks);
   }, []);
   /* ---- Mutations ---- */
-  const addBlock = useCallback((type, afterBlockId) => {
+  const addBlock = useCallback((type, afterBlockId, initialContent = '') => {
     const newBlock = createNewBlock(type);
+    if (initialContent) {
+      newBlock.content = initialContent;
+    }
     setPageState(prev => {
       const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
       if (afterBlockId) {
@@ -166,18 +186,27 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     }
   }, []);
   const duplicateBlock = useCallback((blockId) => {
-    let cloned = null;
+    const block = _getBlockById(blockId, pageRef.current.blocks);
+    if (!block) return null;
+    const cloned = deepCloneBlock(block);
     setPageState(prev => {
       const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
-      const block = _getBlockById(blockId, next.blocks);
-      if (!block) return prev;
-      cloned = deepCloneBlock(block);
       const container = _findBlockContainer(blockId, next.blocks);
       if (container) {
         container.arr.splice(container.index + 1, 0, cloned);
       }
       return next;
     });
+
+    const targetId = cloned.id;
+    setTimeout(() => {
+      const el = document.querySelector(`[data-block-id="${targetId}"] [contenteditable]`);
+      if (el) {
+        el.focus();
+        setCaretToEnd(el);
+      }
+    }, 50);
+
     return cloned;
   }, []);
   const changeBlockType = useCallback((blockId, newType) => {
@@ -273,7 +302,13 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     setPageState(prev => {
       const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
       const block = _getBlockById(blockId, next.blocks);
-      if (block) block[prop] = value;
+      if (block) {
+        if (value === undefined) {
+          delete block[prop];
+        } else {
+          block[prop] = value;
+        }
+      }
       return next;
     });
   }, []);
@@ -292,8 +327,8 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     });
   }, []);
   /* ---- Menu actions ---- */
-  const showSlashMenu = useCallback((blockId, position) => {
-    setSlashMenu({ open: true, blockId, position, filter: '' });
+  const showSlashMenu = useCallback((blockId, position, filter = '') => {
+    setSlashMenu({ open: true, blockId, position, filter });
   }, []);
   const hideSlashMenu = useCallback(() => {
     setSlashMenu({ open: false, blockId: null, position: null, filter: '' });
@@ -301,12 +336,144 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
   const updateSlashFilter = useCallback((filter) => {
     setSlashMenu(prev => ({ ...prev, filter }));
   }, []);
-  const showContextMenu = useCallback((x, y, items) => {
-    setContextMenu({ open: true, x, y, items });
+  const showContextMenu = useCallback((x, y, items, triggerRect = null, type = null, blockId = null, initialSubmenu = null) => {
+    setContextMenu({ open: true, x, y, items, triggerRect, type, blockId, initialSubmenu });
   }, []);
   const hideContextMenu = useCallback(() => {
-    setContextMenu({ open: false, x: 0, y: 0, items: [] });
+    setContextMenu({ open: false, x: 0, y: 0, items: [], triggerRect: null, type: null, blockId: null, initialSubmenu: null });
   }, []);
+
+  const moveBlockToTop = useCallback((blockId) => {
+    setPageState(prev => {
+      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
+      const container = _findBlockContainer(blockId, next.blocks);
+      if (!container) return prev;
+      const { arr, index } = container;
+      const [block] = arr.splice(index, 1);
+      arr.unshift(block);
+      return next;
+    });
+  }, []);
+
+  const moveBlockToBottom = useCallback((blockId) => {
+    setPageState(prev => {
+      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
+      const container = _findBlockContainer(blockId, next.blocks);
+      if (!container) return prev;
+      const { arr, index } = container;
+      const [block] = arr.splice(index, 1);
+      arr.push(block);
+      return next;
+    });
+  }, []);
+
+  const moveBlockToPage = useCallback(async (blockId, targetDdataId) => {
+    const block = _getBlockById(blockId, pageRef.current.blocks);
+    if (!block) return;
+
+    // Delete from current page
+    setPageState(prev => {
+      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
+      const container = _findBlockContainer(blockId, next.blocks);
+      if (container) {
+        container.arr.splice(container.index, 1);
+      }
+      return next;
+    });
+
+    // Append to target page
+    const { data: targetRecord } = await supabase
+      .from('ddata')
+      .select('ddata_values')
+      .eq('ddata_id', targetDdataId)
+      .single();
+
+    if (targetRecord) {
+      const values = targetRecord.ddata_values || {};
+      const targetPayload = parseNotionPageFromValues(values);
+      targetPayload.blocks = [...(targetPayload.blocks || []), block];
+
+      const nextValues = { ...values };
+      nextValues[NOTION_PAGE_STORAGE_KEY] = targetPayload;
+
+      await supabase
+        .from('ddata')
+        .update({ ddata_values: nextValues })
+        .eq('ddata_id', targetDdataId);
+    }
+  }, []);
+
+  const acceptSuggestion = useCallback((commentId) => {
+    setComments(prev => {
+      const cmt = prev.find(c => c.id === commentId);
+      if (cmt && cmt.suggestedText) {
+        updateBlockProperty(cmt.blockId, 'content', cmt.suggestedText);
+      }
+      const next = prev.filter(c => c.id !== commentId);
+      persistComments(next);
+      return next;
+    });
+    if (activeCommentId === commentId) {
+      setActiveCommentId(null);
+    }
+  }, [updateBlockProperty, activeCommentId, setActiveCommentId]);
+
+  const createBlockLevelComment = useCallback((blockId, isSuggestion = false) => {
+    const el = document.querySelector(`[data-block-id="${blockId}"] [contenteditable]`);
+    if (!el) return;
+    const selectedText = el.textContent || '';
+    const draftId = 'cmt-draft-' + Date.now();
+    const commentClass = `inline-comment-highlight draft${isSuggestion ? ' suggestion' : ''}`;
+    
+    el.innerHTML = `<mark class="${commentClass}" data-comment-id="${draftId}">${el.innerHTML}</mark>`;
+    updateBlockContent(blockId, el.innerHTML);
+
+    const newComment = {
+      id: draftId,
+      blockId,
+      selectedText,
+      thread: [],
+      resolved: false,
+      isDraft: true,
+      isSuggestion
+    };
+    setComments(prev => [...prev, newComment]);
+    setActiveCommentId(draftId);
+    setCommentSidebarOpen(true);
+  }, [updateBlockContent]);
+
+  const triggerBlockAi = useCallback((blockId, promptText, isSuggestion = false) => {
+    const el = document.querySelector(`[data-block-id="${blockId}"] [contenteditable]`);
+    if (!el) return;
+    const text = el.textContent || '';
+    const generated = `✨ ${text} (AI: ${promptText}) ✨`;
+
+    if (isSuggestion) {
+      const draftId = 'cmt-draft-' + Date.now();
+      const commentClass = `inline-comment-highlight draft suggestion`;
+      el.innerHTML = `<mark class="${commentClass}" data-comment-id="${draftId}">${el.innerHTML}</mark>`;
+      updateBlockContent(blockId, el.innerHTML);
+
+      const newComment = {
+        id: draftId,
+        blockId,
+        selectedText: text,
+        thread: [{
+          author: 'Ziva AI',
+          text: `[SUGGESTION] Suggest edit to: "${generated}"`
+        }],
+        resolved: false,
+        isDraft: false,
+        isSuggestion: true,
+        suggestedText: generated
+      };
+      setComments(prev => [...prev, newComment]);
+      setActiveCommentId(draftId);
+      setCommentSidebarOpen(true);
+    } else {
+      updateBlockProperty(blockId, 'content', generated);
+    }
+  }, [updateBlockContent, updateBlockProperty]);
   /* ---- Comment actions ---- */
   // Helper to persist comments (deprecated localStorage in favor of DB/payload)
   const persistComments = (newComments) => {};
@@ -355,6 +522,23 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
   }, []);
   const saveDraftComment = useCallback((commentId, text) => {
     setComments(prev => {
+      const c = prev.find(item => item.id === commentId);
+      if (c) {
+        setPageState(pagePrev => {
+          const nextBlocks = JSON.parse(JSON.stringify(pagePrev.blocks));
+          const block = _getBlockById(c.blockId, nextBlocks);
+          if (block && block.content) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(block.content, 'text/html');
+            const markEl = doc.querySelector(`[data-comment-id="${commentId}"]`);
+            if (markEl) {
+              markEl.classList.remove('draft');
+            }
+            block.content = doc.body.innerHTML;
+          }
+          return { ...pagePrev, blocks: nextBlocks };
+        });
+      }
       const next = prev.map(c => c.id === commentId ? {
         ...c,
         isDraft: false,
@@ -374,6 +558,27 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
   }, []);
   const cancelDraftComment = useCallback((commentId) => {
     setComments(prev => {
+      const c = prev.find(item => item.id === commentId);
+      if (c) {
+        setPageState(pagePrev => {
+          const nextBlocks = JSON.parse(JSON.stringify(pagePrev.blocks));
+          const block = _getBlockById(c.blockId, nextBlocks);
+          if (block && block.content) {
+            const parser = new DOMParser();
+            const doc = parser.parseFromString(block.content, 'text/html');
+            const markEl = doc.querySelector(`[data-comment-id="${commentId}"]`);
+            if (markEl) {
+              const parent = markEl.parentNode;
+              while (markEl.firstChild) {
+                parent.insertBefore(markEl.firstChild, markEl);
+              }
+              parent.removeChild(markEl);
+            }
+            block.content = doc.body.innerHTML;
+          }
+          return { ...pagePrev, blocks: nextBlocks };
+        });
+      }
       const next = prev.filter(c => c.id !== commentId);
       persistComments(next);
       return next;
@@ -485,17 +690,15 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
           const newThread = c.thread.map((msg, idx) => {
             if (idx !== msgIndex) return msg;
             const reactions = msg.reactions ? [...msg.reactions] : [];
-            const existing = reactions.find(r => r.emoji === emoji);
+            const existingIndex = reactions.findIndex(r => r.emoji === emoji);
             let nextReactions = [];
-            if (existing) {
-              if (existing.users.includes('Briselle')) {
-                existing.users = existing.users.filter(u => u !== 'Briselle');
-                existing.count -= 1;
-              } else {
-                existing.users.push('Briselle');
-                existing.count += 1;
-              }
-              nextReactions = reactions;
+            if (existingIndex >= 0) {
+              const existing = reactions[existingIndex];
+              const hasReacted = existing.users.includes('Briselle');
+              const newUsers = hasReacted ? existing.users.filter(u => u !== 'Briselle') : [...existing.users, 'Briselle'];
+              const newCount = hasReacted ? existing.count - 1 : existing.count + 1;
+              nextReactions = [...reactions];
+              nextReactions[existingIndex] = { ...existing, count: newCount, users: newUsers };
             } else {
               nextReactions = [...reactions, { emoji, count: 1, users: ['Briselle'] }];
             }
@@ -504,17 +707,15 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
           return { ...c, thread: newThread };
         } else {
           const reactions = c.reactions ? [...c.reactions] : [];
-          const existing = reactions.find(r => r.emoji === emoji);
+          const existingIndex = reactions.findIndex(r => r.emoji === emoji);
           let nextReactions = [];
-          if (existing) {
-            if (existing.users.includes('Briselle')) {
-              existing.users = existing.users.filter(u => u !== 'Briselle');
-              existing.count -= 1;
-            } else {
-              existing.users.push('Briselle');
-              existing.count += 1;
-            }
-            nextReactions = reactions;
+          if (existingIndex >= 0) {
+            const existing = reactions[existingIndex];
+            const hasReacted = existing.users.includes('Briselle');
+            const newUsers = hasReacted ? existing.users.filter(u => u !== 'Briselle') : [...existing.users, 'Briselle'];
+            const newCount = hasReacted ? existing.count - 1 : existing.count + 1;
+            nextReactions = [...reactions];
+            nextReactions[existingIndex] = { ...existing, count: newCount, users: newUsers };
           } else {
             nextReactions = [...reactions, { emoji, count: 1, users: ['Briselle'] }];
           }
@@ -594,6 +795,9 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     hoveredCommentId, setHoveredCommentId,
     showPageCommentComposer, setShowPageCommentComposer,
     auditData: initialAuditData,
+    moveBlockToTop, moveBlockToBottom, moveBlockToPage, createBlockLevelComment, triggerBlockAi, acceptSuggestion,
+    undoPopover, showUndoPopover, hideUndoPopover,
+    aiRephrase, openAiRephrase, closeAiRephrase,
   };
   return <PageContext.Provider value={value}>{children}</PageContext.Provider>;
 }

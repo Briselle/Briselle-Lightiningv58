@@ -2,10 +2,13 @@
    NotionNest — blocks.jsx — All block components
    ============================================================ */
 import { useRef, useCallback, useEffect, useState, memo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { usePageContext } from './PageContext';
 import { NotionIconPicker, SVG_ICONS, renderIconSvg, hasPageIcon, renderPageIcon } from './menus';
 import UploadZone from './components/UploadZone';
-import { getCaretPosition, setCaretToEnd, getCaretCoordinates, findBlockContainer, flatVisibleBlocks as flatVis, markdownShortcuts } from './utils';
+import { getCaretPosition, setCaretToEnd, getCaretCoordinates, findBlockContainer, flatVisibleBlocks as flatVis, markdownShortcuts, slashMenuSections } from './utils';
+import { useAuthStore } from '../../stores/authStore';
+import { listNotionPages, createNotionNestRecord, notionNestPagePath } from './notionPageStorage';
 
 /* ---- Shared: focus helper ---- */
 function focusBlock(blockId, atEnd = false) {
@@ -26,8 +29,8 @@ function useEditable(block, opts = {}) {
     const val = isCode ? ref.current.textContent : ref.current.innerHTML;
     ctx.updateBlockContent(block.id, val);
     const text = ref.current.textContent;
-    // Slash command trigger
-    if (text.startsWith('/')) ctx.showSlashMenu(block.id, getCaretCoordinates());
+    // Slash command trigger (pass the query filter query)
+    if (text.startsWith('/')) ctx.showSlashMenu(block.id, getCaretCoordinates(), text.slice(1));
     else ctx.hideSlashMenu();
     // Markdown shortcuts (e.g. # → heading, - → bullet)
     if (!isCode && block.type === 'paragraph') {
@@ -46,6 +49,52 @@ function useEditable(block, opts = {}) {
   }, [block.id, isCode, block.type]);
 
   const handleKeyDown = useCallback((e) => {
+    if (e.altKey && e.shiftKey && e.key.toLowerCase() === 'l') {
+      e.preventDefault();
+      const url = `${window.location.origin}${window.location.pathname}#${block.id}`;
+      navigator.clipboard.writeText(url);
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'p') {
+      e.preventDefault();
+      const rect = ref.current?.getBoundingClientRect();
+      ctx.showContextMenu(rect?.left || 100, rect?.top || 100, [], rect, 'block', block.id, 'move-to');
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'm') {
+      e.preventDefault();
+      ctx.createBlockLevelComment(block.id, false);
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.altKey && e.key.toLowerCase() === 'x') {
+      e.preventDefault();
+      const promptText = prompt("Enter prompt for Ziva AI to suggest edits for this block:");
+      if (promptText) {
+        ctx.triggerBlockAi(block.id, promptText, true);
+      }
+      return;
+    }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'j') {
+      e.preventDefault();
+      const promptText = prompt("Enter prompt for Ziva AI to rewrite this block:");
+      if (promptText) {
+        ctx.triggerBlockAi(block.id, promptText, false);
+      }
+      return;
+    }
+    if (e.key === 'Delete' && ref.current) {
+      const text = ref.current.textContent || '';
+      if (text.trim().length === 0) {
+        e.preventDefault();
+        const all = ctx.flatVisibleBlocks();
+        const idx = all.findIndex(b => b.id === block.id);
+        const nextBlock = idx < all.length - 1 ? all[idx + 1] : null;
+        ctx.deleteBlock(block.id);
+        if (nextBlock) focusBlock(nextBlock.id);
+        return;
+      }
+    }
+
     if (e.ctrlKey || e.metaKey) {
       if (e.key === 'b') { e.preventDefault(); document.execCommand('bold'); return; }
       if (e.key === 'i') { e.preventDefault(); document.execCommand('italic'); return; }
@@ -56,6 +105,35 @@ function useEditable(block, opts = {}) {
     }
     if (isCode && e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '  '); return; }
     if (e.key === 'Enter' && !e.shiftKey && !isCode) {
+      if (ref.current) {
+        const text = ref.current.textContent.trim();
+        if (text.startsWith('/')) {
+          const cmd = text.slice(1).toLowerCase();
+          let matchedType = null;
+          for (const section of slashMenuSections) {
+            for (const item of section.items) {
+              if (item.type === cmd || item.name.toLowerCase() === cmd || (item.keywords && item.keywords.includes(cmd))) {
+                matchedType = item.type;
+                break;
+              }
+            }
+            if (matchedType) break;
+          }
+          if (matchedType) {
+            e.preventDefault();
+            ctx.changeBlockType(block.id, matchedType);
+            ctx.hideSlashMenu();
+            requestAnimationFrame(() => {
+              if (ref.current) {
+                ref.current.textContent = '';
+                ref.current.innerHTML = '';
+                ref.current.focus();
+              }
+            });
+            return;
+          }
+        }
+      }
       e.preventDefault();
       const nb = ctx.addBlock('paragraph', block.id);
       if (nb) focusBlock(nb.id);
@@ -90,7 +168,7 @@ function useEditable(block, opts = {}) {
     if (isCode) { if (ref.current.textContent !== (block.content || '')) ref.current.textContent = block.content || ''; }
     else { if (ref.current.innerHTML !== (block.content || '')) ref.current.innerHTML = block.content || ''; }
     ref.current.classList.toggle('is-empty', !(block.content && block.content.trim().length > 0));
-  }, [block.id]); // eslint-disable-line
+  }, [block.id, block.content, isCode]);
 
   return { ref, handleInput, handleKeyDown, handleFocus, placeholder };
 }
@@ -177,19 +255,30 @@ export const CalloutBlock = memo(function CalloutBlock({ block }) {
   const { ref, handleInput, handleKeyDown, handleFocus } = useEditable(block, { placeholder: 'Callout' });
   const { updateBlockProperty } = usePageContext();
   const [showPicker, setShowPicker] = useState(false);
+  const [pickerPos, setPickerPos] = useState({ x: 0, y: 30 });
+  const iconSpanRef = useRef(null);
   
   const icon = block.calloutIcon || '💡';
 
+  const handleIconClick = (e) => {
+    const el = e.currentTarget;
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      setPickerPos({ x: Math.max(8, rect.left), y: rect.bottom + 6 });
+    }
+    setShowPicker(!showPicker);
+  };
+
   return (
     <div className="block-content" style={{ position: 'relative' }}>
-      <span className="block-callout-icon" onClick={() => setShowPicker(!showPicker)}>
+      <span className="block-callout-icon" ref={iconSpanRef} onClick={handleIconClick}>
         {renderPageIcon(icon, '20px') || '💡'}
       </span>
       <div ref={ref} contentEditable suppressContentEditableWarning data-placeholder="Callout"
         onInput={handleInput} onKeyDown={handleKeyDown} onFocus={handleFocus} style={{ flex: 1 }} />
       {showPicker && (
         <NotionIconPicker
-          position={{ x: 0, y: 30 }}
+          position={pickerPos}
           currentIcon={icon}
           onSelect={(icon) => { updateBlockProperty(block.id, 'calloutIcon', icon); }}
           onClose={() => setShowPicker(false)}
@@ -583,17 +672,143 @@ export const ToggleHeadingBlock = memo(function ToggleHeadingBlock({ block }) {
 });
 
 export const SubPageBlock = memo(function SubPageBlock({ block }) {
-  const { updateBlockProperty } = usePageContext();
+  const { updateBlockProperty, auditData } = usePageContext();
+  const navigate = useNavigate();
+  const currentUser = useAuthStore(s => s.user);
+  const [siblingPages, setSiblingPages] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [customPageId, setCustomPageId] = useState('');
+  const [customObjId, setCustomObjId] = useState('');
+
+  const dobjId = auditData?.dobjId;
+  const currentDdataId = auditData?.ddataId;
+  const objectRouteId = auditData?.objectRouteId || String(dobjId || '');
+  const actorId = currentUser?.id || currentUser?.sys_user_id || 1;
+
+  useEffect(() => {
+    if (!block.subPageId && dobjId) {
+      listNotionPages(dobjId).then(pages => {
+        setSiblingPages(pages.filter(p => p.id !== currentDdataId));
+      });
+    }
+  }, [block.subPageId, dobjId, currentDdataId]);
+
+  const handleSelectPage = (id, title) => {
+    updateBlockProperty(block.id, 'subPageId', id);
+    updateBlockProperty(block.id, 'pageTitle', title);
+  };
+
+  const handleCreateNew = async () => {
+    if (!dobjId) return;
+    setLoading(true);
+    const title = prompt("Enter new sub-page title:") || "Untitled Subpage";
+    const res = await createNotionNestRecord({
+      dobjId,
+      title,
+      actorId,
+    });
+    setLoading(false);
+    if (res.recordId) {
+      updateBlockProperty(block.id, 'subPageId', res.recordId);
+      updateBlockProperty(block.id, 'pageTitle', title);
+    } else {
+      alert("Failed to create sub-page: " + res.error);
+    }
+  };
+
+  const handleLinkCustom = () => {
+    const targetRecId = Number(customPageId);
+    if (!targetRecId) return;
+    const targetObj = customObjId || objectRouteId;
+    updateBlockProperty(block.id, 'subPageId', targetRecId);
+    updateBlockProperty(block.id, 'targetObjectId', targetObj);
+    updateBlockProperty(block.id, 'pageTitle', block.pageTitle || `Page #${targetRecId}`);
+  };
+
+  if (block.subPageId) {
+    const targetObj = block.targetObjectId || objectRouteId;
+    return (
+      <div className="block-content">
+        <div className="sub-page-link" style={{ display: 'inline-flex', alignItems: 'center', cursor: 'pointer', gap: '6px', padding: '4px 8px', borderRadius: '4px' }}
+             onMouseOver={e => e.currentTarget.style.backgroundColor = '#f3f2f1'}
+             onMouseOut={e => e.currentTarget.style.backgroundColor = 'transparent'}
+             onClick={() => navigate(notionNestPagePath(targetObj, block.subPageId))}
+        >
+          <span className="sub-page-icon" style={{ fontSize: '18px' }}>📄</span>
+          <span className="sub-page-title" style={{ fontWeight: 500, textDecoration: 'underline', color: 'var(--notion-sf-brand, rgb(1, 118, 211))' }}>
+            {block.pageTitle || `Page #${block.subPageId}`}
+          </span>
+          <button 
+            type="button"
+            className="sub-page-unlink-btn"
+            style={{ marginLeft: '12px', background: 'none', border: 'none', color: '#706e6b', cursor: 'pointer', fontSize: '11px' }}
+            onClick={(e) => {
+              e.stopPropagation();
+              updateBlockProperty(block.id, 'subPageId', undefined);
+              updateBlockProperty(block.id, 'targetObjectId', undefined);
+            }}
+          >
+            Unlink
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="block-content">
-      <div className="sub-page-link" onClick={() => {/* navigate if routing exists */}}>
-        <span className="sub-page-icon">📄</span>
-        <span
-          className="sub-page-title"
-          contentEditable
-          suppressContentEditableWarning
-          onBlur={e => updateBlockProperty(block.id, 'pageTitle', e.target.textContent || 'Untitled')}
-        >{block.pageTitle || 'Untitled'}</span>
+    <div className="block-content" style={{ padding: '8px', border: '1px dashed #dddbda', borderRadius: '6px', background: '#fafafa', fontSize: '13px' }}>
+      <div style={{ fontWeight: 600, marginBottom: '6px' }}>Link Sub-page</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        {siblingPages.length > 0 && (
+          <div>
+            <span style={{ marginRight: '6px' }}>Select sibling page:</span>
+            <select 
+              style={{ padding: '2px 4px', borderRadius: '3px', border: '1px solid #dddbda' }}
+              onChange={e => {
+                const opt = e.target.selectedOptions[0];
+                if (opt.value) handleSelectPage(Number(opt.value), opt.text);
+              }}
+              defaultValue=""
+            >
+              <option value="" disabled>-- select a page --</option>
+              {siblingPages.map(p => <option key={p.id} value={p.id}>{p.title}</option>)}
+            </select>
+          </div>
+        )}
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+          <button 
+            type="button" 
+            style={{ padding: '4px 8px', background: 'var(--notion-sf-brand, rgb(1, 118, 211))', color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer' }}
+            onClick={handleCreateNew} 
+            disabled={loading}
+          >
+            {loading ? 'Creating...' : '+ Create & Link New Sibling Page'}
+          </button>
+          <span>or</span>
+          <div style={{ display: 'inline-flex', gap: '4px', alignItems: 'center' }}>
+            <input 
+              type="text" 
+              placeholder="Record ID" 
+              value={customPageId} 
+              onChange={e => setCustomPageId(e.target.value)}
+              style={{ width: '80px', padding: '2px 4px', border: '1px solid #dddbda', borderRadius: '3px' }}
+            />
+            <input 
+              type="text" 
+              placeholder="Obj ID (optional)" 
+              value={customObjId} 
+              onChange={e => setCustomObjId(e.target.value)}
+              style={{ width: '100px', padding: '2px 4px', border: '1px solid #dddbda', borderRadius: '3px' }}
+            />
+            <button 
+              type="button" 
+              style={{ padding: '4px 8px', background: '#f3f2f1', border: '1px solid #dddbda', borderRadius: '4px', cursor: 'pointer' }}
+              onClick={handleLinkCustom}
+            >
+              Link Page
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

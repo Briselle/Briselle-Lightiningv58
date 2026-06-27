@@ -312,7 +312,9 @@ export const PageHeader = memo(function PageHeader({ hasComments, commentsVisibl
   const currentUser = useAuthStore((s) => s.user);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
   const [showCoverPicker, setShowCoverPicker] = useState(false);
+  const [iconPickerPos, setIconPickerPos] = useState({ x: 20, y: 120 });
   const iconRef = useRef(null);
+  const iconBtnRef = useRef(null);
   const titleRef = useRef(null);
   const coverBtnRef = useRef(null);
   const titleInitialized = useRef(false);
@@ -341,9 +343,14 @@ export const PageHeader = memo(function PageHeader({ hasComments, commentsVisibl
     }
   }, []);
 
-  const handleIconClick = useCallback(() => {
+  const handleIconClick = useCallback((e) => {
     if (!hasPageIcon(pageState.icon)) {
       updatePage({ icon: '📝' });
+    }
+    const el = e?.currentTarget || iconBtnRef.current || iconRef.current;
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      setIconPickerPos({ x: Math.max(8, rect.left), y: rect.bottom + 6 });
     }
     setShowEmojiPicker(true);
   }, [pageState.icon, updatePage]);
@@ -425,7 +432,7 @@ export const PageHeader = memo(function PageHeader({ hasComments, commentsVisibl
         {/* Hover action buttons */}
         <div className="page-header-actions">
           {!hasPageIcon(pageState.icon) && (
-            <button className="page-header-action-btn" onClick={handleIconClick} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+            <button ref={iconBtnRef} className="page-header-action-btn" onClick={handleIconClick} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
               <Smile size={14} /> Add icon
             </button>
           )}
@@ -469,15 +476,16 @@ export const PageHeader = memo(function PageHeader({ hasComments, commentsVisibl
             <span className="page-icon" ref={iconRef} onClick={handleIconClick}>
               {renderPageIcon(pageState.icon, '78px')}
             </span>
-            {showEmojiPicker && (
-              <NotionIconPicker
-                position={{ x: 0, y: 90 }}
-                currentIcon={pageState.icon}
-                onSelect={handleEmojiSelect}
-                onClose={() => setShowEmojiPicker(false)}
-              />
-            )}
           </div>
+        )}
+
+        {showEmojiPicker && (
+          <NotionIconPicker
+            position={iconPickerPos}
+            currentIcon={pageState.icon}
+            onSelect={handleEmojiSelect}
+            onClose={() => setShowEmojiPicker(false)}
+          />
         )}
 
         {/* Title — do NOT put children here; content is set once via useEffect to avoid cursor reset */}

@@ -43,6 +43,100 @@ export default function NotionPage({
   );
 }
 
+function unescapeHtml(html) {
+  if (!html) return '';
+  const txt = document.createElement('textarea');
+  txt.innerHTML = html;
+  return txt.value;
+}
+
+function UndoPopover() {
+  const { undoPopover, hideUndoPopover, updateBlockProperty } = usePageContext();
+  if (!undoPopover.open) return null;
+
+  const getLabel = () => {
+    switch (undoPopover.type) {
+      case 'redact': return 'Undo Redact';
+      case 'mask': return 'Undo Masking';
+      case 'strike': return 'Undo Strike';
+      default: return 'Undo';
+    }
+  };
+
+  const handleUndo = (e) => {
+    e.stopPropagation();
+    updateBlockProperty(undoPopover.blockId, 'content', undoPopover.originalText);
+    hideUndoPopover();
+  };
+
+  return (
+    <div
+      className="nn-undo-popover"
+      style={{
+        position: 'fixed',
+        left: undoPopover.x,
+        top: undoPopover.y,
+        transform: 'translateX(-50%)',
+        zIndex: 999999,
+      }}
+    >
+      <button className="nn-undo-btn" onClick={handleUndo}>
+        {getLabel()}
+      </button>
+      <div className="nn-undo-popover-arrow" />
+    </div>
+  );
+}
+
+function AiRephrasePopover() {
+  const { aiRephrase, closeAiRephrase, updateBlockProperty, addBlock } = usePageContext();
+  if (!aiRephrase.open) return null;
+
+  const handleReplace = (e) => {
+    e.stopPropagation();
+    updateBlockProperty(aiRephrase.blockId, 'content', aiRephrase.rephrasedText);
+    closeAiRephrase();
+  };
+
+  const handleInsertBelow = (e) => {
+    e.stopPropagation();
+    addBlock('paragraph', aiRephrase.blockId, aiRephrase.rephrasedText);
+    closeAiRephrase();
+  };
+
+  return (
+    <div
+      className="ai-rephrase-popover"
+      style={{
+        position: 'fixed',
+        left: aiRephrase.x,
+        top: aiRephrase.y,
+        zIndex: 999999,
+      }}
+      onMouseDown={e => e.stopPropagation()}
+    >
+      <div className="ai-rephrase-header">
+        <span style={{ marginRight: '6px' }}>✨</span>
+        <span>Ziva AI Rephrase ({aiRephrase.tone})</span>
+      </div>
+      <div className="ai-rephrase-body">
+        {aiRephrase.rephrasedText}
+      </div>
+      <div className="ai-rephrase-actions">
+        <button className="ai-rephrase-btn primary" onClick={handleReplace}>
+          Replace Block
+        </button>
+        <button className="ai-rephrase-btn secondary" onClick={handleInsertBelow}>
+          Insert Below
+        </button>
+        <button className="ai-rephrase-btn dismiss" onClick={(e) => { e.stopPropagation(); closeAiRephrase(); }}>
+          Dismiss
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function NotionPageInner({
   showSidebarProp,
   commentsAlwaysShow = false,
@@ -61,7 +155,11 @@ function NotionPageInner({
     deleteConfirm,
     hoveredCommentId,
     setHoveredCommentId,
-    showPageCommentComposer
+    showPageCommentComposer,
+    undoPopover,
+    showUndoPopover,
+    hideUndoPopover,
+    updateBlockProperty
   } = usePageContext();
 
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -179,12 +277,19 @@ function NotionPageInner({
       if (e.key === 'Escape') {
         hideSlashMenu();
         hideContextMenu();
+        hideUndoPopover();
       }
     };
 
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
-  }, [hideSlashMenu, hideContextMenu]);
+  }, [hideSlashMenu, hideContextMenu, hideUndoPopover]);
+
+  useEffect(() => {
+    const handleScroll = () => hideUndoPopover();
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => window.removeEventListener('scroll', handleScroll);
+  }, [hideUndoPopover]);
 
   useEffect(() => {
     let lastInRegion = false;
@@ -304,6 +409,32 @@ function NotionPageInner({
 
   const handlePageClick = useCallback(
     (e) => {
+      // Check for redact/mask/strike span clicks
+      const specialText = e.target.closest('.nn-redact-text, .nn-mask-text, .nn-strike-text');
+      if (specialText) {
+        const blockEl = specialText.closest('.block');
+        const blockId = blockEl?.getAttribute('data-block-id');
+        if (blockId) {
+          let type = 'redact';
+          if (specialText.classList.contains('nn-mask-text')) type = 'mask';
+          if (specialText.classList.contains('nn-strike-text')) type = 'strike';
+          
+          const originalEscaped = specialText.getAttribute('data-original') || '';
+          const originalText = unescapeHtml(originalEscaped);
+          
+          const rect = specialText.getBoundingClientRect();
+          const x = rect.left + rect.width / 2;
+          const y = rect.top - 36;
+          
+          showUndoPopover(x, y, blockId, type, originalText);
+          return;
+        }
+      }
+
+      if (!e.target.closest('.nn-undo-popover')) {
+        hideUndoPopover();
+      }
+
       const mark = e.target.closest('.inline-comment-highlight, .inline-comment');
 
       if (mark) {
@@ -318,7 +449,7 @@ function NotionPageInner({
         setActiveCommentId(null);
       }
     },
-    [setActiveCommentId]
+    [showUndoPopover, hideUndoPopover, setActiveCommentId]
   );
 
   return (
@@ -386,6 +517,8 @@ function NotionPageInner({
         <SlashMenu />
         <ContextMenu />
         <InlineToolbar />
+        <UndoPopover />
+        <AiRephrasePopover />
 
         {deleteConfirm && <DeleteConfirmModal config={deleteConfirm} />}
       </div>

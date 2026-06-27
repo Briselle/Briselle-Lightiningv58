@@ -7,6 +7,7 @@ import { usePageContext } from './PageContext';
 import { TextBlock, ListBlock, TodoBlock, ToggleBlock, QuoteBlock, CalloutBlock, DividerBlock, CodeBlock, ImageBlock, BookmarkBlock, TableBlock, ColumnsBlock, TocBlock, VideoBlock, AudioBlock, FileBlock, EquationBlock, ToggleHeadingBlock, SubPageBlock } from './blocks';
 import TabBlock from './TabBlock';
 import { slashMenuSections } from './utils';
+import { POPULAR_FONTS } from './pages/NotionNestPage';
 
 const BLOCK_MAP = {
   paragraph: TextBlock,
@@ -38,7 +39,7 @@ const BLOCK_MAP = {
 };
 
 const BlockRenderer = memo(function BlockRenderer({ block, blocksArray, blockIndex }) {
-  const { addBlock, deleteBlock, duplicateBlock, changeBlockType, moveBlock, showContextMenu } = usePageContext();
+  const { addBlock, deleteBlock, duplicateBlock, changeBlockType, moveBlock, showContextMenu, updateBlockProperty } = usePageContext();
   const blockRef = useRef(null);
   const Component = BLOCK_MAP[block.type] || TextBlock;
 
@@ -57,70 +58,9 @@ const BlockRenderer = memo(function BlockRenderer({ block, blocksArray, blockInd
   const handleHandleClick = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
-
-    const turnIntoTypes = slashMenuSections.flatMap(s => s.items).filter(i => i.type !== block.type);
-    
-    showContextMenu(e.clientX, e.clientY, [
-      { label: 'Delete', danger: true, action: () => deleteBlock(block.id), shortcut: 'Del' },
-      { label: 'Duplicate', action: () => duplicateBlock(block.id), shortcut: 'Ctrl+D' },
-      { divider: true },
-      { label: 'Move up', action: () => moveBlock(block.id, 'up'), disabled: blockIndex === 0 },
-      { label: 'Move down', action: () => moveBlock(block.id, 'down'), disabled: blockIndex === blocksArray.length - 1 },
-      { divider: true },
-      { label: '🎨 Color', submenu: true, action: () => {
-        // Show a color sub-menu
-        showContextMenu(e.clientX + 200, e.clientY, [
-          { label: 'Text Color', header: true },
-          ...[
-            { name: 'Default', color: '#e3e3e3' },
-            { name: 'Gray', color: '#9b9b9b' },
-            { name: 'Brown', color: '#a47d5e' },
-            { name: 'Orange', color: '#d9730d' },
-            { name: 'Yellow', color: '#dfab01' },
-            { name: 'Green', color: '#0f7b6c' },
-            { name: 'Blue', color: '#2383e2' },
-            { name: 'Purple', color: '#9065b0' },
-            { name: 'Pink', color: '#c14c8a' },
-            { name: 'Red', color: '#eb5757' },
-          ].map(c => ({
-            label: c.name,
-            swatch: c.color,
-            action: () => {
-              const el = document.querySelector(`[data-block-id="${block.id}"] [contenteditable]`);
-              if (el) el.style.color = c.color;
-            }
-          })),
-          { divider: true },
-          { label: 'Background', header: true },
-          ...[
-            { name: 'Default', color: 'transparent' },
-            { name: 'Gray', color: '#2c2c2c' },
-            { name: 'Brown', color: '#3b2d20' },
-            { name: 'Orange', color: '#3e2b15' },
-            { name: 'Yellow', color: '#3d3415' },
-            { name: 'Green', color: '#1a3229' },
-            { name: 'Blue', color: '#192f45' },
-            { name: 'Purple', color: '#2c233a' },
-            { name: 'Pink', color: '#351a2c' },
-            { name: 'Red', color: '#3e2024' },
-          ].map(c => ({
-            label: c.name,
-            swatch: c.color,
-            swatchBorder: true,
-            action: () => {
-              const blockEl = document.querySelector(`[data-block-id="${block.id}"]`);
-              if (blockEl) blockEl.style.background = c.color;
-            }
-          })),
-        ]);
-      }},
-      { divider: true },
-      ...turnIntoTypes.slice(0, 8).map(item => ({
-        label: `Turn into ${item.name}`,
-        action: () => changeBlockType(block.id, item.type),
-      })),
-    ]);
-  }, [block.id, block.type, blockIndex, blocksArray, deleteBlock, duplicateBlock, moveBlock, changeBlockType, showContextMenu]);
+    const rect = e.currentTarget.getBoundingClientRect();
+    showContextMenu(rect.left - 240, rect.top, [], rect, 'block', block.id);
+  }, [block.id, showContextMenu]);
 
   /* ---- Drag & Drop ---- */
   const handleDragStart = useCallback((e) => {
@@ -167,11 +107,39 @@ const BlockRenderer = memo(function BlockRenderer({ block, blocksArray, blockInd
   if ((block.type === 'toggle' || block.type.startsWith('toggle_heading')) && block.open) extraClasses.push('open');
   if (block.type === 'todo' && block.checked) extraClasses.push('checked');
 
+  const blockStyle = {};
+  if (block.fontFamily) {
+    const cssFont = POPULAR_FONTS.find(f => f.id === block.fontFamily)?.css || block.fontFamily;
+    blockStyle['--nn-font-family-local'] = cssFont;
+  }
+  if (block.fontSize !== undefined && block.fontSize !== null) {
+    const sizeMap = {
+      '-2': { title: '24px', h1: '20px', h2: '16px', h3: '14px', body: '12px' },
+      '-1': { title: '30px', h1: '24px', h2: '20px', h3: '16px', body: '14px' },
+      '0': { title: '40px', h1: '30px', h2: '24px', h3: '20px', body: '16px' },
+      '1': { title: '40px', h1: '30px', h2: '30px', h3: '24px', body: '18px' },
+      '2': { title: '40px', h1: '30px', h2: '30px', h3: '30px', body: '20px' },
+    };
+    const sizes = sizeMap[String(block.fontSize)] || sizeMap['0'];
+    blockStyle['--nn-title-size-local'] = sizes.title;
+    blockStyle['--nn-h1-size-local'] = sizes.h1;
+    blockStyle['--nn-h2-size-local'] = sizes.h2;
+    blockStyle['--nn-h3-size-local'] = sizes.h3;
+    blockStyle['--nn-body-size-local'] = sizes.body;
+  }
+  if (block.textColor) {
+    blockStyle['--nn-text-color-local'] = block.textColor;
+  }
+  if (block.backgroundColor) {
+    blockStyle['--nn-bg-color-local'] = block.backgroundColor;
+  }
+
   return (
     <div
       ref={blockRef}
       className={`block ${typeClass} ${extraClasses.join(' ')}`}
       data-block-id={block.id}
+      style={blockStyle}
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}

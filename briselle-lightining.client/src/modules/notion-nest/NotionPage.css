@@ -410,16 +410,26 @@
   color: #180505
 }
 
+.block-heading1 {
+  margin-top: 20px;
+  margin-bottom: 4px;
+}
+
+.block-heading1:first-child {
+  margin-top: 0;
+}
+
 .block-heading1 [contenteditable] {
   font-size: 30px;
   font-weight: 700;
   line-height: 1.3;
   color: #080707;
-  margin-top: 2em
+  margin-top: 0
 }
 
-.block-heading1:first-child [contenteditable] {
-  margin-top: 0
+.block-heading2 {
+  margin-top: 16px;
+  margin-bottom: 4px;
 }
 
 .block-heading2 [contenteditable] {
@@ -427,7 +437,12 @@
   font-weight: 600;
   line-height: 1.3;
   color: #080707;
-  margin-top: 1.4em
+  margin-top: 0
+}
+
+.block-heading3 {
+  margin-top: 12px;
+  margin-bottom: 4px;
 }
 
 .block-heading3 [contenteditable] {
@@ -435,7 +450,7 @@
   font-weight: 600;
   line-height: 1.3;
   color: #080707;
-  margin-top: 1em
+  margin-top: 0
 }
 
 .block-bulleted-list .block-content,
@@ -1956,7 +1971,13 @@ kbd {
 
 /* ---- Toggle Heading Blocks ---- */
 .block-toggle-heading1 {
-  flex-direction: column
+  flex-direction: column;
+  margin-top: 20px;
+  margin-bottom: 4px;
+}
+
+.block-toggle-heading1:first-child {
+  margin-top: 0;
 }
 
 .block-toggle-heading1>.block-content {
@@ -1968,7 +1989,8 @@ kbd {
   font-size: 30px;
   font-weight: 700;
   line-height: 1.3;
-  color: #080707
+  color: #080707;
+  margin-top: 0
 }
 
 .block-toggle-heading1.open .toggle-icon {
@@ -1989,7 +2011,13 @@ kbd {
 }
 
 .block-toggle-heading2 {
-  flex-direction: column
+  flex-direction: column;
+  margin-top: 16px;
+  margin-bottom: 4px;
+}
+
+.block-toggle-heading2:first-child {
+  margin-top: 0;
 }
 
 .block-toggle-heading2>.block-content {
@@ -2001,7 +2029,8 @@ kbd {
   font-size: 24px;
   font-weight: 600;
   line-height: 1.3;
-  color: #080707
+  color: #080707;
+  margin-top: 0
 }
 
 .block-toggle-heading2.open .toggle-icon {
@@ -2022,7 +2051,13 @@ kbd {
 }
 
 .block-toggle-heading3 {
-  flex-direction: column
+  flex-direction: column;
+  margin-top: 12px;
+  margin-bottom: 4px;
+}
+
+.block-toggle-heading3:first-child {
+  margin-top: 0;
 }
 
 .block-toggle-heading3>.block-content {
@@ -2034,7 +2069,8 @@ kbd {
   font-size: 20px;
   font-weight: 600;
   line-height: 1.3;
-  color: #080707
+  color: #080707;
+  margin-top: 0
 }
 
 .block-toggle-heading3.open .toggle-icon {
@@ -2266,7 +2302,7 @@ kbd {
   border: 1px solid #dddbda;
   border-radius: 12px;
   box-shadow: 0 8px 40px rgba(0, 0, 0, .15);
-  z-index: 1006;
+  z-index: 10080;
   width: 340px;
   animation: menuIn .12s ease;
   overflow: hidden;
@@ -4624,11 +4660,13 @@ kbd {
   background: #FFFFFF;
   border: 1px solid #E5E7EB;
   border-radius: 6px;
-  padding: 4px;
-  display: flex;
-  gap: 4px;
+  padding: 6px;
+  display: grid;
+  grid-template-columns: repeat(10, 1fr);
+  gap: 2px;
   z-index: 100;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  width: max-content;
 }
 
 .ca-rp-bar-msg {
@@ -5130,4 +5168,18 @@ kbd {
 
 .cancel-pos-btn:hover {
   background: #ffffff !important;
+}
+/* Ensure comments reaction popover & pickers overlay cleanly ABOVE parent comment actions & cards */
+.ca-msg-actions:has(.ca-msg-reactions-popover),
+.ca-msg:has(.ca-msg-reactions-popover),
+.ca-card:has(.ca-msg-reactions-popover) {
+  z-index: 10080 !important;
+}
+
+.ca-msg-reactions-popover {
+  z-index: 10090 !important;
+}
+
+.ca-msg-reactions-popover .notion-icon-picker {
+  z-index: 10100 !important;
 }

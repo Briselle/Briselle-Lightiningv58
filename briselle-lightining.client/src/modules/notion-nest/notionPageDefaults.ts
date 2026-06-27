@@ -80,7 +80,7 @@ function migrateBlockNoteToNotionZest(bnBlocks: any[]): any[] {
             if (tableContent && typeof tableContent === 'object' && Array.isArray(tableContent.rows)) {
                 for (const row of tableContent.rows) {
                     if (row && Array.isArray(row.cells)) {
-                        rows.push(row.cells.map(cell => typeof cell === 'string' ? cell : ''));
+                        rows.push(row.cells.map((cell: any) => typeof cell === 'string' ? cell : ''));
                     }
                 }
             }

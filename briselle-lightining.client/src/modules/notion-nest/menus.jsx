@@ -1,17 +1,21 @@
 /* ============================================================
-   NotionNest Ã¢â‚¬â€ menus.jsx  - new
+   NotionNest — menus.jsx  - new
    SlashMenu, ContextMenu, InlineToolbar, NotionIconPicker
    ============================================================ */
 import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo, memo } from 'react';
 import * as allLucideIcons from 'lucide-react';
 import {
-  Smile, Check, MoreHorizontal, BookOpen, Pencil, Link, Bell, BellOff, Trash2,
+  Smile, Check, MoreHorizontal, MoreVertical, BookOpen, Pencil, Link, Bell, BellOff, Trash2,
   Paperclip, AtSign, Send, Clock, User, UserPlus, FileText, RotateCcw, Upload,
-  MessageSquare, Minus, ChevronDown, ChevronUp
+  MessageSquare, Minus, ChevronDown, ChevronUp, Sparkles, Plus
 } from 'lucide-react';
 import { usePageContext } from './PageContext';
 import { slashMenuSections, calculateInitials } from './utils';
 import UploadZone from './components/UploadZone';
+import { FontSettingsPanel, POPULAR_FONTS } from './pages/NotionNestPage';
+import { listNotionPages } from './notionPageStorage';
+import { resolveUserDisplayName, formatAuditDateTime } from './layout';
+import { useAuthStore } from '../../stores/authStore';
 
 export function formatRelativeTime(timeStr) {
   if (!timeStr) return '';
@@ -26,8 +30,7 @@ export function formatRelativeTime(timeStr) {
   const diffMs = now.getTime() - date.getTime();
   const diffSec = Math.floor(diffMs / 1000);
   
-  // If it's in the future or very close to now (less than 60 seconds)
-  if (diffSec < 60 && diffSec > -60) {
+if (diffSec < 60 && diffSec > -60) {
     return 'now';
   }
   
@@ -133,8 +136,11 @@ const BLOCK_TYPE_OPTIONS = [
   { value: 'code', label: 'Code' },
 ];
 /* ---- Comprehensive Emoji Data ---- */
+const POPULAR_EMOJIS = ['👍','❤️','😂','😍','🙏','😭','😘','💕','🤣','✅','🔥','💯','💡','⭐','📌','🚀','🎉','🎯','💪','😊','🥺','🤦','🤷','🌟','🙌','👀','🎶','✨','💫','🌈'];
+
 const EMOJI_CATEGORIES = [
-  { id: 'recent', label: 'Recently Used', icon: '🕐', emojis: ['👍', '❤️', '😊', '🎯', '✅', '🔥', '💡', '⭐', '📌', '🚀'] },
+  { id: 'recent', label: 'Recently Used', icon: '🕐', emojis: [] },
+  { id: 'popular', label: 'Mostly Used', icon: '🌟', emojis: POPULAR_EMOJIS },
   {
     id: 'smileys', label: 'Smileys & People', icon: '😀', emojis: [
       '😀', '😃', '😄', '😁', '😆', '😅', '🤣', '😂', '🙂', '🙃', '😉', '😊', '😇', '🥰', '😍', '🤩', '😘', '😗', '😚', '😙', '😋', '😛', '😜', '🤪', '😝', '🤑', '🤗', '🤭', '🤫', '🤔', '🤐', '🤨', '😐', '😑', '😶', '😏', '😒', '🙄', '😬', '🤥', '😌', '😔', '😪', '🤤', '😴', '😷', '🤒', '🤕', '🤢', '🤮', '🤧', '🥵', '🥶', '🥴', '😵', '🤯', '🤠', '🥳', '😎', '🤓', '🧐', '😕', '😟', '🙁', '☹️', '😮', '😯', '😲', '😳', '🥺', '😦', '😧', '😨', '😰', '😥', '😢', '😭', '😱', '😖', '😣', '😞', '😓', '😩', '😫', '🥱', '😤', '😡', '😠', '🤬', '😈', '👿', '💀', '☠️', '💩', '🤡', '👹', '👺', '👻', '👽', '👾', '🤖', '👋', '🤚', '🖐️', '✋', '🖖', '👌', '🤏', '✌️', '🤞', '🤟', '🤘', '🤙', '👈', '👉', '👆', '🖕', '👇', '☝️', '👍', '👎', '✊', '👊', '🤛', '🤜', '👏', '🙌', '👐', '🤲', '🤝', '🙏', '✍️', '💅', '🤳', '💪'
@@ -171,11 +177,10 @@ const EMOJI_CATEGORIES = [
     ]
   },
   {
-    id: 'flags', label: 'Flags', icon: '🚩', emojis: [
-      '🚩', '🏳️', '🏴', '🏴‍☠️', '🏁', '🏳️‍🌈', '🏳️‍⚧️', '🇺🇸', '🇨🇦', '🇬🇧', '🇩🇪', '🇫🇷', '🇯🇵', '🇨🇳', '🇮🇳', '🇧🇷', '🇰🇷', '🇮🇹', '🇪🇸', '🇷🇺'
-    ]
+    id: 'flags', label: 'Flags', icon: '🚩', emojis: ["🚩","🏴","🏁","🏳️","🏳️‍🌈","🏳️‍⚧️","🏴‍☠️","🇦🇩","🇦🇪","🇦🇫","🇦🇬","🇦🇮","🇦🇱","🇦🇲","🇦🇴","🇦🇶","🇦🇷","🇦🇸","🇦🇹","🇦🇺","🇦🇼","🇦🇽","🇦🇿","🇧🇦","🇧🇧","🇧🇩","🇧🇪","🇧🇫","🇧🇬","🇧🇭","🇧🇮","🇧🇯","🇧🇱","🇧🇲","🇧🇳","🇧🇴","🇧🇶","🇧🇷","🇧🇸","🇧🇹","🇧🇻","🇨🇩","🇪🇪","🇪🇬","🇪🇭","🇪🇷","🇪🇸","🇪🇹","🇫🇮","🇫🇯","🇫🇰","🇫🇲","🇫🇴","🇫🇷","🇬🇦","🇬🇧","🇬🇩","🇬🇪","🇬🇫","🇬🇬","🇬🇭","🇬🇮","🇬🇱","🇬🇲","🇬🇳","🇬🇵","🇬🇶","🇬🇷","🇬🇸","🇬🇹","🇬🇺","🇬🇼","🇬🇾","🇭🇰","🇭🇲","🇭🇳","🇭🇷","🇭🇹","🇭🇺","🇮🇩","🇮🇪","🇮🇱","🇮🇲","🇮🇳","🇮🇴","🇮🇶","🇮🇷","🇮🇸","🇮🇹","🇯🇪","🇯🇲","🇯🇴","🇯🇵","🇰🇪","🇰🇬","🇰🇭","🇰🇮","🇰🇲","🇰🇳","🇰🇵","🇰🇷","🇰🇼","🇰🇾","🇰🇿","🇱🇦","🇱🇧","🇱🇨","🇱🇮","🇱🇰","🇱🇷","🇱🇸","🇱🇹","🇱🇺","🇱🇻","🇱🇾","🇲🇦","🇲🇨","🇲🇩","🇲🇪","🇲🇫","🇲🇬","🇲🇭","🇲🇰","🇲🇱","🇲🇲","🇲🇳","🇲🇴","🇲🇵","🇲🇶","🇲🇷","🇲🇸","🇲🇹","🇲🇺","🇲🇻","🇲🇼","🇲🇽","🇲🇾","🇲🇿","🇳🇦","🇳🇨","🇳🇪","🇳🇫","🇳🇬","🇳🇮","🇳🇱","🇳🇴","🇳🇵","🇳🇷","🇳🇺","🇳🇿","🇴🇲","🇵🇦","🇵🇪","🇵🇫","🇵🇬","🇵🇭","🇵🇰","🇵🇱","🇵🇲","🇵🇳","🇵🇷","🇵🇸","🇵🇹","🇵🇼","🇵🇾","🇶🇦","🇷🇪","🇷🇴","🇷🇸","🇷🇺","🇷🇼","🇸🇦","🇸🇧","🇸🇨","🇸🇩","🇸🇪","🇸🇬","🇸🇭","🇸🇮","🇸🇯","🇸🇰","🇸🇱","🇸🇲","🇸🇳","🇸🇴","🇸🇷","🇸🇸","🇸🇹","🇸🇻","🇸🇽","🇸🇾","🇸🇿","🇹🇨","🇹🇩","🇹🇫","🇹🇬","🇹🇭","🇹🇯","🇹🇰","🇹🇱","🇹🇲","🇹🇳","🇹🇴","🇹🇷","🇹🇹","🇹🇻","🇹🇼","🇹🇿","🇺🇦","🇺🇬","🇺🇲","🇺🇸","🇺🇾","🇺🇿","🇻🇦","🇻🇨","🇻🇪","🇻🇬","🇻🇮","🇻🇳","🇻🇺","🇼🇫","🇼🇸","🇽🇰","🇾🇪","🇾🇹","🇿🇦","🇿🇲","🇿🇼"]
   }
 ];
+
 /* ---- SVG Icon Library (inline SVGs for icon tab) ---- */
 export const SVG_ICONS = [
   { name: 'Home', path: 'M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' },
@@ -230,102 +235,1076 @@ export const SVG_ICONS = [
   { name: 'Gift', path: 'M20 12v10H4V12M2 7h20v5H2V7zM12 22V7M12 7H7.5a2.5 2.5 0 0 1 0-5C11 2 12 7 12 7zM12 7h4.5a2.5 2.5 0 0 0 0-5C13 2 12 7 12 7z' },
   { name: 'Coffee', path: 'M18 8h1a4 4 0 0 1 0 8h-1M2 8h16v9a4 4 0 0 1-4 4H6a4 4 0 0 1-4-4V8zM6 1v3M10 1v3M14 1v3' },
   { name: 'Tool', path: 'M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z' },
+  { name: 'Airplay', path: 'M5 17H19M12 12l-4 4h8z' },
+  { name: 'AppWindow', path: 'M2 4h20v16H2zm2 4h16' },
+  { name: 'Atom', path: 'M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z' },
+  { name: 'Backpack', path: 'M4 20V10a4 4 0 0 1 4-4h8a4 4 0 0 1 4 4v10M9 6V3a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3' },
+  { name: 'Battery', path: 'M23 11v2M2 9h17v6H2z' },
+  { name: 'Beer', path: 'M6 2h12v12a6 6 0 0 1-6 6H6V2z' },
+  { name: 'Bicycle', path: 'M5.5 17.5a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zm13 0a2.5 2.5 0 1 0 0-5 2.5 2.5 0 0 0 0 5zM12 7.5V13m-3.5-3h7' },
+  { name: 'Binoculars', path: 'M8 3h8v18H8zm-5 6h5v6H3zm13 0h5v6h-5z' },
+  { name: 'Bluetooth', path: 'M7 7l10 10-5 5V2l5 5L7 17' },
+  { name: 'Brain', path: 'M9.5 2A2.5 2.5 0 0 1 12 4.5v15A2.5 2.5 0 0 1 9.5 22' },
+  { name: 'Brush', path: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2' },
+  { name: 'Bug', path: 'M12 2v20M6 8h12M6 14h12' },
+  { name: 'Building', path: 'M2 22h20M4 22V2h16v20M8 6h2M8 10h2M8 14h2M14 6h2M14 10h2M14 14h2' },
+  { name: 'Cake', path: 'M2 20h20M5 20V11a3 3 0 0 1 3-3h8a3 3 0 0 1 3 3v9' },
+  { name: 'Calculator', path: 'M4 2h16v20H4zm4 4h8v4H8z' },
+  { name: 'Car', path: 'M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.8C2.1 11.1 2 11.6 2 12v4c0 .6.4 1 1 1h2' },
+  { name: 'ChefHat', path: 'M6 18h12a3 3 0 0 0 3-3c0-4-3-7-3-7s-1.3-4.3-6-4.3S6 8 6 8s-3 3-3 7a3 3 0 0 0 3 3z' },
+  { name: 'Chrome', path: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z' },
+  { name: 'Circle', path: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z' },
+  { name: 'Clipboard', path: 'M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2' },
+  { name: 'Coins', path: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20z' },
+  { name: 'Cookie', path: 'M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm-4 7a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0zm8 4a1.5 1.5 0 1 1-3 0 1.5 1.5 0 0 1 3 0z' },
+  { name: 'Crown', path: 'M2 4l3 12h14l3-12-6 7-4-7-4 7-6-7z' },
+  { name: 'DollarSign', path: 'M12 1v22M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6' },
+  { name: 'Dribbble', path: 'M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z' },
+  { name: 'Egg', path: 'M12 22a8 8 0 0 0 8-8c0-5.5-3.5-12-8-12S4 8.5 4 14a8 8 0 0 0 8 8z' },
+  { name: 'Euro', path: 'M19 6C15 6 12 9 12 12s3 6 7 6M7 10h10M7 14h10' },
+  { name: 'Flame', path: 'M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.072-2.143-.224-4.054 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.153.433-2.294 1-3a2.5 2.5 0 0 0 2.5 3.5z' },
+  { name: 'Gamepad', path: 'M6 12h4M8 10v4' },
+  { name: 'Gavel', path: 'M14 13L2 25M9 8l5 5M22 3l-5-5' },
+  { name: 'GlassWater', path: 'M18.8 2H5.2l2 18a2 2 0 0 0 2 2h5.6a2 2 0 0 0 2-2z' },
+  { name: 'GraduationCap', path: 'M22 10v6M2 10l10-5 10 5-10 5z' },
+  { name: 'Hammer', path: 'M18 2l4 4-9 9-4-4z' },
+  { name: 'IceCream', path: 'M12 2a5 5 0 0 0-5 5v3h10V7a5 5 0 0 0-5-5z M6 13l6 9 6-9H6z' },
+  { name: 'Infinity', path: 'M12 12c2-3 5-5 8-5a5 5 0 1 1 0 10c-3 0-6-2-8-5zm0 0c-2 3-5 5-8 5a5 5 0 1 1 0-10c3 0 6 2 8 5z' },
+  { name: 'Lamp', path: 'M8 2h8v6H8zm4 6v14' },
+  { name: 'Leaf', path: 'M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.48 21 2c-2.48 4-3 5.5-4.1 11.2A7 7 0 0 1 11 20z' },
+  { name: 'Lightbulb', path: 'M15 14c.223 0 .442.049.646.143A6 6 0 1 0 8.354 14.14M9 18h6M10 22h4' },
+  { name: 'LockOpen', path: 'M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2zM7 11V7a5 5 0 0 1 10 0' },
+  { name: 'Luggage', path: 'M6 20V6a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v14' },
+  { name: 'Megaphone', path: 'M3 8h10l7-5v18l-7-5H3a1 1 0 0 1-1-1v-6a1 1 0 0 1 1-1z' },
+  { name: 'Palette', path: 'M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2' },
+  { name: 'Puzzle', path: 'M12 22a10 10 0 0 0 10-10H12v10z' },
+  { name: 'Quote', path: 'M3 21h7L5 10H3V3h7v7L8 21zm11 0h7l-2-11h-2V3h7v7l-2 11z' },
+  { name: 'Rainbow', path: 'M22 22a10 10 0 0 0-20 0M18 22a6 6 0 0 0-12 0' },
+  { name: 'Scale', path: 'M16 16v1a5 5 0 0 1-10 0v-1M12 2v14' },
+  { name: 'Spade', path: 'M12 2s7 5.5 7 10a7 7 0 0 1-14 0c0-4.5 7-10 7-10z M12 12v10' },
+  { name: 'Sparkles', path: 'M12 3v1m0 16v1m9-9h-1M4 12H3' },
+  { name: 'Speaker', path: 'M4 2h16v20H4zm8 12a3 3 0 1 0 0-6 3 3 0 0 0 0 6z' },
+  { name: 'Stethoscope', path: 'M3 3v8a9 9 0 0 0 18 0V3M12 12h8' },
+  { name: 'Sword', path: 'M14.5 17.5L3 6M13 5l6 6' },
+  { name: 'Trophy', path: 'M6 9H4.5a2.5 2.5 0 0 1 0-5H6M18 9h1.5a2.5 2.5 0 0 0 0-5H18M4 22h16M10 14.66V17c0 .55-.45 1-1 1H4v2h16v-2h-5c-.55 0-1-.45-1-1v-2.34' },
+  { name: 'Truck', path: 'M14 18H6M20 18h-2M14 7.5H4A1.5 1.5 0 0 0 2.5 9v9A1.5 1.5 0 0 0 4 19.5h1M14 7.5L19 12v6A1.5 1.5 0 0 1 17.5 19.5h-1' },
+  { name: 'Tv', path: 'M2 8h20v12H2z M17 4l-5 4-5-4' },
+  { name: 'Volleyball', path: 'M12 22C6.477 22 2 17.523 2 12S6.477 2 12 2s10 4.477 10 10-4.477 10-10 10z' },
+  { name: 'Wallet', path: 'M20 12V8H4v12h16v-4h-4a2 2 0 0 1-2-2v-2a2 2 0 0 1 2-2z' },
+  { name: 'Watch', path: 'M12 18a6 6 0 1 0 0-12 6 6 0 0 0 0 12zM12 2v4M12 18v4' },
+  { name: 'WineGlass', path: 'M18.8 2H5.2l2 10a2 2 0 0 0 2 2h5.6a2 2 0 0 0 2-2zM12 14v8' },
+  { name: 'AlertOctagon', path: 'M7.86 2h8.28L22 7.86v8.28L16.14 22H7.86L2 16.14V7.86L7.86 2z M12 8v4 M12 16h.01' },
+  { name: 'AwardOutline', path: 'M12 15a7 7 0 1 0 0-14 7 7 0 0 0 0 14z' },
+  { name: 'BriefcaseOutline', path: 'M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16' },
+  { name: 'CompassOutline', path: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z' },
+  { name: 'FolderOutline', path: 'M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5' },
+  { name: 'HeartOutline', path: 'M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67' },
+  { name: 'HelpOutline', path: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2' },
+  { name: 'InfoOutline', path: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z' },
+  { name: 'KeyOutline', path: 'M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778' },
+  { name: 'LockOutline', path: 'M19 11H5a2 2 0 0 0-2 2v7' },
+  { name: 'ShieldOutline', path: 'M12 22s8-4 8-10V5l-8-3-8 3v7' },
+  { name: 'StarOutline', path: 'M12 2l3.09 6.26L22 9.27' },
+  { name: 'TargetOutline', path: 'M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20z' },
+  { name: 'TrashOutline', path: 'M3 6h18M19 6v14a2 2 0 0 1-2 2H7' },
+  { name: 'UserOutline', path: 'M20 21v-2a4 4 0 0 0-4-4H8' }
 ];
-/* ---- Selection save/restore helpers ---- */
-function saveSelection() {
-  const sel = window.getSelection();
-  if (sel && sel.rangeCount > 0) return sel.getRangeAt(0).cloneRange();
-  return null;
-}
-function restoreSelection(range) {
-  if (!range) return;
-  const sel = window.getSelection();
-  sel.removeAllRanges();
-  sel.addRange(range);
-}
-/* ==================================================================
-   SLASH COMMAND MENU
-   ================================================================== */
+
 export const SlashMenu = memo(function SlashMenu() {
-  const { slashMenu, hideSlashMenu, updateSlashFilter, changeBlockType, updateBlockContent } = usePageContext();
+  const { slashMenu, hideSlashMenu, changeBlockType, updateBlockContent } = usePageContext();
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [coords, setCoords] = useState({ left: 0, top: 0 });
   const menuRef = useRef(null);
+
   const getVisibleItems = useCallback(() => {
     const items = [];
     slashMenuSections.forEach(section => {
+      const q = (slashMenu.filter || '').toLowerCase();
       section.items.forEach(item => {
-        const match = !slashMenu.filter || item.name.toLowerCase().includes(slashMenu.filter) || item.type.includes(slashMenu.filter);
-        if (match) items.push(item);
+        const nameMatch = item.name.toLowerCase().includes(q);
+        const typeMatch = item.type.toLowerCase().includes(q);
+        const keywordMatch = item.keywords && item.keywords.some(k => k.toLowerCase().includes(q));
+        if (!slashMenu.filter || nameMatch || typeMatch || keywordMatch) items.push(item);
       });
     });
     return items;
   }, [slashMenu.filter]);
+
   const selectItem = useCallback((type) => {
-    if (slashMenu.blockId) { updateBlockContent(slashMenu.blockId, ''); changeBlockType(slashMenu.blockId, type); }
+    if (slashMenu.blockId) {
+      updateBlockContent(slashMenu.blockId, '');
+      changeBlockType(slashMenu.blockId, type);
+    }
     hideSlashMenu();
   }, [slashMenu.blockId, updateBlockContent, changeBlockType, hideSlashMenu]);
+
+  // Viewport collision checking
+  useLayoutEffect(() => {
+    if (!slashMenu.open || !menuRef.current || !slashMenu.position) return;
+    const menuEl = menuRef.current;
+    const rect = menuEl.getBoundingClientRect();
+    const viewportHeight = window.innerHeight;
+    const viewportWidth = window.innerWidth;
+
+    let left = Math.max(8, (slashMenu.position.x || 0) - 16);
+    let top = (slashMenu.position.y || 0) + 6;
+
+    if (top + rect.height > viewportHeight - 16) {
+      top = Math.max(8, (slashMenu.position.y || 0) - 24 - rect.height);
+    }
+
+    if (left + rect.width > viewportWidth - 16) {
+      left = Math.max(8, viewportWidth - rect.width - 16);
+    }
+
+    setCoords({ left, top });
+  }, [slashMenu.open, slashMenu.position, slashMenu.filter]);
+
+  // Keep selectedIndex in bounds when filter changes
+  const visibleItems = getVisibleItems();
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [slashMenu.filter]);
+
+  // Optimized keydown listener using a Ref to prevent constant listener rebuilds
+  const selectedIndexRef = useRef(selectedIndex);
+  selectedIndexRef.current = selectedIndex;
+  const visibleItemsRef = useRef(visibleItems);
+  visibleItemsRef.current = visibleItems;
+
   useEffect(() => {
     if (!slashMenu.open) return;
-    setSelectedIndex(0);
     const handler = (e) => {
-      const visible = getVisibleItems();
-      if (e.key === 'ArrowDown') { e.preventDefault(); setSelectedIndex(i => (i + 1) % Math.max(1, visible.length)); }
-      else if (e.key === 'ArrowUp') { e.preventDefault(); setSelectedIndex(i => (i - 1 + visible.length) % Math.max(1, visible.length)); }
-      else if (e.key === 'Enter') { e.preventDefault(); if (visible[selectedIndex]) selectItem(visible[selectedIndex].type); }
-      else if (e.key === 'Escape') { hideSlashMenu(); }
+      const visible = visibleItemsRef.current;
+      const idx = selectedIndexRef.current;
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedIndex(i => (i + 1) % Math.max(1, visible.length));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedIndex(i => (i - 1 + visible.length) % Math.max(1, visible.length));
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        if (visible[idx]) {
+          selectItem(visible[idx].type);
+        }
+      } else if (e.key === 'Escape') {
+        hideSlashMenu();
+      }
     };
     document.addEventListener('keydown', handler, true);
     return () => document.removeEventListener('keydown', handler, true);
-  }, [slashMenu.open, slashMenu.filter, selectedIndex, getVisibleItems, selectItem, hideSlashMenu]);
+  }, [slashMenu.open, selectItem, hideSlashMenu]);
+
   useEffect(() => {
     if (!slashMenu.open) return;
-    const handler = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) hideSlashMenu(); };
+    const handler = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) hideSlashMenu();
+    };
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, [slashMenu.open, hideSlashMenu]);
+
   if (!slashMenu.open) return null;
-  const visibleItems = getVisibleItems();
+
+  const style = { left: coords.left, top: coords.top };
   let itemIndex = 0;
-  const style = {};
-  if (slashMenu.position) { style.left = Math.max(8, (slashMenu.position.x || 0) - 16); style.top = (slashMenu.position.y || 0) + 6; }
+
   return (
     <div className="slash-menu" ref={menuRef} style={style}>
       {slashMenuSections.map(section => {
-        const sectionItems = section.items.filter(item => !slashMenu.filter || item.name.toLowerCase().includes(slashMenu.filter) || item.type.includes(slashMenu.filter));
+        const q = slashMenu.filter.toLowerCase();
+        const sectionItems = section.items.filter(item => {
+          const nameMatch = item.name.toLowerCase().includes(q);
+          const typeMatch = item.type.toLowerCase().includes(q);
+          const keywordMatch = item.keywords && item.keywords.some(k => k.toLowerCase().includes(q));
+          return !slashMenu.filter || nameMatch || typeMatch || keywordMatch;
+        });
         if (sectionItems.length === 0) return null;
-        return (<div key={section.label}><div className="slash-menu-header">{section.label}</div>
-          {sectionItems.map(item => {
-            const idx = itemIndex++; return (
-              <div key={item.type} className={`slash-menu-item${idx === selectedIndex ? ' selected' : ''}`} onClick={() => selectItem(item.type)} onMouseEnter={() => setSelectedIndex(idx)}>
-                <span className="slash-menu-item-icon">{item.icon}</span><div className="slash-menu-item-info"><span className="slash-menu-item-name">{item.name}</span><span className="slash-menu-item-description">{item.desc}</span></div>
-              </div>);
-          })}
-        </div>);
+        return (
+          <div key={section.label}>
+            <div className="slash-menu-header">{section.label}</div>
+            {sectionItems.map(item => {
+              const idx = itemIndex++;
+              const isSelected = idx === selectedIndex;
+              return (
+                <div
+                  key={item.type}
+                  className={`slash-menu-item${isSelected ? ' selected' : ''}`}
+                  onClick={() => selectItem(item.type)}
+                  onMouseEnter={() => setSelectedIndex(idx)}
+                >
+                  <span className="slash-menu-item-icon">
+                    {renderIconSvg(item.icon, 18, isSelected ? '#0176d2' : '#706e6b')}
+                  </span>
+                  <div className="slash-menu-item-info">
+                    <span className="slash-menu-item-name">{item.name}</span>
+                    <span className="slash-menu-item-description">{item.desc}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        );
       })}
       {visibleItems.length === 0 && <div className="slash-menu-empty">No results</div>}
     </div>
   );
 });
 /* ==================================================================
-   CONTEXT MENU Ã¢â‚¬â€  fixed: submenu items don't auto-close
+   CONTEXT MENU — fixed: submenu items don't auto-close
    ================================================================== */
+const LucideIcon = ({ name, className, style }) => {
+  const IconComponent = allLucideIcons[name] || allLucideIcons.FileText;
+  return <IconComponent className={className} style={style} />;
+};
+
+function escapeHtml(text) {
+  if (!text) return '';
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#039;');
+}
+
+function unescapeHtml(html) {
+  if (!html) return '';
+  const txt = document.createElement('textarea');
+  txt.innerHTML = html;
+  return txt.value;
+}
+
+function stripSpecialWrappers(html) {
+  if (!html) return '';
+  return html.replace(/<span class="nn-(?:redact|mask|strike)-text"[^>]*>([\s\S]*?)<\/span>/g, '$1');
+}
+
+export function BlockContextMenu({ menuRef }) {
+  const {
+    contextMenu,
+    hideContextMenu,
+    getBlockById,
+    updateBlockProperty,
+    changeBlockType,
+    deleteBlock,
+    duplicateBlock,
+    moveBlock,
+    moveBlockToTop,
+    moveBlockToBottom,
+    moveBlockToPage,
+    createBlockLevelComment,
+    triggerBlockAi,
+    auditData,
+    setPageState,
+    openAiRephrase,
+    closeAiRephrase,
+  } = usePageContext();
+
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeSubmenu, setActiveSubmenu] = useState(() => contextMenu.initialSubmenu || 'main');
+  const [submenuTop, setSubmenuTop] = useState(0);
+  const [siblingPages, setSiblingPages] = useState([]);
+  const [position, setPosition] = useState({ left: 0, top: 0 });
+  const searchInputRef = useRef(null);
+  const currentUser = useAuthStore(s => s.user);
+
+  const block = getBlockById(contextMenu.blockId);
+
+  useEffect(() => {
+    if (contextMenu.initialSubmenu) {
+      setActiveSubmenu(contextMenu.initialSubmenu);
+    } else {
+      setActiveSubmenu('main');
+    }
+  }, [contextMenu.initialSubmenu]);
+
+  const handleSubmenuTrigger = (e, menuName) => {
+    e.stopPropagation();
+    const rect = e.currentTarget.getBoundingClientRect();
+    setSubmenuTop(rect.top);
+    setActiveSubmenu(menuName);
+  };
+
+  const SUGGEST_EDITS_TONES = [
+    { value: 'professional', label: 'Professional', desc: 'Make the tone formal and business-ready' },
+    { value: 'casual', label: 'Casual', desc: 'Make it friendly and conversational' },
+    { value: 'legal', label: 'Legal', desc: 'Use formal legal and compliance phrasing' },
+    { value: 'social', label: 'Social Media Post', desc: 'Format as an engaging social post' },
+    { value: 'original', label: 'Original', desc: 'Reset to original phrasing' },
+  ];
+
+  const getRephrasedText = (originalText, tone) => {
+    const clean = originalText.replace(/<\/?[^>]+(>|$)/g, "").trim();
+    if (!clean) return "No content to rephrase.";
+    switch (tone) {
+      case 'professional':
+        return `We would like to formally state that ${clean.charAt(0).toLowerCase() + clean.slice(1)}. Please review the updated documentation accordingly.`;
+      case 'casual':
+        return `Just so you know, ${clean.charAt(0).toLowerCase() + clean.slice(1)}! Let me know what you think.`;
+      case 'legal':
+        return `Pursuant to the agreement, it is acknowledged that ${clean.charAt(0).toLowerCase() + clean.slice(1)}, subject to the terms and conditions outlined herein.`;
+      case 'social':
+        return `✨ Big update! ${clean} 🚀 Read more below and let us know your thoughts! #Briselle #productivity`;
+      case 'original':
+      default:
+        return clean;
+    }
+  };
+
+  const handleSuggestTone = (tone) => {
+    const text = block.content ? block.content : "";
+    const rephrased = getRephrasedText(text, tone);
+    openAiRephrase(block.id, tone, text, rephrased, position.left, position.top);
+    hideContextMenu();
+  };
+
+  // Smart Positioning & Viewport Collision Detection
+  useLayoutEffect(() => {
+    if (!contextMenu.open || !menuRef.current) return;
+    const menuEl = menuRef.current;
+    const menuWidth = 260; // Locked width
+    const menuHeight = menuEl.offsetHeight || 380;
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    const rect = contextMenu.triggerRect;
+    let targetLeft = contextMenu.x;
+    let targetTop = contextMenu.y;
+
+    if (rect) {
+      targetLeft = rect.left - menuWidth - 8;
+      targetTop = rect.top;
+
+      if (targetLeft < 8) {
+        targetLeft = rect.right + 8;
+      }
+    } else {
+      if (targetLeft + menuWidth > viewportWidth - 8) {
+        targetLeft = viewportWidth - menuWidth - 8;
+      }
+    }
+
+    if (targetTop + menuHeight > viewportHeight - 8) {
+      targetTop = viewportHeight - menuHeight - 8;
+    }
+    if (targetTop < 8) {
+      targetTop = 8;
+    }
+
+    if (targetLeft + menuWidth > viewportWidth - 8) {
+      targetLeft = viewportWidth - menuWidth - 8;
+    }
+    if (targetLeft < 8) {
+      targetLeft = 8;
+    }
+
+    setPosition({ left: targetLeft, top: targetTop });
+  }, [contextMenu.open, contextMenu.x, contextMenu.y, contextMenu.triggerRect, activeSubmenu, searchQuery]);
+
+  // Load sibling pages for Move To submenu
+  useEffect(() => {
+    if (activeSubmenu === 'move-to' && auditData?.dobjId) {
+      listNotionPages(auditData.dobjId).then(pages => {
+        setSiblingPages(pages.filter(p => p.id !== auditData.ddataId));
+      });
+    }
+  }, [activeSubmenu, auditData]);
+
+  // Auto-focus search input on mount
+  useEffect(() => {
+    if (searchInputRef.current) {
+      searchInputRef.current.focus();
+    }
+  }, [contextMenu.open]);
+
+  if (!block) return null;
+
+  const isRedacted = block.content?.includes('class="nn-redact-text"');
+  const isMasked = block.content?.includes('class="nn-mask-text"');
+  const isStriked = block.content?.includes('class="nn-strike-text"');
+
+  const handleRedact = () => {
+    const stripped = stripSpecialWrappers(block.content || '');
+    updateBlockProperty(block.id, 'content', `<span class="nn-redact-text" data-original="${escapeHtml(stripped)}">${stripped}</span>`);
+  };
+
+  const handleUndoRedact = () => {
+    const match = block.content?.match(/data-original="([^"]*)"/);
+    if (match) {
+      updateBlockProperty(block.id, 'content', unescapeHtml(match[1]));
+    } else {
+      updateBlockProperty(block.id, 'content', stripSpecialWrappers(block.content));
+    }
+  };
+
+  const handleMask = () => {
+    const stripped = stripSpecialWrappers(block.content || '');
+    updateBlockProperty(block.id, 'content', `<span class="nn-mask-text" data-original="${escapeHtml(stripped)}">${stripped}</span>`);
+  };
+
+  const handleUndoMask = () => {
+    const match = block.content?.match(/data-original="([^"]*)"/);
+    if (match) {
+      updateBlockProperty(block.id, 'content', unescapeHtml(match[1]));
+    } else {
+      updateBlockProperty(block.id, 'content', stripSpecialWrappers(block.content));
+    }
+  };
+
+  const handleStrike = () => {
+    const stripped = stripSpecialWrappers(block.content || '');
+    updateBlockProperty(block.id, 'content', `<span class="nn-strike-text" data-original="${escapeHtml(stripped)}">${stripped}</span>`);
+  };
+
+  const handleUndoStrike = () => {
+    const match = block.content?.match(/data-original="([^"]*)"/);
+    if (match) {
+      updateBlockProperty(block.id, 'content', unescapeHtml(match[1]));
+    } else {
+      updateBlockProperty(block.id, 'content', stripSpecialWrappers(block.content));
+    }
+  };
+
+  const triggerZivaAi = () => {
+    const promptText = prompt("Enter prompt for Ziva AI to rewrite this block:");
+    if (promptText) {
+      triggerBlockAi(block.id, promptText, false);
+    }
+  };
+
+  const getBlockIcon = (type) => {
+    switch (type) {
+      case 'paragraph': return 'Type';
+      case 'heading1': return 'Heading1';
+      case 'heading2': return 'Heading2';
+      case 'heading3': return 'Heading3';
+      case 'bulleted_list': return 'List';
+      case 'numbered_list': return 'ListOrdered';
+      case 'todo': return 'CheckSquare';
+      case 'toggle': return 'ChevronRight';
+      case 'quote': return 'Quote';
+      case 'callout': return 'Info';
+      case 'code': return 'Code';
+      case 'equation': return 'Sigma';
+      case 'toc': return 'AlignLeft';
+      case 'tabs': return 'Folder';
+      case 'columns': return 'Columns';
+      case 'table': return 'Table';
+      case 'image': return 'Image';
+      case 'video': return 'Video';
+      case 'file': return 'File';
+      case 'bookmark': return 'Bookmark';
+      case 'toggle_heading1': return 'Heading1';
+      case 'toggle_heading2': return 'Heading2';
+      case 'toggle_heading3': return 'Heading3';
+      case 'sub_page': return 'FileText';
+      default: return 'Type';
+    }
+  };
+
+  const TURN_INTO_OPTIONS = [
+    { value: 'paragraph', label: 'Text', desc: 'Plain text' },
+    { value: 'heading1', label: 'Heading 1', desc: 'Large heading' },
+    { value: 'heading2', label: 'Heading 2', desc: 'Medium heading' },
+    { value: 'heading3', label: 'Heading 3', desc: 'Small heading' },
+    { value: 'bulleted_list', label: 'Bulleted list', desc: 'Simple bulleted list' },
+    { value: 'numbered_list', label: 'Numbered list', desc: 'Sequential list' },
+    { value: 'todo', label: 'To-do list', desc: 'Checkbox item' },
+    { value: 'toggle', label: 'Toggle list', desc: 'Collapsible block' },
+    { value: 'quote', label: 'Quote', desc: 'Section quote' },
+    { value: 'callout', label: 'Callout', desc: 'Visual breakout block' },
+    { value: 'code', label: 'Code', desc: 'Programming code block' },
+    { value: 'equation', label: 'Block equation', desc: 'TeX math equation' },
+    { value: 'toc', label: 'Table of contents', desc: 'Automatic block index' },
+    { value: 'tabs', label: 'Tabs block', desc: 'Collapsible tabbed layout' },
+    { value: 'columns', label: 'Columns', desc: 'Multi-column layout' },
+    { value: 'table', label: 'Table', desc: 'Tabular data table' },
+    { value: 'image', label: 'Image', desc: 'Visual image asset' },
+    { value: 'video', label: 'Video', desc: 'Video content embedding' },
+    { value: 'file', label: 'File', desc: 'Downloadable document' },
+    { value: 'bookmark', label: 'Web bookmark', desc: 'Interactive link preview' },
+    { value: 'toggle_heading1', label: 'Toggle Heading 1', desc: 'Collapsible H1' },
+    { value: 'toggle_heading2', label: 'Toggle Heading 2', desc: 'Collapsible H2' },
+    { value: 'toggle_heading3', label: 'Toggle Heading 3', desc: 'Collapsible H3' },
+    { value: 'sub_page', label: 'Sub-page', desc: 'Link to a new nested page' },
+  ];
+
+  const textColors = [
+    { name: 'Default', value: undefined, color: '#37352f' },
+    { name: 'Gray', value: '#787774', color: '#787774' },
+    { name: 'Brown', value: '#9f6b53', color: '#9f6b53' },
+    { name: 'Orange', value: '#d9730d', color: '#d9730d' },
+    { name: 'Yellow', value: '#cb912f', color: '#cb912f' },
+    { name: 'Green', value: '#448361', color: '#448361' },
+    { name: 'Blue', value: '#337ea9', color: '#337ea9' },
+    { name: 'Purple', value: '#9065b0', color: '#9065b0' },
+    { name: 'Pink', value: '#c14c8a', color: '#c14c8a' },
+    { name: 'Red', value: '#d44c47', color: '#d44c47' },
+  ];
+
+  const bgColors = [
+    { name: 'Default', value: undefined, color: 'transparent' },
+    { name: 'Gray', value: '#f1f1ef', color: '#f1f1ef' },
+    { name: 'Brown', value: '#f4eee9', color: '#f4eee9' },
+    { name: 'Orange', value: '#fbecdd', color: '#fbecdd' },
+    { name: 'Yellow', value: '#fbf3db', color: '#fbf3db' },
+    { name: 'Green', value: '#edf3ec', color: '#edf3ec' },
+    { name: 'Blue', value: '#e7f3f8', color: '#e7f3f8' },
+    { name: 'Purple', value: '#f3f0f5', color: '#f3f0f5' },
+    { name: 'Pink', value: '#f9f0f4', color: '#f9f0f4' },
+    { name: 'Red', value: '#fdebec', color: '#fdebec' },
+  ];
+
+  const getFlatCommands = () => {
+    const q = searchQuery.toLowerCase();
+    
+    // 1. Get matching main menu items
+    const mainItems = [
+      { label: 'Copy link to block', icon: 'Link', action: () => { handleCopyLink(); hideContextMenu(); } },
+      { label: 'Duplicate', icon: 'Copy', action: () => { duplicateBlock(block.id); hideContextMenu(); } },
+      { label: 'Move to', icon: 'FileSymlink', action: () => { setActiveSubmenu('move-to'); } },
+      { label: 'Delete', icon: 'Trash2', action: () => { deleteBlock(block.id); hideContextMenu(); } },
+      { label: 'Rearrange', icon: 'ArrowUpDown', action: () => { setActiveSubmenu('rearrange'); } },
+      { label: 'Comments', icon: 'MessageSquare', action: () => { createBlockLevelComment(block.id, false); hideContextMenu(); } },
+      { label: 'Suggest Edits', icon: 'Pencil', action: () => { setActiveSubmenu('suggest-edits'); } },
+      { label: 'Ziva AI', icon: 'Sparkles', action: () => { triggerZivaAi(); hideContextMenu(); } },
+      { label: isRedacted ? 'Undo Redact' : 'Redact', icon: 'ShieldAlert', action: () => { if (isRedacted) handleUndoRedact(); else handleRedact(); hideContextMenu(); } },
+      { label: isMasked ? 'Undo Masking' : 'Mask', icon: 'EyeOff', action: () => { if (isMasked) handleUndoMask(); else handleMask(); hideContextMenu(); } },
+      { label: isStriked ? 'Undo Strike' : 'Strike', icon: 'Strikethrough', action: () => { if (isStriked) handleUndoStrike(); else handleStrike(); hideContextMenu(); } }
+    ].filter(item => item.label.toLowerCase().includes(q));
+
+    // 2. Get matching submenu items
+    const subItems = [];
+
+    TURN_INTO_OPTIONS.forEach(opt => {
+      subItems.push({
+        label: `Turn into ${opt.label}`,
+        icon: getBlockIcon(opt.value),
+        action: () => {
+          changeBlockType(block.id, opt.value);
+          hideContextMenu();
+        }
+      });
+    });
+
+    SUGGEST_EDITS_TONES.forEach(tone => {
+      subItems.push({
+        label: `Suggest Edits: ${tone.label}`,
+        icon: tone.value === 'original' ? 'RotateCcw' : 'Sparkles',
+        action: () => {
+          handleSuggestTone(tone.value);
+        }
+      });
+    });
+
+    textColors.forEach(tc => {
+      subItems.push({
+        label: `${tc.name}`,
+        icon: 'Palette',
+        colorDot: tc.color,
+        isColorText: true,
+        action: () => {
+          updateBlockProperty(block.id, 'textColor', tc.value);
+          hideContextMenu();
+        }
+      });
+    });
+
+    bgColors.forEach(bc => {
+      subItems.push({
+        label: `${bc.name} Background`,
+        icon: 'Palette',
+        colorDot: bc.color,
+        isColorBg: true,
+        action: () => {
+          updateBlockProperty(block.id, 'backgroundColor', bc.value);
+          hideContextMenu();
+        }
+      });
+    });
+
+    const filteredSub = subItems.filter(item => item.label.toLowerCase().includes(q)).slice(0, 5);
+    return [...mainItems, ...filteredSub];
+  };
+
+  const handleCopyLink = () => {
+    const url = `${window.location.origin}${window.location.pathname}#${block.id}`;
+    navigator.clipboard.writeText(url);
+  };
+
+  const renderMainMenuList = () => {
+    const editorName = resolveUserDisplayName(block.updatedById || auditData?.modifiedById, currentUser);
+    const timeStr = block.updatedAt || auditData?.updatedAt || new Date().toISOString();
+    const formattedTime = formatAuditDateTime(timeStr);
+
+    return (
+      <>
+        <div className="context-menu-header">Text</div>
+        <div className={`context-menu-item ${activeSubmenu === 'turn-into' ? 'active' : ''}`} onClick={(e) => handleSubmenuTrigger(e, 'turn-into')}>
+          <LucideIcon name={getBlockIcon(block.type)} className="w-4 h-4 mr-2 opacity-75" />
+          <span>Turn into</span>
+          <span className="ml-auto text-[10px] opacity-50">▶</span>
+        </div>
+        <div className={`context-menu-item ${activeSubmenu === 'color' ? 'active' : ''}`} onClick={(e) => handleSubmenuTrigger(e, 'color')}>
+          <LucideIcon name="Palette" className="w-4 h-4 mr-2 opacity-75" />
+          <span>Color</span>
+          <span className="ml-auto text-[10px] opacity-50">▶</span>
+        </div>
+        <div className={`context-menu-item ${activeSubmenu === 'font' ? 'active' : ''}`} onClick={(e) => handleSubmenuTrigger(e, 'font')}>
+          <LucideIcon name="Type" className="w-4 h-4 mr-2 opacity-75" />
+          <span>Font Setup</span>
+          <span className="ml-auto text-[10px] opacity-50">▶</span>
+        </div>
+        <div className={`context-menu-item ${activeSubmenu === 'privacy' ? 'active' : ''}`} onClick={(e) => handleSubmenuTrigger(e, 'privacy')}>
+          <LucideIcon name="ShieldAlert" className="w-4 h-4 mr-2 opacity-75" />
+          <span>Privacy Options</span>
+          <span className="ml-auto text-[10px] opacity-50">▶</span>
+        </div>
+
+        <div className="context-menu-divider" />
+
+        <div className="context-menu-item" onClick={() => { handleCopyLink(); hideContextMenu(); }}>
+          <LucideIcon name="Link" className="w-4 h-4 mr-2 opacity-75" />
+          <span>Copy link to block</span>
+          <span className="context-menu-shortcut">Alt+⇧+L</span>
+        </div>
+        <div className="context-menu-item" onClick={() => { duplicateBlock(block.id); hideContextMenu(); }}>
+          <LucideIcon name="Copy" className="w-4 h-4 mr-2 opacity-75" />
+          <span>Duplicate</span>
+          <span className="context-menu-shortcut">Ctrl+D</span>
+        </div>
+        <div className={`context-menu-item ${activeSubmenu === 'move-to' ? 'active' : ''}`} onClick={(e) => handleSubmenuTrigger(e, 'move-to')}>
+          <LucideIcon name="FileSymlink" className="w-4 h-4 mr-2 opacity-75" />
+          <span>Move to</span>
+          <span className="context-menu-shortcut">Ctrl+⇧+P</span>
+        </div>
+        <div className="context-menu-item danger" onClick={() => { deleteBlock(block.id); hideContextMenu(); }}>
+          <LucideIcon name="Trash2" className="w-4 h-4 mr-2 opacity-75" />
+          <span>Delete</span>
+          <span className="context-menu-shortcut">Del</span>
+        </div>
+        <div className={`context-menu-item ${activeSubmenu === 'rearrange' ? 'active' : ''}`} onClick={(e) => handleSubmenuTrigger(e, 'rearrange')}>
+          <LucideIcon name="ArrowUpDown" className="w-4 h-4 mr-2 opacity-75" />
+          <span>Rearrange</span>
+          <span className="ml-auto text-[10px] opacity-50">▶</span>
+        </div>
+
+        <div className="context-menu-divider" />
+
+        <div className="context-menu-item" onClick={() => { createBlockLevelComment(block.id, false); hideContextMenu(); }}>
+          <LucideIcon name="MessageSquare" className="w-4 h-4 mr-2 opacity-75" />
+          <span>Comments</span>
+          <span className="context-menu-shortcut">Ctrl+⇧+M</span>
+        </div>
+        <div className={`context-menu-item ${activeSubmenu === 'suggest-edits' ? 'active' : ''}`} onClick={(e) => handleSubmenuTrigger(e, 'suggest-edits')}>
+          <LucideIcon name="Pencil" className="w-4 h-4 mr-2 opacity-75" />
+          <span>Suggest Edits</span>
+          <span className="context-menu-shortcut">Ctrl+⇧+Alt+X</span>
+        </div>
+
+        <div className="context-menu-divider" />
+
+        <div className="context-menu-item" onClick={() => { triggerZivaAi(); hideContextMenu(); }}>
+          <LucideIcon name="Sparkles" className="w-4 h-4 mr-2 text-indigo-400 opacity-75" style={{ color: '#818cf8' }} />
+          <span>Ziva AI</span>
+          <span className="context-menu-shortcut">Ctrl+J</span>
+        </div>
+
+        <div className="context-menu-divider" />
+
+        <div className="p-2 text-[10px] text-gray-500 select-none text-center leading-relaxed">
+          Last edited by <span className="font-semibold">{editorName}</span> on {formattedTime}
+        </div>
+      </>
+    );
+  };
+
+  const renderSubmenuContent = () => {
+    if (activeSubmenu === 'turn-into') {
+      return (
+        <div className="nn-block-menu-submenu-panel">
+          <div className="context-menu-header">Turn Into</div>
+          <div className="context-menu-divider" />
+          <div className="nn-submenu-list max-h-[320px] overflow-y-auto">
+            {TURN_INTO_OPTIONS.map((opt) => {
+              const isCurrent = block.type === opt.value;
+              return (
+                <div
+                  key={opt.value}
+                  className={`context-menu-item ${isCurrent ? 'active' : ''}`}
+                  onClick={() => {
+                    changeBlockType(block.id, opt.value);
+                    hideContextMenu();
+                  }}
+                >
+                  <LucideIcon name={getBlockIcon(opt.value)} className="w-4 h-4 mr-2 opacity-75" />
+                  <div className="flex flex-col">
+                    <span className="font-medium text-xs">{opt.label}</span>
+                    <span className="text-[10px] text-gray-500">{opt.desc}</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      );
+    }
+
+    if (activeSubmenu === 'color') {
+      return (
+        <div className="nn-block-menu-submenu-panel">
+          <div className="context-menu-header flex items-center justify-between" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+            <span>Color</span>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                updateBlockProperty(block.id, 'textColor', undefined);
+                updateBlockProperty(block.id, 'backgroundColor', undefined);
+                hideContextMenu();
+              }}
+              style={{
+                marginLeft: 'auto',
+                fontSize: '10px',
+                backgroundColor: '#f1f1ef',
+                color: '#787774',
+                border: 'none',
+                borderRadius: '3px',
+                padding: '2px 6px',
+                cursor: 'pointer',
+                fontWeight: 500
+              }}
+            >
+              Reset
+            </button>
+          </div>
+          <div className="context-menu-divider" />
+          <div className="nn-submenu-list max-h-[320px] overflow-y-auto">
+            <div className="nncs-label px-3 py-1 text-[11px] font-semibold text-gray-400 select-none uppercase tracking-wide">Text Color</div>
+            {textColors.map((tc) => (
+              <div
+                key={`tc-${tc.name}`}
+                className="context-menu-item"
+                onClick={() => {
+                  updateBlockProperty(block.id, 'textColor', tc.value);
+                  hideContextMenu();
+                }}
+              >
+                <span className="nn-color-icon-a mr-2 flex-shrink-0" style={{ color: tc.color }}>A</span>
+                <span style={{ color: tc.color, fontWeight: tc.name !== 'Default' ? 500 : 'normal' }}>{tc.name}</span>
+              </div>
+            ))}
+            <div className="context-menu-item custom-color-picker-item">
+              <LucideIcon name="Palette" className="w-4 h-4 mr-2 opacity-75" />
+              <span>Custom Text Color</span>
+              <input
+                type="color"
+                value={block.textColor || '#37352f'}
+                onChange={(e) => {
+                  updateBlockProperty(block.id, 'textColor', e.target.value);
+                }}
+                className="nn-custom-color-input ml-auto"
+              />
+            </div>
+
+            <div className="nncs-divider my-1 border-t border-gray-100" />
+            <div className="nncs-label px-3 py-1 text-[11px] font-semibold text-gray-400 select-none uppercase tracking-wide">Background Color</div>
+            {bgColors.map((bc) => (
+              <div
+                key={`bc-${bc.name}`}
+                className="context-menu-item"
+                onClick={() => {
+                  updateBlockProperty(block.id, 'backgroundColor', bc.value);
+                  hideContextMenu();
+                }}
+              >
+                <span className="nn-color-icon-bg mr-2 flex-shrink-0" style={{ backgroundColor: bc.color, color: '#37352f' }}>A</span>
+                <span style={{
+                  backgroundColor: bc.color !== 'transparent' ? bc.color : 'transparent',
+                  padding: bc.color !== 'transparent' ? '2px 6px' : '0',
+                  borderRadius: '3px',
+                  color: '#37352f',
+                  border: bc.color !== 'transparent' ? '1px solid rgba(0,0,0,0.05)' : 'none',
+                  fontWeight: bc.name !== 'Default' ? 500 : 'normal'
+                }}>
+                  {bc.name} Background
+                </span>
+              </div>
+            ))}
+            <div className="context-menu-item custom-color-picker-item">
+              <LucideIcon name="Palette" className="w-4 h-4 mr-2 opacity-75" />
+              <span>Custom Background</span>
+              <input
+                type="color"
+                value={block.backgroundColor || '#ffffff'}
+                onChange={(e) => {
+                  updateBlockProperty(block.id, 'backgroundColor', e.target.value);
+                }}
+                className="nn-custom-color-input ml-auto"
+              />
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (activeSubmenu === 'font') {
+      const pageFontFamily = auditData?.fontFamily || 'sans-serif';
+      const pageFontSize = auditData?.fontSize || 0;
+      const pageFavorites = auditData?.fontFavorites || ['sans-serif', 'serif', 'mono'];
+
+      return (
+        <div className="nn-block-menu-submenu-panel nn-font-dropdown">
+          <div className="context-menu-header">Font Setup</div>
+          <div className="context-menu-divider" />
+          <div className="p-2 nn-font-block-menu-wrap max-h-[340px] overflow-y-auto">
+            <FontSettingsPanel
+              fontFamily={block.fontFamily || pageFontFamily}
+              fontSize={block.fontSize !== undefined ? block.fontSize : pageFontSize}
+              fontFavorites={pageFavorites}
+              onChangeFontFamily={(f) => {
+                updateBlockProperty(block.id, 'fontFamily', f);
+              }}
+              onChangeFontSize={(s) => {
+                updateBlockProperty(block.id, 'fontSize', s);
+              }}
+              onChangeFavorites={(favs) => {
+                setPageState(prev => ({
+                  ...prev,
+                  fontFavorites: favs
+                }));
+              }}
+              showReset={true}
+              onReset={() => {
+                updateBlockProperty(block.id, 'fontFamily', undefined);
+                updateBlockProperty(block.id, 'fontSize', undefined);
+                hideContextMenu();
+              }}
+            />
+          </div>
+        </div>
+      );
+    }
+
+    if (activeSubmenu === 'privacy') {
+      return (
+        <div className="nn-block-menu-submenu-panel">
+          <div className="context-menu-header">Privacy Options</div>
+          <div className="context-menu-divider" />
+          <div className="nn-submenu-list">
+            <div className="context-menu-item" onClick={() => { if (isRedacted) handleUndoRedact(); else handleRedact(); hideContextMenu(); }}>
+              <LucideIcon name="ShieldAlert" className="w-4 h-4 mr-2 opacity-75" />
+              <span>{isRedacted ? 'Undo Redact' : 'Redact'}</span>
+            </div>
+            <div className="context-menu-item" onClick={() => { if (isMasked) handleUndoMask(); else handleMask(); hideContextMenu(); }}>
+              <LucideIcon name="EyeOff" className="w-4 h-4 mr-2 opacity-75" />
+              <span>{isMasked ? 'Undo Masking' : 'Mask'}</span>
+            </div>
+            <div className="context-menu-item" onClick={() => { if (isStriked) handleUndoStrike(); else handleStrike(); hideContextMenu(); }}>
+              <LucideIcon name="Strikethrough" className="w-4 h-4 mr-2 opacity-75" />
+              <span>{isStriked ? 'Undo Strike' : 'Strike'}</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    if (activeSubmenu === 'suggest-edits') {
+      return (
+        <div className="nn-block-menu-submenu-panel">
+          <div className="context-menu-header">Suggest Edits</div>
+          <div className="context-menu-divider" />
+          <div className="nn-submenu-list">
+            {SUGGEST_EDITS_TONES.map((tone) => (
+              <div
+                key={tone.value}
+                className="context-menu-item"
+                onClick={() => handleSuggestTone(tone.value)}
+              >
+                <LucideIcon name={tone.value === 'original' ? 'RotateCcw' : 'Sparkles'} className="w-4 h-4 mr-2 opacity-75" />
+                <div className="flex flex-col">
+                  <span className="font-medium text-xs">{tone.label}</span>
+                  <span className="text-[10px] text-gray-500">{tone.desc}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      );
+    }
+
+    if (activeSubmenu === 'move-to') {
+      return (
+        <div className="nn-block-menu-submenu-panel">
+          <div className="context-menu-header">Move to page</div>
+          <div className="context-menu-divider" />
+          <div className="nn-submenu-list max-h-[300px] overflow-y-auto">
+            {siblingPages.length > 0 ? (
+              siblingPages.map((p) => (
+                <div
+                  key={p.id}
+                  className="context-menu-item"
+                  onClick={() => {
+                    moveBlockToPage(block.id, p.id);
+                    hideContextMenu();
+                  }}
+                >
+                  <LucideIcon name="FileText" className="w-4 h-4 mr-2 opacity-75" />
+                  <span>{p.title}</span>
+                </div>
+              ))
+            ) : (
+              <div className="p-3 text-xs text-gray-500 text-center">No other sibling pages found</div>
+            )}
+          </div>
+        </div>
+      );
+    }
+
+    if (activeSubmenu === 'rearrange') {
+      return (
+        <div className="nn-block-menu-submenu-panel">
+          <div className="context-menu-header">Rearrange</div>
+          <div className="context-menu-divider" />
+          <div className="nn-submenu-list">
+            <div className="context-menu-item" onClick={() => { moveBlock(block.id, 'up'); hideContextMenu(); }}>
+              <LucideIcon name="ArrowUp" className="w-4 h-4 mr-2 opacity-75" />
+              <span>Move Up</span>
+            </div>
+            <div className="context-menu-item" onClick={() => { moveBlock(block.id, 'down'); hideContextMenu(); }}>
+              <LucideIcon name="ArrowDown" className="w-4 h-4 mr-2 opacity-75" />
+              <span>Move Down</span>
+            </div>
+            <div className="context-menu-item" onClick={() => { moveBlockToTop(block.id); hideContextMenu(); }}>
+              <LucideIcon name="Upload" className="w-4 h-4 mr-2 opacity-75" />
+              <span>Move to Top</span>
+            </div>
+            <div className="context-menu-item" onClick={() => { moveBlockToBottom(block.id); hideContextMenu(); }}>
+              <LucideIcon name="Download" className="w-4 h-4 mr-2 opacity-75" />
+              <span>Move to Bottom</span>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    return null;
+  };
+
+  return (
+    <>
+      <div
+        className="context-menu nn-block-context-menu"
+        ref={menuRef}
+        style={{
+          left: position.left,
+          top: position.top,
+          position: 'fixed',
+          zIndex: 99999,
+          width: '260px',
+        }}
+      >
+        {/* Search header input is ALWAYS here at the top of the main menu */}
+        <div className="nn-block-menu-search-wrap">
+          <input
+            ref={searchInputRef}
+            type="text"
+            className="nn-block-menu-search-input"
+            placeholder="Search actions..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+          />
+        </div>
+        <div className="context-menu-divider" />
+        
+        {searchQuery.trim() !== '' ? (
+          <div className="nn-block-menu-search-results max-h-[300px] overflow-y-auto">
+            {getFlatCommands().length > 0 ? (
+              getFlatCommands().map((cmd, i) => (
+                <div key={i} className="context-menu-item" onClick={cmd.action}>
+                  {cmd.isColorText ? (
+                    <span className="nn-color-icon-a mr-2 flex-shrink-0" style={{ color: cmd.colorDot }}>A</span>
+                  ) : cmd.isColorBg ? (
+                    <span className="nn-color-icon-bg mr-2 flex-shrink-0" style={{ backgroundColor: cmd.colorDot, color: '#37352f' }}>A</span>
+                  ) : (
+                    <LucideIcon name={cmd.icon} className="w-4 h-4 mr-2 opacity-75" />
+                  )}
+                  <span>{cmd.label}</span>
+                </div>
+              ))
+            ) : (
+              <div className="p-3 text-xs text-gray-500 text-center">No commands found</div>
+            )}
+          </div>
+        ) : (
+          renderMainMenuList()
+        )}
+      </div>
+
+      {/* Render active submenu next to the main menu (on the right) */}
+      {searchQuery.trim() === '' && activeSubmenu !== 'main' && (() => {
+        let estHeight = 300;
+        if (activeSubmenu === 'turn-into') estHeight = 360;
+        if (activeSubmenu === 'color') estHeight = 360;
+        if (activeSubmenu === 'font') estHeight = 380;
+        if (activeSubmenu === 'move-to') estHeight = 340;
+        if (activeSubmenu === 'rearrange') estHeight = 180;
+        if (activeSubmenu === 'privacy') estHeight = 150;
+        if (activeSubmenu === 'suggest-edits') estHeight = 220;
+        
+        let adjustedTop = submenuTop;
+        if (adjustedTop + estHeight > window.innerHeight - 8) {
+          adjustedTop = Math.max(8, window.innerHeight - estHeight - 8);
+        }
+
+        return (
+          <div
+            className="context-menu nn-block-context-menu nn-submenu-popover"
+            style={{
+              left: position.left + 264, // 260px width + 4px gap
+              top: adjustedTop,
+              position: 'fixed',
+              zIndex: 99999,
+              width: activeSubmenu === 'font' ? '380px' : '260px',
+            }}
+          >
+            {renderSubmenuContent()}
+          </div>
+        );
+      })()}
+    </>
+  );
+}
+
 export const ContextMenu = memo(function ContextMenu() {
   const { contextMenu, hideContextMenu } = usePageContext();
   const menuRef = useRef(null);
   useEffect(() => {
     if (!contextMenu.open) return;
-    const handler = (e) => { if (menuRef.current && !menuRef.current.contains(e.target)) hideContextMenu(); };
+    const handler = (e) => {
+      // Allow clicks on the context menu and submenus
+      if (e.target.closest('.context-menu') || e.target.closest('.nn-block-context-menu') || e.target.closest('.nn-submenu-popover')) {
+        return;
+      }
+      hideContextMenu();
+    };
     const esc = (e) => { if (e.key === 'Escape') hideContextMenu(); };
     document.addEventListener('mousedown', handler);
     document.addEventListener('keydown', esc);
     return () => { document.removeEventListener('mousedown', handler); document.removeEventListener('keydown', esc); };
   }, [contextMenu.open, hideContextMenu]);
   if (!contextMenu.open) return null;
+
+  if (contextMenu.type === 'block') {
+    return <BlockContextMenu menuRef={menuRef} />;
+  }
+
   return (
     <div className="context-menu" ref={menuRef} style={{ left: contextMenu.x, top: contextMenu.y }}>
       {contextMenu.items.map((item, i) => {
-        if (item.divider) return <div key={`d${i}`} className="context-menu-divider" />;
-        if (item.header) return <div key={`h${i}`} className="context-menu-header">{item.label}</div>;
+        if (item.divider) return <div key={`d-${i}`} className="context-menu-divider" />;
+        if (item.header) return <div key={`h-${i}`} className="context-menu-header">{item.label}</div>;
         return (
           <div key={`${item.label}-${i}`}
             className={`context-menu-item${item.danger ? ' danger' : ''}${item.disabled ? ' disabled' : ''}`}
@@ -333,7 +1312,6 @@ export const ContextMenu = memo(function ContextMenu() {
               e.stopPropagation();
               if (item.disabled) return;
               if (item.action) item.action(e);
-              // Don't hide if this item opens a submenu
               if (!item.submenu) hideContextMenu();
             }}>
             {item.swatch && <span className="context-menu-swatch" style={{ background: item.swatch, borderColor: item.swatchBorder ? 'rgba(255,255,255,.25)' : undefined }} />}
@@ -346,8 +1324,10 @@ export const ContextMenu = memo(function ContextMenu() {
     </div>
   );
 });
+
+
 /* ==================================================================
-   NOTION-STYLE ICON PICKER Ã¢â‚¬â€  Emoji + Icons + Upload tabs w/ search
+   NOTION-STYLE ICON PICKER — Emoji + Icons + Upload tabs w/ search
    ================================================================== */
 // Start loading Lucide icons list immediately in the background
 let cachedLucideIcons = null;
@@ -401,6 +1381,61 @@ export function renderIconSvg(iconName, size = 18, color = 'currentColor') {
   }
   
   return null;
+}
+
+
+export function isCountryFlagEmoji(emojiStr) {
+  if (!emojiStr || typeof emojiStr !== 'string') return false;
+  const pts = Array.from(emojiStr).map(c => c.codePointAt(0));
+  if (pts.length >= 2 && pts.every(p => p >= 0x1F1E6 && p <= 0x1F1FF)) return true;
+  if (pts[0] === 0x1F3F4) return true;
+  return false;
+}
+
+export function renderEmojiContent(em, size = '1.2em') {
+  if (!em) return null;
+  if (isCountryFlagEmoji(em)) {
+    const codePoints = Array.from(em).map(c => c.codePointAt(0).toString(16)).filter(c => c !== 'fe0f').join('-');
+    const twemojiUrl = `https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/${codePoints}.svg`;
+    const numSize = typeof size === 'number' ? `${size}px` : size;
+    return (
+      <img
+        src={twemojiUrl}
+        alt={em}
+        draggable={false}
+        style={{ width: numSize, height: numSize, objectFit: 'contain', display: 'inline-block', verticalAlign: 'middle', pointerEvents: 'none' }}
+        onError={(e) => { e.currentTarget.style.display = 'none'; }}
+      />
+    );
+  }
+  return em;
+}
+
+export function recordRecentEmoji(emoji) {
+  if (!emoji || typeof emoji !== 'string' || emoji.startsWith('svg:') || emoji.startsWith('initials:') || emoji.startsWith('http') || emoji.startsWith('data:')) return;
+  try {
+    const raw = localStorage.getItem('nn-recent-emojis');
+    let list = raw ? JSON.parse(raw) : ['👍', '❤️', '😊', '🎯', '✅', '🔥', '💡', '⭐', '📌', '🚀'];
+    if (!Array.isArray(list)) list = [];
+    list = list.filter(e => e !== emoji);
+    list.unshift(emoji);
+    list = list.slice(0, 10);
+    localStorage.setItem('nn-recent-emojis', JSON.stringify(list));
+    window.dispatchEvent(new Event('nn-recent-emojis-updated'));
+  } catch (e) {
+    console.error(e);
+  }
+}
+
+export function getRecentEmojis() {
+  try {
+    const raw = localStorage.getItem('nn-recent-emojis');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+    }
+  } catch (e) {}
+  return ['👍', '❤️', '😊', '🎯', '✅', '🔥', '💡', '⭐', '📌', '🚀'];
 }
 
 export function hasPageIcon(icon) {
@@ -487,6 +1522,12 @@ export function renderPageIcon(icon, size = '78px') {
     return <img src={icon} alt="Page icon" style={{ width: size, height: size, borderRadius: '8px', objectFit: 'cover' }} />;
   }
   
+  // If icon is an icon name (e.g. 'FileText', 'Smile', 'Pencil', 'Lightbulb')
+  const iconSvg = renderIconSvg(icon, numericSize);
+  if (iconSvg && (allLucideIcons[toPascalCase(icon)] || SVG_ICONS.some(ic => ic.name.toLowerCase() === icon.toLowerCase()))) {
+    return iconSvg;
+  }
+
   return <span style={{ fontSize: size, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1 }}>{icon}</span>;
 }
 
@@ -568,11 +1609,11 @@ const ICON_COLORS = [
   { name: 'red', color: '#eb5757', label: 'Red' },
 ];
 
-export const NotionIconPicker = memo(function NotionIconPicker({ position, currentIcon, onSelect, onClose }) {
+export const NotionIconPicker = memo(function NotionIconPicker({ position, currentIcon, onSelect, onClose, emojiOnly = false }) {
   const ref = useRef(null);
   const { pageState } = usePageContext();
   const [tab, setTab] = useState(() => {
-    if (currentIcon && currentIcon.startsWith('initials:')) {
+    if (!emojiOnly && currentIcon && currentIcon.startsWith('initials:')) {
       return 'initials';
     }
     return 'emoji';
@@ -582,6 +1623,7 @@ export const NotionIconPicker = memo(function NotionIconPicker({ position, curre
   const [lucideIcons, setLucideIcons] = useState(cachedLucideIcons || []);
   const [emojiTags, setEmojiTags] = useState(cachedEmojiTags || {});
   const [colorOpen, setColorOpen] = useState(false);
+  const [recentList, setRecentList] = useState(() => getRecentEmojis());
   const [askAlways, setAskAlways] = useState(() => {
     try {
       return localStorage.getItem('nn-icon-ask-always') === 'true';
@@ -674,6 +1716,12 @@ export const NotionIconPicker = memo(function NotionIconPicker({ position, curre
   }, [onClose]);
 
   useEffect(() => {
+    const onRecentUpdated = () => setRecentList(getRecentEmojis());
+    window.addEventListener('nn-recent-emojis-updated', onRecentUpdated);
+    return () => window.removeEventListener('nn-recent-emojis-updated', onRecentUpdated);
+  }, []);
+
+  useEffect(() => {
     if (cachedLucideIcons) {
       setLucideIcons(cachedLucideIcons);
       return;
@@ -764,10 +1812,10 @@ export const NotionIconPicker = memo(function NotionIconPicker({ position, curre
       {/* Tab bar */}
       <div className="nip-tabs">
         <button className={`nip-tab${tab === 'emoji' ? ' active' : ''}`} onClick={() => setTab('emoji')}>Emoji</button>
-        <button className={`nip-tab${tab === 'icons' ? ' active' : ''}`} onClick={() => setTab('icons')}>Icons</button>
-        <button className={`nip-tab${tab === 'initials' ? ' active' : ''}`} onClick={() => setTab('initials')}>Initials</button>
-        <button className={`nip-tab${tab === 'upload' ? ' active' : ''}`} onClick={() => setTab('upload')}>Upload</button>
-        <button className="nip-remove" onClick={() => { onSelect(''); onClose(); }}>Remove</button>
+        {!emojiOnly && <button className={`nip-tab${tab === 'icons' ? ' active' : ''}`} onClick={() => setTab('icons')}>Icons</button>}
+        {!emojiOnly && <button className={`nip-tab${tab === 'initials' ? ' active' : ''}`} onClick={() => setTab('initials')}>Initials</button>}
+        {!emojiOnly && <button className={`nip-tab${tab === 'upload' ? ' active' : ''}`} onClick={() => setTab('upload')}>Upload</button>}
+        {!emojiOnly && <button className="nip-remove" onClick={() => { onSelect(''); onClose(); }}>Remove</button>}
       </div>
       
       {/* Search & Toolbar */}
@@ -776,7 +1824,7 @@ export const NotionIconPicker = memo(function NotionIconPicker({ position, curre
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></svg>
           <input
             type="text"
-            placeholder={tab === 'initials' ? "Initials tab active…" : "Filter…"}
+            placeholder={tab === 'initials' ? "Initials tab active..." : "Filter..."}
             value={filter}
             onChange={e => setFilter(e.target.value)}
             disabled={tab === 'initials'}
@@ -1030,20 +2078,34 @@ export const NotionIconPicker = memo(function NotionIconPicker({ position, curre
             {q ? (
               <div className="nip-emoji-grid">
                 {filteredEmojis.map((em, i) => (
-                  <button key={`${em}-${i}`} className="nip-emoji-cell" onClick={() => { onSelect(em); onClose(); }}>{em}</button>
+                  <button key={`${em}-${i}`} className="nip-emoji-cell" onClick={() => { recordRecentEmoji(em); onSelect(em); onClose(); }} title={em}>
+                    {isCountryFlagEmoji(em)
+                      ? <img src={`https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/${Array.from(em).map(c=>c.codePointAt(0).toString(16)).filter(c=>c!=='fe0f').join('-')}.svg`} alt={em} style={{ width:'1.4em', height:'1.4em', objectFit:'contain', display:'block', pointerEvents:'none' }} onError={e=>{e.currentTarget.style.display='none';}} />
+                      : em
+                    }
+                  </button>
                 ))}
               </div>
             ) : (
-              EMOJI_CATEGORIES.map(cat => (
-                <div key={cat.id} id={`nip-cat-${cat.id}`} className="nip-emoji-section" style={{ marginBottom: '12px' }}>
-                  <div className="nip-cat-label" style={{ fontWeight: '600', fontSize: '11px', color: '#706e6b', padding: '4px 0', textTransform: 'uppercase' }}>{cat.label}</div>
-                  <div className="nip-emoji-grid">
-                    {cat.emojis.map((em, i) => (
-                      <button key={`${em}-${i}`} className="nip-emoji-cell" onClick={() => { onSelect(em); onClose(); }}>{em}</button>
-                    ))}
+              EMOJI_CATEGORIES.map(cat => {
+                const emojisToShow = cat.id === 'recent' ? recentList : cat.emojis;
+                if (emojisToShow.length === 0) return null;
+                return (
+                  <div key={cat.id} id={`nip-cat-${cat.id}`} className="nip-emoji-section" style={{ marginBottom: '12px' }}>
+                    <div className="nip-cat-label" style={{ fontWeight: '600', fontSize: '11px', color: '#706e6b', padding: '4px 0', textTransform: 'uppercase' }}>{cat.label}</div>
+                    <div className="nip-emoji-grid">
+                      {emojisToShow.map((em, i) => (
+                        <button key={`${cat.id}-${em}-${i}`} className="nip-emoji-cell" onClick={() => { recordRecentEmoji(em); onSelect(em); onClose(); }} title={em}>
+                          {isCountryFlagEmoji(em)
+                            ? <img src={`https://cdnjs.cloudflare.com/ajax/libs/twemoji/14.0.2/svg/${Array.from(em).map(c=>c.codePointAt(0).toString(16)).filter(c=>c!=='fe0f').join('-')}.svg`} alt={em} style={{ width:'1.4em', height:'1.4em', objectFit:'contain', display:'block', pointerEvents:'none' }} onError={e=>{e.currentTarget.style.display='none';}} />
+                            : em
+                          }
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}
@@ -1516,7 +2578,7 @@ export const InlineToolbar = memo(function InlineToolbar() {
       document.execCommand('createLink', false, url);
     }
   }, [saveRange, restoreRange]);
-  /* Add comment — highlights text + adds to sidebar as draft */
+  /* Add comment ✨ */
   const handleComment = useCallback((e) => {
     if (e) {
       e.preventDefault();
@@ -1902,7 +2964,7 @@ const MentionPopover = memo(function MentionPopover({ position, onSelect, onClos
     {
       title: 'Date',
       items: [
-        { label: `Today — ${todayStr}`, value: ` @Today (${todayShort})`, icon: <Clock size={13} /> },
+        { label: `Today ✨ ${todayStr}`, value: ` @Today (${todayShort})`, icon: <Clock size={13} /> },
         { label: `${nextTueStr} 3pm`, value: ` @${nextTueStr} 3pm`, icon: <Clock size={13} /> }
       ]
     },
@@ -2002,8 +3064,14 @@ export const CommentCard = memo(function CommentCard({
   const [attachmentPicker, setAttachmentPicker] = useState(null);
   const [mentionPicker, setMentionPicker] = useState(null);
   const [activeReactionPopover, setActiveReactionPopover] = useState(null);
+  const [showFullPickerForMsg, setShowFullPickerForMsg] = useState(null);
   const [activeMorePopover, setActiveMorePopover] = useState(null);
   const [toastMessage, setToastMessage] = useState(null);
+
+  const HIGHLY_USED_REACTIONS = useMemo(() => [
+    '👍', '❤️', '😂', '😮', '😯', '😭', '🔥', '🎉', '👏', '🙏',
+    '✨', '🚀', '💯', '👀', '💡', '✅', '❌', '🤔', '😍'
+  ], []);
 
   const triggerToast = useCallback((msg) => {
     setToastMessage(msg);
@@ -2011,14 +3079,15 @@ export const CommentCard = memo(function CommentCard({
   }, []);
 
   useEffect(() => {
-    if (!activeReactionPopover && !activeMorePopover) return;
+    if (!activeReactionPopover && !activeMorePopover && showFullPickerForMsg === null) return;
     const handler = () => {
       setActiveReactionPopover(null);
       setActiveMorePopover(null);
+      setShowFullPickerForMsg(null);
     };
     document.addEventListener('click', handler);
     return () => document.removeEventListener('click', handler);
-  }, [activeReactionPopover, activeMorePopover]);
+  }, [activeReactionPopover, activeMorePopover, showFullPickerForMsg]);
 
   const handleSaveDraftLocal = () => {
     const text = draftText[cmt.id];
@@ -2027,12 +3096,12 @@ export const CommentCard = memo(function CommentCard({
       onSaveDraft(text);
     } else {
       saveDraftComment(cmt.id, text);
-      setDraftText(prev => {
-        const next = { ...prev };
-        delete next[cmt.id];
-        return next;
-      });
     }
+    setDraftText(prev => {
+      const next = { ...prev };
+      delete next[cmt.id];
+      return next;
+    });
   };
 
   const handleCancelDraftLocal = () => {
@@ -2163,7 +3232,7 @@ export const CommentCard = memo(function CommentCard({
                       const hasReacted = r.users.includes('Briselle');
                       return (
                         <button key={r.emoji} className={`ca-rp-pill-msg${hasReacted ? ' active' : ''}`} onClick={(e) => { e.stopPropagation(); addReaction(cmt.id, r.emoji, idx); }}>
-                          <span className="ca-rp-emoji">{r.emoji}</span>
+                          <span className="ca-rp-emoji">{renderEmojiContent(r.emoji, '1.1em')}</span>
                           <span className="ca-rp-count">{r.count}</span>
                         </button>
                       );
@@ -2194,11 +3263,36 @@ export const CommentCard = memo(function CommentCard({
               </button>
               {activeReactionPopover?.msgIndex === idx && (
                 <div className="ca-msg-reactions-popover" onMouseDown={e => e.stopPropagation()}>
-                  {['👍', '❤️', '😂', '😮'].map(em => (
+                  {HIGHLY_USED_REACTIONS.map(em => (
                     <button key={em} className="ca-reaction-option" onClick={() => { addReaction(cmt.id, em, idx); setActiveReactionPopover(null); }}>
                       {em}
                     </button>
                   ))}
+                  <button
+                    className="ca-reaction-option ca-reaction-more-btn"
+                    title="More reactions"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowFullPickerForMsg(idx);
+                    }}
+                    style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: '#706e6b' }}
+                  >
+                    <MoreVertical size={13} />
+                  </button>
+                  {showFullPickerForMsg === idx && (
+                    <NotionIconPicker
+                      position={{ x: -120, y: 30 }}
+                      emojiOnly={true}
+                      onSelect={(val) => {
+                        if (val) {
+                          addReaction(cmt.id, val, idx);
+                        }
+                        setShowFullPickerForMsg(null);
+                        setActiveReactionPopover(null);
+                      }}
+                      onClose={() => setShowFullPickerForMsg(null)}
+                    />
+                  )}
                 </div>
               )}
             </div>
@@ -2396,7 +3490,7 @@ export const CommentCard = memo(function CommentCard({
                   const hasReacted = r.users.includes('Briselle');
                   return (
                     <button key={r.emoji} className={`ca-reaction-pill${hasReacted ? ' active' : ''}`} onClick={() => handleToggleRolledUpReaction(r.emoji)}>
-                      <span className="ca-rp-emoji">{r.emoji}</span>
+                      <span className="ca-rp-emoji">{renderEmojiContent(r.emoji, '1.1em')}</span>
                       <span className="ca-rp-count">{r.count}</span>
                     </button>
                   );
@@ -2529,8 +3623,8 @@ export const NotionPageTextComment = memo(function NotionPageTextComment({ visib
   // Filter inline comments (only non-page comments)
   const inlineComments = (comments || []).filter(c => !c.isPageComment && c.blockId !== 'page');
 
-  // Track sorted comments in actual DOM order dynamically
-  const [orderedComments, setOrderedComments] = useState([]);
+  // Track sorted comment IDs in actual DOM order dynamically
+  const [orderedCommentIds, setOrderedCommentIds] = useState([]);
 
   const handleCancelDraft = useCallback((commentId) => {
     const markEl = document.querySelector(`.inline-comment-highlight[data-comment-id="${commentId}"], .inline-comment[data-comment-id="${commentId}"]`);
@@ -2566,29 +3660,57 @@ export const NotionPageTextComment = memo(function NotionPageTextComment({ visib
     }
 
     saveDraftComment(commentId, text);
+    setDraftText(prev => {
+      const next = { ...prev };
+      delete next[commentId];
+      return next;
+    });
   }, [saveDraftComment, updateBlockContent]);
 
-  // Synchronously compute and update orderedComments DOM order inside useLayoutEffect
+  // Synchronously compute and update orderedCommentIds DOM order inside useLayoutEffect
   useLayoutEffect(() => {
     const sorted = [...inlineComments].sort((a, b) => {
-      const elA = document.querySelector(`[data-comment-id="${a.id}"]`) || document.querySelector(`[data-block-id="${a.blockId}"]`);
-      const elB = document.querySelector(`[data-comment-id="${b.id}"]`) || document.querySelector(`[data-block-id="${b.blockId}"]`);
-      if (elA && elB) {
-        const pos = elA.compareDocumentPosition(elB);
+      const markA = document.querySelector(`.inline-comment-highlight[data-comment-id="${a.id}"], .inline-comment[data-comment-id="${a.id}"], [data-comment-id="${a.id}"]`);
+      const markB = document.querySelector(`.inline-comment-highlight[data-comment-id="${b.id}"], .inline-comment[data-comment-id="${b.id}"], [data-comment-id="${b.id}"]`);
+      if (markA && markB) {
+        if (markA === markB) return 0;
+        const pos = markA.compareDocumentPosition(markB);
+        if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
+        if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
+      }
+      if (markA && !markB) return -1;
+      if (!markA && markB) return 1;
+
+      const blockA = document.querySelector(`[data-block-id="${a.blockId}"]`);
+      const blockB = document.querySelector(`[data-block-id="${b.blockId}"]`);
+      if (blockA && blockB && blockA !== blockB) {
+        const pos = blockA.compareDocumentPosition(blockB);
         if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
         if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
       }
       return a.id.localeCompare(b.id);
     });
 
-    const sortedIds = sorted.map(c => c.id).join(',');
-    const currentIds = orderedComments.map(c => c.id).join(',');
-    if (sortedIds !== currentIds) {
-      setOrderedComments(sorted);
+    const sortedIdsStr = sorted.map(c => c.id).join('|');
+    const currentIdsStr = orderedCommentIds.join('|');
+    if (sortedIdsStr !== currentIdsStr) {
+      setOrderedCommentIds(sorted.map(c => c.id));
     }
-  }, [inlineComments, orderedComments]);
+  }, [inlineComments, orderedCommentIds]);
 
-  const commentsToRender = orderedComments.length > 0 ? orderedComments : inlineComments;
+  const commentsToRender = useMemo(() => {
+    const map = new Map(inlineComments.map(c => [c.id, c]));
+    if (!orderedCommentIds || orderedCommentIds.length === 0) return inlineComments;
+    const result = [];
+    orderedCommentIds.forEach(id => {
+      if (map.has(id)) {
+        result.push(map.get(id));
+        map.delete(id);
+      }
+    });
+    map.forEach(c => result.push(c));
+    return result;
+  }, [inlineComments, orderedCommentIds]);
 
   // Auto-sweep draft comments when they lose focus
   useEffect(() => {
@@ -2783,6 +3905,7 @@ export const NotionPageTextComment = memo(function NotionPageTextComment({ visib
     </div>
   );
 });
+
 
 export const NotionPageTopComments = memo(function NotionPageTopComments({ visible = true, setVisible = () => {} }) {
   const {

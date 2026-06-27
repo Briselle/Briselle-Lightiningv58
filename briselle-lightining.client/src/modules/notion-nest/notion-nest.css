@@ -2287,6 +2287,10 @@
   font-size: var(--nn-body-size) !important;
 }
 
+.notion-app-container .block:not(.block-heading1):not(.block-heading2):not(.block-heading3):not(.block-toggle-heading1):not(.block-toggle-heading2):not(.block-toggle-heading3) [contenteditable] {
+  font-size: var(--nn-body-size-local, var(--nn-body-size)) !important;
+}
+
 /* Apply specific CSS variable sizes to page title */
 .notion-app-container .page-title {
   font-size: var(--nn-title-size, 40px) !important;
@@ -2295,22 +2299,22 @@
 /* Apply specific CSS variable sizes to headings */
 .notion-app-container .block-heading1 [contenteditable],
 .notion-app-container .block-toggle-heading1 [contenteditable] {
-  font-size: var(--nn-h1-size, 30px) !important;
+  font-size: var(--nn-h1-size-local, var(--nn-h1-size, 30px)) !important;
 }
 
 .notion-app-container .block-heading2 [contenteditable],
 .notion-app-container .block-toggle-heading2 [contenteditable] {
-  font-size: var(--nn-h2-size, 24px) !important;
+  font-size: var(--nn-h2-size-local, var(--nn-h2-size, 24px)) !important;
 }
 
 .notion-app-container .block-heading3 [contenteditable],
 .notion-app-container .block-toggle-heading3 [contenteditable] {
-  font-size: var(--nn-h3-size, 20px) !important;
+  font-size: var(--nn-h3-size-local, var(--nn-h3-size, 20px)) !important;
 }
 
 /* Font Popover UI Dropdown */
 .nn-font-dropdown {
-  width: 240px !important;
+  width: 380px !important;
 }
 
 .nn-font-row {
@@ -2388,7 +2392,7 @@
 
 /* New Font Popover UI & Dropdown styles */
 .nn-font-dropdown {
-  width: 360px !important;
+  width: 380px !important;
 }
 
 .nn-font-row {
@@ -2756,4 +2760,352 @@
   z-index: 1 !important;
   pointer-events: none !important;
   border: none !important;
+}
+
+/* NotionNest Block-Level Font/Color Customizations & Context Menu overrides */
+.block {
+  color: var(--nn-text-color-local, inherit);
+  background-color: var(--nn-bg-color-local, transparent);
+  border-radius: 4px;
+}
+
+.block[style*="--nn-bg-color-local"] {
+  padding: 8px 12px !important;
+}
+
+.notion-app-container .block [contenteditable] {
+  font-family: var(--nn-font-family-local, var(--nn-font-family, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif)) !important;
+  color: inherit !important;
+}
+
+.notion-app-container .block:not(.block-heading1):not(.block-heading2):not(.block-heading3):not(.block-toggle-heading1):not(.block-toggle-heading2):not(.block-toggle-heading3) [contenteditable] {
+  font-size: var(--nn-body-size-local, var(--nn-body-size, inherit)) !important;
+}
+
+.context-menu {
+  z-index: 99999 !important;
+}
+
+/* Suggestion comments */
+.inline-comment-highlight.suggestion {
+  background-color: rgba(46, 204, 113, 0.2) !important;
+  border-bottom: 2px dashed #2ecc71 !important;
+}
+.inline-comment-highlight.suggestion.active {
+  background-color: rgba(46, 204, 113, 0.35) !important;
+}
+
+/* Custom color picker panel */
+.nn-custom-color-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  font-size: 13px;
+}
+.nn-custom-color-input {
+  width: 24px;
+  height: 24px;
+  border: 1px solid #dddbda;
+  border-radius: 4px;
+  cursor: pointer;
+  padding: 0;
+  background: transparent;
+}
+
+/* Align block controls/handles to the top/first line of the block content text */
+.block-heading1 > .block-controls,
+.block-toggle-heading1 > .block-controls {
+  top: 10px !important;
+}
+
+.block-heading2 > .block-controls,
+.block-toggle-heading2 > .block-controls {
+  top: 6px !important;
+}
+
+.block-heading3 > .block-controls,
+.block-toggle-heading3 > .block-controls {
+  top: 4px !important;
+}
+
+.block-callout > .block-controls {
+  top: 12px !important;
+}
+
+.block-quote > .block-controls {
+  top: 8px !important;
+}
+
+.block-todo > .block-controls {
+  top: 2px !important;
+}
+
+.block-bulleted-list > .block-controls,
+.block-numbered-list > .block-controls {
+  top: 2px !important;
+}
+
+.block-heading1 [contenteditable] {
+  color: var(--nn-text-color-local, #080707) !important;
+}
+.block-heading2 [contenteditable] {
+  color: var(--nn-text-color-local, #080707) !important;
+}
+.block-heading3 [contenteditable] {
+  color: var(--nn-text-color-local, #080707) !important;
+}
+.block-toggle-heading1 [contenteditable] {
+  color: var(--nn-text-color-local, #080707) !important;
+}
+.block-toggle-heading2 [contenteditable] {
+  color: var(--nn-text-color-local, #080707) !important;
+}
+.block-toggle-heading3 [contenteditable] {
+  color: var(--nn-text-color-local, #080707) !important;
+}
+
+/* ==================================================================
+   NotionNest Style Additions
+   ================================================================== */
+
+.nn-block-menu-search-wrap {
+  width: 100%;
+  padding: 6px 12px;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+.nn-block-menu-search-input {
+  width: 100%;
+  border: none !important;
+  outline: none !important;
+  background: transparent;
+  font-size: 14px;
+  padding: 4px 0;
+  color: #37352f;
+}
+
+.nn-block-menu-search-input:focus {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.nn-submenu-popover {
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.nn-color-icon-a {
+  font-family: Georgia, serif;
+  font-size: 16px;
+  font-weight: bold;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.nn-color-icon-bg {
+  font-family: Georgia, serif;
+  font-size: 16px;
+  font-weight: bold;
+  width: 20px;
+  height: 20px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  border: 1px solid #efefef;
+}
+
+.context-menu-shortcut {
+  margin-left: auto !important;
+  font-size: 11px !important;
+  color: #787774 !important;
+  background: #f1f1ef !important;
+  border-radius: 3px !important;
+  padding: 1px 5px !important;
+  font-weight: normal !important;
+}
+
+@keyframes nnHighlightPulse {
+  0% {
+    background-color: rgba(255, 235, 59, 0.6);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+.nn-block-highlight {
+  animation: nnHighlightPulse 3s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+}
+
+.nn-redact-text {
+  background-color: #000000 !important;
+  color: #000000 !important;
+  user-select: none !important;
+  border-radius: 2px;
+  padding: 0 2px;
+}
+
+.nn-redact-text::selection {
+  background: #000000 !important;
+  color: #000000 !important;
+}
+
+.nn-mask-text {
+  color: transparent !important;
+  text-shadow: none !important;
+  user-select: none !important;
+  position: relative;
+}
+
+.nn-mask-text::before {
+  content: '****';
+  color: #37352f !important;
+  position: absolute;
+  left: 0;
+  top: 0;
+}
+
+.nn-strike-text {
+  text-decoration: line-through !important;
+}
+
+.nn-undo-popover {
+  background: #ffffff;
+  border-radius: 6px;
+  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.15), 0 1px 3px rgba(0, 0, 0, 0.1);
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  border: 1px solid #e1e1e1;
+}
+
+.nn-undo-btn {
+  background: transparent;
+  border: none;
+  color: #37352f;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  white-space: nowrap;
+}
+
+.nn-undo-btn:hover {
+  background: #f1f1ef;
+}
+
+.nn-undo-popover-arrow {
+  position: absolute;
+  bottom: -6px;
+  left: 50%;
+  transform: translateX(-50%) rotate(45deg);
+  width: 10px;
+  height: 10px;
+  background: #ffffff;
+  border-right: 1px solid #e1e1e1;
+  border-bottom: 1px solid #e1e1e1;
+}
+
+/* AI Rephrase Popover */
+.ai-rephrase-popover {
+  background: #ffffff;
+  border: 1px solid #dddbda;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.15);
+  width: 320px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-family: inherit;
+  animation: menuIn .1s ease;
+}
+
+.ai-rephrase-header {
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #787774;
+  font-weight: 600;
+  letter-spacing: 0.5px;
+}
+
+.ai-rephrase-body {
+  font-size: 13px;
+  color: #37352f;
+  background: #f8f9fa;
+  padding: 8px;
+  border-radius: 6px;
+  border: 1px solid #efefef;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.ai-rephrase-actions {
+  display: flex;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.ai-rephrase-btn {
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  border: 1px solid #dddbda;
+  background: #ffffff;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.15s ease;
+}
+
+.ai-rephrase-btn.primary {
+  background: #2563eb;
+  color: #ffffff;
+  border-color: #2563eb;
+}
+
+.ai-rephrase-btn.primary:hover {
+  background: #1d4ed8;
+}
+
+.ai-rephrase-btn.secondary {
+  background: #f1f1ef;
+  color: #37352f;
+}
+
+.ai-rephrase-btn.secondary:hover {
+  background: #e5e5e3;
+}
+
+.ai-rephrase-btn.dismiss {
+  color: #ef4444;
+  border-color: transparent;
+  background: transparent;
+}
+
+.ai-rephrase-btn.dismiss:hover {
+  background: #fee2e2;
+}
+/* Ensure comments reaction popover & pickers overlay cleanly ABOVE parent comment actions & cards */
+.ca-msg-actions:has(.ca-msg-reactions-popover),
+.ca-msg:has(.ca-msg-reactions-popover),
+.ca-card:has(.ca-msg-reactions-popover) {
+  z-index: 10080 !important;
+}
+
+.ca-msg-reactions-popover {
+  z-index: 10090 !important;
+}
+
+.ca-msg-reactions-popover .notion-icon-picker {
+  z-index: 10100 !important;
 }

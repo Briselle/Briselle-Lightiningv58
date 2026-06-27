@@ -6,6 +6,7 @@ import { useState, useCallback, useRef, useEffect, memo, useMemo } from 'react';
 import { usePageContext } from './PageContext';
 import { generateId, makeBlock } from './utils';
 import { NotionIconPicker, SVG_ICONS, renderIconSvg, hasPageIcon, renderPageIcon } from './menus';
+import { Pencil, Smile, Link as LinkIcon, Trash2 } from 'lucide-react';
 
 /* ---- Helpers ---- */
 function hexToRgba(hex, alpha) {
@@ -435,7 +436,7 @@ const TabBlock = memo(function TabBlock({ block }) {
       {
         label: (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-            <span>{"\u270F\uFE0F"}</span>
+            <Pencil size={14} className="opacity-75" />
             <span>Rename</span>
           </span>
         ),
@@ -445,7 +446,7 @@ const TabBlock = memo(function TabBlock({ block }) {
         label: (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ width: '16px', height: '16px', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
-              {tab.icon ? renderTabIcon(tab.icon) : "\ud83d\ude0a"}
+              {tab.icon ? renderTabIcon(tab.icon) : <Smile size={14} className="opacity-75" />}
             </span>
             <span>Edit icon</span>
           </span>
@@ -459,7 +460,7 @@ const TabBlock = memo(function TabBlock({ block }) {
       {
         label: (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-            <span>{"\ud83d\udd17"}</span>
+            <LinkIcon size={14} className="opacity-75" />
             <span>Copy link</span>
           </span>
         ),
@@ -484,7 +485,7 @@ const TabBlock = memo(function TabBlock({ block }) {
       {
         label: (
           <span style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-            <span>{"\ud83d\uddd1\ufe0f"}</span>
+            <Trash2 size={14} className="opacity-75" />
             <span>Delete tab</span>
           </span>
         ),
