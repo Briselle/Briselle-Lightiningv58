@@ -163,8 +163,8 @@ export function sanitizeNotionBlocks(blocks: unknown): any[] {
             ...(block.calloutIcon !== undefined ? { calloutIcon: String(block.calloutIcon) } : {}),
             ...(block.language !== undefined ? { language: String(block.language) } : {}),
             ...(block.rows !== undefined ? { rows: block.rows } : {}),
-            ...(block.columns !== undefined ? { columns: block.columns } : {}),
-            ...(block.tabs !== undefined ? { tabs: block.tabs } : {}),
+            ...(block.columns ? { columns: Array.isArray(block.columns) ? block.columns.map((c: any) => ({ ...c, blocks: sanitizeNotionBlocks(c.blocks) })) : block.columns } : {}),
+            ...(block.tabs ? { tabs: Array.isArray(block.tabs) ? block.tabs.map((t: any) => ({ ...t, blocks: sanitizeNotionBlocks(t.blocks) })) : block.tabs } : {}),
             ...(block.activeTabId !== undefined ? { activeTabId: block.activeTabId } : {}),
             ...(block.url !== undefined ? { url: String(block.url) } : {}),
             ...(block.bookmarkTitle !== undefined ? { bookmarkTitle: String(block.bookmarkTitle) } : {}),
@@ -172,6 +172,10 @@ export function sanitizeNotionBlocks(blocks: unknown): any[] {
             ...(block.caption !== undefined ? { caption: String(block.caption) } : {}),
             ...(block.expression !== undefined ? { expression: String(block.expression) } : {}),
             ...(block.pageTitle !== undefined ? { pageTitle: String(block.pageTitle) } : {}),
+            ...(block.fontFamily !== undefined ? { fontFamily: String(block.fontFamily) } : {}),
+            ...(block.fontSize !== undefined ? { fontSize: block.fontSize } : {}),
+            ...(block.textColor !== undefined ? { textColor: String(block.textColor) } : {}),
+            ...(block.backgroundColor !== undefined ? { backgroundColor: String(block.backgroundColor) } : {}),
         };
     }).filter(Boolean);
 }

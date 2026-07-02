@@ -18,6 +18,13 @@
         @apply bg-[#f3f3f3];
         @apply text-gray-900;
         @apply font-sans;
+        height: 100%;
+        overflow: hidden;
+    }
+
+    #root {
+        height: 100%;
+        overflow: hidden;
     }
 }
 
@@ -71,8 +78,8 @@
 
   .app-container {
     height: 100vh;
-    width: 100vw;
-    @apply overflow-hidden;
+    width: 100%;
+    overflow: hidden !important;
   }
 
   .sidebar-item {

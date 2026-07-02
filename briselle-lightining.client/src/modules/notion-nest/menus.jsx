@@ -3667,27 +3667,81 @@ export const NotionPageTextComment = memo(function NotionPageTextComment({ visib
     });
   }, [saveDraftComment, updateBlockContent]);
 
-  // Synchronously compute and update orderedCommentIds DOM order inside useLayoutEffect
+  // Synchronously compute and update orderedCommentIds DOM order inside useLayoutEffect (Strict Word/Sentence Reading Order)
   useLayoutEffect(() => {
     const sorted = [...inlineComments].sort((a, b) => {
+      if (a.id === b.id) return 0;
+
       const markA = document.querySelector(`.inline-comment-highlight[data-comment-id="${a.id}"], .inline-comment[data-comment-id="${a.id}"], [data-comment-id="${a.id}"]`);
       const markB = document.querySelector(`.inline-comment-highlight[data-comment-id="${b.id}"], .inline-comment[data-comment-id="${b.id}"], [data-comment-id="${b.id}"]`);
+
       if (markA && markB) {
         if (markA === markB) return 0;
+        const rectA = markA.getBoundingClientRect();
+        const rectB = markB.getBoundingClientRect();
+        if (Math.abs(rectA.top - rectB.top) > 12) {
+          return rectA.top - rectB.top;
+        }
+        if (Math.abs(rectA.left - rectB.left) > 2) {
+          return rectA.left - rectB.left;
+        }
         const pos = markA.compareDocumentPosition(markB);
         if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
         if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
       }
-      if (markA && !markB) return -1;
-      if (!markA && markB) return 1;
+
+      if (markA && !markB) {
+        const rectA = markA.getBoundingClientRect();
+        const blockB = document.querySelector(`[data-block-id="${b.blockId}"]`);
+        if (blockB) {
+          const rectB = blockB.getBoundingClientRect();
+          if (Math.abs(rectA.top - rectB.top) > 12) return rectA.top - rectB.top;
+        }
+        return -1;
+      }
+      if (!markA && markB) {
+        const rectB = markB.getBoundingClientRect();
+        const blockA = document.querySelector(`[data-block-id="${a.blockId}"]`);
+        if (blockA) {
+          const rectA = blockA.getBoundingClientRect();
+          if (Math.abs(rectA.top - rectB.top) > 12) return rectA.top - rectB.top;
+        }
+        return 1;
+      }
+
+      if (a.blockId === b.blockId) {
+        const blockEl = document.querySelector(`[data-block-id="${a.blockId}"]`);
+        if (blockEl) {
+          const html = blockEl.innerHTML || '';
+          const idxA = html.indexOf(a.id);
+          const idxB = html.indexOf(b.id);
+          if (idxA !== -1 && idxB !== -1 && idxA !== idxB) {
+            return idxA - idxB;
+          }
+          if (a.selectedText && b.selectedText) {
+            const txt = blockEl.textContent || '';
+            const txtIdxA = txt.indexOf(a.selectedText);
+            const txtIdxB = txt.indexOf(b.selectedText);
+            if (txtIdxA !== -1 && txtIdxB !== -1 && txtIdxA !== txtIdxB) {
+              return txtIdxA - txtIdxB;
+            }
+          }
+        }
+      }
 
       const blockA = document.querySelector(`[data-block-id="${a.blockId}"]`);
       const blockB = document.querySelector(`[data-block-id="${b.blockId}"]`);
       if (blockA && blockB && blockA !== blockB) {
+        const rectA = blockA.getBoundingClientRect();
+        const rectB = blockB.getBoundingClientRect();
+        if (Math.abs(rectA.top - rectB.top) > 5) {
+          return rectA.top - rectB.top;
+        }
         const pos = blockA.compareDocumentPosition(blockB);
         if (pos & Node.DOCUMENT_POSITION_FOLLOWING) return -1;
         if (pos & Node.DOCUMENT_POSITION_PRECEDING) return 1;
       }
+
       return a.id.localeCompare(b.id);
     });
 

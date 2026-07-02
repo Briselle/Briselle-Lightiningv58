@@ -13,12 +13,25 @@ import { supabase } from '../../utils/supabase';
 import { parseNotionPageFromValues } from './notionPageDefaults';
 import { NOTION_PAGE_STORAGE_KEY } from './types';
 const PageContext = createContext(null);
+
+function cleanBlockContentOrphans(htmlString, validCommentIdsSet) {
+  if (!htmlString || typeof htmlString !== 'string' || !htmlString.includes('data-comment-id')) {
+    return htmlString;
+  }
+  return htmlString.replace(/<mark\s+[^>]*data-comment-id=["']([^"']+)["'][^>]*>(.*?)<\/mark>/gi, (match, id, innerText) => {
+    if (!validCommentIdsSet.has(id)) {
+      return innerText;
+    }
+    return match;
+  });
+}
+
 export function usePageContext() {
   const ctx = useContext(PageContext);
   if (!ctx) throw new Error('usePageContext must be used within PageProvider');
   return ctx;
 }
-export function PageProvider({ children, initialBlocks, initialTitle, initialIcon, initialCover, initialCoverPosition, initialComments, initialAuditData, onChange }) {
+export function PageProvider({ children, initialBlocks, initialTitle, initialIcon, initialCover, initialCoverPosition, initialComments, initialAuditData, onChange, imperativeRef }) {
   const [pageState, setPageState] = useState(() => {
     const blocks = initialBlocks || buildDefaultBlocks();
     fixTabDefaults(blocks);
@@ -94,6 +107,31 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
       });
     }
   }, [pageState, comments]);
+
+  // Sweep and clean any orphaned comment highlight marks across blocks when comments change
+  useEffect(() => {
+    const validSet = new Set(comments.map(c => c.id));
+    setPageState(prev => {
+      let modified = false;
+      const deepCopy = JSON.parse(JSON.stringify(prev.blocks));
+      const cleanBlocks = (list) => {
+        list.forEach(b => {
+          if (b.content && typeof b.content === 'string' && b.content.includes('data-comment-id')) {
+            const cleaned = cleanBlockContentOrphans(b.content, validSet);
+            if (cleaned !== b.content) {
+              b.content = cleaned;
+              modified = true;
+            }
+          }
+          if (b.children) cleanBlocks(b.children);
+          if (b.tabs) b.tabs.forEach(t => cleanBlocks(t.blocks));
+          if (b.columns) b.columns.forEach(c => cleanBlocks(c.blocks));
+        });
+      };
+      cleanBlocks(deepCopy);
+      return modified ? { ...prev, blocks: deepCopy } : prev;
+    });
+  }, [comments]);
   /* ---- Immutable state update helper ---- */
   const updateState = useCallback((fn) => {
     setPageState(prev => {
@@ -312,6 +350,24 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
       return next;
     });
   }, []);
+  const clearAllBlockFonts = useCallback(() => {
+    const stripFonts = (blocks) => {
+      if (!Array.isArray(blocks)) return blocks;
+      return blocks.map(b => {
+        const nb = { ...b };
+        delete nb.fontFamily;
+        delete nb.fontSize;
+        if (nb.children) nb.children = stripFonts(nb.children);
+        if (nb.tabs) nb.tabs = nb.tabs.map(t => ({ ...t, blocks: stripFonts(t.blocks) }));
+        if (nb.columns) nb.columns = nb.columns.map(c => ({ ...c, blocks: stripFonts(c.blocks) }));
+        return nb;
+      });
+    };
+    setPageState(prev => ({ ...prev, blocks: stripFonts(prev.blocks) }));
+  }, []);
+  useEffect(() => {
+    if (imperativeRef) imperativeRef.current = { clearAllBlockFonts };
+  }, [imperativeRef, clearAllBlockFonts]);
   const updatePage = useCallback((updates) => {
     setPageState(prev => {
       let nextIcon = prev.icon;
@@ -617,8 +673,8 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     });
   }, []);
   const deleteComment = useCallback((commentId) => {
-    const markEl = document.querySelector(`.inline-comment-highlight[data-comment-id="${commentId}"], .inline-comment[data-comment-id="${commentId}"]`);
-    if (markEl) {
+    const markEls = document.querySelectorAll(`.inline-comment-highlight[data-comment-id="${commentId}"], .inline-comment[data-comment-id="${commentId}"]`);
+    markEls.forEach(markEl => {
       const parent = markEl.parentNode;
       if (parent) {
         while (markEl.firstChild) {
@@ -637,9 +693,30 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
           });
         }
       }
-    }
+    });
     setComments(prev => {
       const next = prev.filter(c => c.id !== commentId);
+      const validSet = new Set(next.map(c => c.id));
+      setPageState(pagePrev => {
+        let modified = false;
+        const deepCopy = JSON.parse(JSON.stringify(pagePrev.blocks));
+        const cleanBlocks = (list) => {
+          list.forEach(b => {
+            if (b.content && typeof b.content === 'string' && b.content.includes(commentId)) {
+              const cleaned = cleanBlockContentOrphans(b.content, validSet);
+              if (cleaned !== b.content) {
+                b.content = cleaned;
+                modified = true;
+              }
+            }
+            if (b.children) cleanBlocks(b.children);
+            if (b.tabs) b.tabs.forEach(t => cleanBlocks(t.blocks));
+            if (b.columns) b.columns.forEach(c => cleanBlocks(c.blocks));
+          });
+        };
+        cleanBlocks(deepCopy);
+        return modified ? { ...pagePrev, blocks: deepCopy } : pagePrev;
+      });
       persistComments(next);
       return next;
     });
@@ -781,7 +858,7 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
   const value = {
     pageState, setPageState: updateState, updatePage,
     addBlock, deleteBlock, duplicateBlock, changeBlockType, moveBlock,
-    updateBlockContent, updateBlockProperty,
+    updateBlockContent, updateBlockProperty, clearAllBlockFonts,
     getBlockById, findBlockContainer, flatVisibleBlocks,
     triggerUpdate, tick,
     slashMenu, showSlashMenu, hideSlashMenu, updateSlashFilter,

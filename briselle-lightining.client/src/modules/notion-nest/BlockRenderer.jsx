@@ -111,6 +111,7 @@ const BlockRenderer = memo(function BlockRenderer({ block, blocksArray, blockInd
   if (block.fontFamily) {
     const cssFont = POPULAR_FONTS.find(f => f.id === block.fontFamily)?.css || block.fontFamily;
     blockStyle['--nn-font-family-local'] = cssFont;
+    blockStyle['fontFamily'] = cssFont;
   }
   if (block.fontSize !== undefined && block.fontSize !== null) {
     const sizeMap = {

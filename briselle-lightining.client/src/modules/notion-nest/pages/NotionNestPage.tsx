@@ -133,6 +133,7 @@ export function clearBlockFonts(blocks: any[]): any[] {
 }
 
 interface FontSettingsPanelProps {
+    onForceApplyAll?: () => void;
     fontFamily: string;
     fontSize: number;
     fontFavorites: string[];
@@ -152,6 +153,7 @@ export function FontSettingsPanel({
     onChangeFavorites,
     onReset,
     showReset = true,
+    onForceApplyAll,
 }: FontSettingsPanelProps) {
     const [dropdownFont, setDropdownFont] = useState(fontFamily);
     const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -434,6 +436,16 @@ export function FontSettingsPanel({
             </div>
 
             <div className="nncs-divider" />
+            {onForceApplyAll && (
+                <button
+                    type="button"
+                    className="w-full text-[11px] py-1.5 px-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-600 dark:text-amber-400 rounded transition-colors font-medium flex items-center justify-center gap-1.5 mb-3.5 border border-amber-500/20"
+                    onClick={onForceApplyAll}
+                    title="Override all custom block fonts on the entire page"
+                >
+                    ⚡ Apply font to all blocks
+                </button>
+            )}
             <div className="nncs-label">Font Size</div>
             <div className="nn-size-slider-container">
                 <input
@@ -478,6 +490,8 @@ export default function NotionNestPage() {
     const freezeSettingsRef = useRef<HTMLDivElement>(null);
     const [showFontSettings, setShowFontSettings] = useState(false);
     const fontSettingsRef = useRef<HTMLDivElement>(null);
+    const [showForceFontModal, setShowForceFontModal] = useState(false);
+    const pageCtxRef = useRef<{ clearAllBlockFonts: () => void } | null>(null);
 
 
     const commentsAlwaysShow = page?.commentsAlwaysShow ?? false;
@@ -543,9 +557,13 @@ export default function NotionNestPage() {
         fontSize?: -2 | -1 | 0 | 1 | 2;
     }) => {
         if (!page) return;
-        const nextBlocks = (patch.fontFamily !== undefined || patch.fontSize !== undefined)
+        const fontChanged = patch.fontFamily !== undefined || patch.fontSize !== undefined;
+        const nextBlocks = fontChanged
             ? clearBlockFonts(page.blocks)
             : page.blocks;
+        if (fontChanged) {
+            pageCtxRef.current?.clearAllBlockFonts();
+        }
         const next = {
             ...page,
             blocks: nextBlocks,
@@ -563,6 +581,21 @@ export default function NotionNestPage() {
             fontFamily: patch.fontFamily !== undefined ? patch.fontFamily : fontFamily,
             fontFavorites: patch.fontFavorites !== undefined ? patch.fontFavorites : fontFavorites,
             fontSize: patch.fontSize !== undefined ? patch.fontSize : fontSize
+        };
+        setPage(next);
+        scheduleSave(title, next);
+    };
+
+    
+    const forceApplyFontToAll = () => {
+        if (!page) return;
+        pageCtxRef.current?.clearAllBlockFonts();
+        const nextBlocks = clearBlockFonts(page.blocks);
+        const next = {
+            ...page,
+            blocks: nextBlocks,
+            fontFamily,
+            fontSize
         };
         setPage(next);
         scheduleSave(title, next);
@@ -929,6 +962,7 @@ export default function NotionNestPage() {
                                         onChangeFavorites={(favs) => updatePageSettings({ fontFavorites: favs })}
                                         onReset={resetAllSettingsToDefault}
                                         showReset={true}
+                                        onForceApplyAll={() => setShowForceFontModal(true)}
                                     />
                                 </div>
                             )}
@@ -1120,6 +1154,44 @@ export default function NotionNestPage() {
                 style={{ '--nn-font-family': POPULAR_FONTS.find(f => f.id === fontFamily)?.css || fontFamily } as React.CSSProperties}
                 className={`notion-app-container ${page.fullWidth ? 'is-full-width' : ''} ${fontSize === 0 ? 'nn-size-zero' : fontSize > 0 ? 'nn-size-plus' + fontSize : 'nn-size-minus' + Math.abs(fontSize)}`}
             >
+                {showForceFontModal && (
+                    <div className="fixed inset-0 bg-black/60 z-[99999] flex items-center justify-center p-4 animate-fadeIn" onClick={() => setShowForceFontModal(false)}>
+                        <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl p-6 max-w-md w-full shadow-2xl relative text-left" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center gap-3 text-amber-500 mb-3">
+                                <AlertTriangle className="w-6 h-6 flex-shrink-0" />
+                                <h3 className="text-base font-semibold text-zinc-900 dark:text-zinc-100 m-0">Force Apply Font to Entire Page?</h3>
+                            </div>
+                            <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed mb-3">
+                                This will override and clear all individual block-level font customizations across your entire document and apply <strong className="text-zinc-800 dark:text-zinc-200">[{POPULAR_FONTS.find(f => f.id === fontFamily)?.name || fontFamily}]</strong> to every block.
+                            </p>
+                            <div className="p-3 bg-blue-50 dark:bg-blue-950/40 border border-blue-200 dark:border-blue-900/50 rounded-lg text-[11px] text-blue-700 dark:text-blue-300 mb-5 leading-normal flex gap-2">
+                                <Info className="w-4 h-4 flex-shrink-0 mt-0.5 text-blue-500" />
+                                <div>
+                                    <strong>Need section-specific styling?</strong> You can style individual blocks anytime without changing the rest of the page! Just right-click any block and select <em>Font Setup</em> in the context menu.
+                                </div>
+                            </div>
+                            <div className="flex items-center justify-end gap-2">
+                                <button
+                                    type="button"
+                                    className="px-3 py-1.5 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg transition-colors cursor-pointer"
+                                    onClick={() => setShowForceFontModal(false)}
+                                >
+                                    Cancel
+                                </button>
+                                <button
+                                    type="button"
+                                    className="px-3 py-1.5 text-xs font-medium bg-amber-600 hover:bg-amber-700 text-white rounded-lg shadow-sm transition-colors flex items-center gap-1.5 cursor-pointer"
+                                    onClick={() => {
+                                        setShowForceFontModal(false);
+                                        forceApplyFontToAll();
+                                    }}
+                                >
+                                    Apply to All Blocks
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
                 <NotionEditorErrorBoundary>
                     <NotionPage
                         key={recordId}
@@ -1129,6 +1201,7 @@ export default function NotionNestPage() {
                         initialCover={page.coverUrl}
                         initialCoverPosition={page.coverPosition ?? 50}
                         initialComments={page.comments}
+                        imperativeRef={pageCtxRef}
                         initialAuditData={initialAuditData}
                         onChange={handlePageChange}
                         showSidebar={false}

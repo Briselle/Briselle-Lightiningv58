@@ -177,7 +177,7 @@ function Sidebar({ isOpen, currentPath }: SidebarProps) {
   return (
     <aside
       className={cn(
-        'bg-white shadow-sm transition-all duration-300 z-10',
+        'bg-white shadow-sm transition-all duration-300 z-10 h-full',
         isOpen ? 'w-64' : 'w-20'
       )}
     >

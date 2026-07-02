@@ -19,7 +19,8 @@ export default function NotionPage({
   commentsAlwaysShow = false,
   commentsAlwaysOff = false,
   commentsAutoHideDelay = 30,
-  commentsHoverMode = 'text'
+  commentsHoverMode = 'text',
+  imperativeRef
 }) {
   return (
     <PageProvider
@@ -31,6 +32,7 @@ export default function NotionPage({
       initialComments={initialComments}
       initialAuditData={initialAuditData}
       onChange={onChange}
+      imperativeRef={imperativeRef}
     >
       <NotionPageInner
         showSidebarProp={showSidebar}
