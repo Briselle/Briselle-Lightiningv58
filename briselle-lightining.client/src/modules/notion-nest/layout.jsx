@@ -296,7 +296,7 @@ export const CoverImage = memo(function CoverImage() {
         <NotionCoverPicker
           position={{
             x: btnRef.current ? Math.max(10, btnRef.current.getBoundingClientRect().right - 340) : 100,
-            y: btnRef.current ? btnRef.current.getBoundingClientRect().bottom + window.scrollY : 100
+            y: btnRef.current ? btnRef.current.getBoundingClientRect().bottom + 4 : 100
           }}
           onSelect={(url) => updatePage({ cover: url, coverPosition: 50 })}
           onClose={() => setShowCoverPicker(false)}
@@ -450,7 +450,7 @@ export const PageHeader = memo(function PageHeader({ hasComments, commentsVisibl
                 <NotionCoverPicker
                   position={{
                     x: coverBtnRef.current ? Math.max(10, coverBtnRef.current.getBoundingClientRect().left) : 100,
-                    y: coverBtnRef.current ? coverBtnRef.current.getBoundingClientRect().bottom + window.scrollY : 100
+                    y: coverBtnRef.current ? coverBtnRef.current.getBoundingClientRect().bottom + 4 : 100
                   }}
                   onSelect={(url) => {
                     updatePage({ cover: url });

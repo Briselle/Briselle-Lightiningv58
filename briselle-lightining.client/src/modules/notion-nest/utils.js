@@ -164,7 +164,12 @@ export function flatVisibleBlocks(blocks) {
   const out = [];
   for (const b of blocks) {
     out.push(b);
-    if ((b.type === 'toggle' || b.type.startsWith('toggle_heading')) && b.open && b.children) out.push(...flatVisibleBlocks(b.children));
+    if (b.children && b.children.length > 0) {
+      const isToggle = b.type === 'toggle' || b.type.startsWith('toggle_heading');
+      if (!isToggle || b.open) {
+        out.push(...flatVisibleBlocks(b.children));
+      }
+    }
     if (b.type === 'tabs' && b.tabs) {
       const active = b.tabs.find(t => t.id === b.activeTabId);
       if (active) out.push(...flatVisibleBlocks(active.blocks));
@@ -178,13 +183,17 @@ export function flatVisibleBlocks(blocks) {
 
 // ---- Caret / selection utilities ----
 export function getCaretPosition(el) {
-  const sel = window.getSelection();
-  if (!sel.rangeCount) return 0;
-  const range = sel.getRangeAt(0);
-  const pre = range.cloneRange();
-  pre.selectNodeContents(el);
-  pre.setEnd(range.startContainer, range.startOffset);
-  return pre.toString().length;
+  try {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return 0;
+    const range = sel.getRangeAt(0);
+    const pre = range.cloneRange();
+    pre.selectNodeContents(el);
+    pre.setEnd(range.startContainer, range.startOffset);
+    return pre.toString().length;
+  } catch (e) {
+    return 0;
+  }
 }
 
 export function setCaretPosition(el, offset) {
@@ -248,8 +257,11 @@ export function createNewBlock(type, content) {
   if (type === 'todo') { b.checked = false; }
   if (type === 'callout') { b.calloutIcon = '💡'; }
   if (type === 'code') { b.language = 'javascript'; }
-  if (type === 'table') { b.rows = [['Column 1', 'Column 2', 'Column 3'], ['', '', ''], ['', '', '']]; }
-  if (type === 'columns') { b.columns = [{ id: generateId(), blocks: [makeBlock('paragraph', '')] }, { id: generateId(), blocks: [makeBlock('paragraph', '')] }]; }
+  if (type === 'table') { b.rows = [['','',''],['','',''],['','','']]; b.hasHeader = false; }
+  if (type === 'columns' || type === 'columns2') { b.type = 'columns'; b.columns = [{ id: generateId(), blocks: [makeBlock('paragraph', '')] }, { id: generateId(), blocks: [makeBlock('paragraph', '')] }]; }
+  if (type === 'columns3') { b.type = 'columns'; b.columns = [{ id: generateId(), blocks: [makeBlock('paragraph', '')] }, { id: generateId(), blocks: [makeBlock('paragraph', '')] }, { id: generateId(), blocks: [makeBlock('paragraph', '')] }]; }
+  if (type === 'columns4') { b.type = 'columns'; b.columns = [{ id: generateId(), blocks: [makeBlock('paragraph', '')] }, { id: generateId(), blocks: [makeBlock('paragraph', '')] }, { id: generateId(), blocks: [makeBlock('paragraph', '')] }, { id: generateId(), blocks: [makeBlock('paragraph', '')] }]; }
+  if (type === 'columns5') { b.type = 'columns'; b.columns = [{ id: generateId(), blocks: [makeBlock('paragraph', '')] }, { id: generateId(), blocks: [makeBlock('paragraph', '')] }, { id: generateId(), blocks: [makeBlock('paragraph', '')] }, { id: generateId(), blocks: [makeBlock('paragraph', '')] }, { id: generateId(), blocks: [makeBlock('paragraph', '')] }]; }
   if (type === 'tabs') {
     b.tabs = [
       { id: generateId(), name: 'Tab 1', blocks: [makeBlock('paragraph', '')] },
@@ -314,13 +326,16 @@ export const slashMenuSections = [
     label: 'Advanced',
     items: [
       { icon: 'Table', name: 'Table', desc: 'Simple table', type: 'table', keywords: ['table', 'grid', 'matrix', 'data'] },
-      { icon: 'Columns', name: 'Columns', desc: 'Two column layout', type: 'columns', keywords: ['columns', 'layout', 'grid', 'split'] },
+      { icon: 'Columns', name: '2 Columns', desc: 'Two-column layout', type: 'columns2', keywords: ['columns', 'columns2', '2col', '2 columns', 'layout', 'grid', 'split'] },
+      { icon: 'Columns', name: '3 Columns', desc: 'Three-column layout', type: 'columns3', keywords: ['columns3', '3col', '3 columns', 'layout', 'grid'] },
+      { icon: 'Columns', name: '4 Columns', desc: 'Four-column layout', type: 'columns4', keywords: ['columns4', '4col', '4 columns', 'layout', 'grid'] },
+      { icon: 'Columns', name: '5 Columns', desc: 'Five-column layout', type: 'columns5', keywords: ['columns5', '5col', '5 columns', 'layout', 'grid'] },
       { icon: 'BookOpen', name: 'Table of Contents', desc: 'Auto-generated from headings', type: 'toc', keywords: ['toc', 'table of contents', 'index', 'headings'] },
       { icon: 'Layers', name: 'Tabs', desc: 'Tabbed content block', type: 'tabs', keywords: ['tabs', 'layout', 'pages', 'cards'] },
       { icon: 'Sigma', name: 'Equation', desc: 'LaTeX math equation', type: 'equation', keywords: ['equation', 'math', 'latex', 'sigma'] },
-      { icon: 'Heading1', name: 'Toggle Heading 1', desc: 'Collapsible large heading', type: 'toggle_heading1', keywords: ['toggle heading1', 'h1', 'heading1', 'toggle'] },
-      { icon: 'Heading2', name: 'Toggle Heading 2', desc: 'Collapsible medium heading', type: 'toggle_heading2', keywords: ['toggle heading2', 'h2', 'heading2', 'toggle'] },
-      { icon: 'Heading3', name: 'Toggle Heading 3', desc: 'Collapsible small heading', type: 'toggle_heading3', keywords: ['toggle heading3', 'h3', 'heading3', 'toggle'] },
+      { icon: 'Heading1', name: 'Toggle Heading 1', desc: 'Collapsible large heading', type: 'toggle_heading1', keywords: ['toggle heading1', 'h1', 'heading1', 'toggle', 'h1t'] },
+      { icon: 'Heading2', name: 'Toggle Heading 2', desc: 'Collapsible medium heading', type: 'toggle_heading2', keywords: ['toggle heading2', 'h2', 'heading2', 'toggle', 'h2t'] },
+      { icon: 'Heading3', name: 'Toggle Heading 3', desc: 'Collapsible small heading', type: 'toggle_heading3', keywords: ['toggle heading3', 'h3', 'heading3', 'toggle', 'h3t'] },
     ],
   },
 ];
@@ -377,4 +392,82 @@ export function calculateInitials(title, type, customVal = '') {
     return word.slice(0, 2).toUpperCase();
   }
   return 'UN';
+}
+
+export function isCaretOnFirstLine(el) {
+  try {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return true;
+    const range = sel.getRangeAt(0);
+    
+    // Clone range and collapse to start of selection to get caret rect
+    const caretRange = range.cloneRange();
+    caretRange.collapse(true);
+    let caretRect = caretRange.getBoundingClientRect();
+    
+    // Fallback if caretRect has 0 width/height
+    if (caretRect.top === 0) {
+      const rects = caretRange.getClientRects();
+      if (rects && rects.length > 0) caretRect = rects[0];
+    }
+    
+    // Create a range at the beginning of the contenteditable element
+    const startRange = document.createRange();
+    startRange.selectNodeContents(el);
+    startRange.collapse(true);
+    let startRect = startRange.getBoundingClientRect();
+    if (startRect.top === 0) {
+      const rects = startRange.getClientRects();
+      if (rects && rects.length > 0) startRect = rects[0];
+    }
+    
+    if (caretRect.top === 0 || startRect.top === 0) return true;
+    
+    // Get computed line height
+    const style = window.getComputedStyle(el);
+    const fontSize = parseFloat(style.fontSize) || 16;
+    const lineHeight = parseFloat(style.lineHeight) || (fontSize * 1.5);
+    
+    return (caretRect.top - startRect.top) < (lineHeight * 0.8);
+  } catch (e) {
+    return true;
+  }
+}
+
+export function isCaretOnLastLine(el) {
+  try {
+    const sel = window.getSelection();
+    if (!sel || !sel.rangeCount) return true;
+    const range = sel.getRangeAt(0);
+    
+    // Clone range and collapse to start of selection to get caret rect
+    const caretRange = range.cloneRange();
+    caretRange.collapse(true);
+    let caretRect = caretRange.getBoundingClientRect();
+    if (caretRect.top === 0) {
+      const rects = caretRange.getClientRects();
+      if (rects && rects.length > 0) caretRect = rects[0];
+    }
+    
+    // Create a range at the very end of the contenteditable element
+    const endRange = document.createRange();
+    endRange.selectNodeContents(el);
+    endRange.collapse(false);
+    let endRect = endRange.getBoundingClientRect();
+    if (endRect.top === 0) {
+      const rects = endRange.getClientRects();
+      if (rects && rects.length > 0) endRect = rects[0];
+    }
+    
+    if (caretRect.top === 0 || endRect.top === 0) return true;
+    
+    // Get computed line height
+    const style = window.getComputedStyle(el);
+    const fontSize = parseFloat(style.fontSize) || 16;
+    const lineHeight = parseFloat(style.lineHeight) || (fontSize * 1.5);
+    
+    return (endRect.top - caretRect.top) < (lineHeight * 0.8);
+  } catch (e) {
+    return true;
+  }
 }

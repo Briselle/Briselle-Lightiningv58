@@ -2838,8 +2838,11 @@
   top: 12px !important;
 }
 
+.block-quote {
+  align-items: flex-start !important;
+}
 .block-quote > .block-controls {
-  top: 8px !important;
+  top: 3px !important;
 }
 
 .block-todo > .block-controls {

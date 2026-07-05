@@ -39,7 +39,11 @@ const BLOCK_MAP = {
 };
 
 const BlockRenderer = memo(function BlockRenderer({ block, blocksArray, blockIndex }) {
-  const { addBlock, deleteBlock, duplicateBlock, changeBlockType, moveBlock, showContextMenu, updateBlockProperty } = usePageContext();
+  const { 
+    addBlock, deleteBlock, duplicateBlock, changeBlockType, moveBlock, 
+    showContextMenu, updateBlockProperty, selectedBlockIds, setSelectedBlockIds,
+    selectionStartId, activeBlockId, flatVisibleBlocks
+  } = usePageContext();
   const blockRef = useRef(null);
   const Component = BLOCK_MAP[block.type] || TextBlock;
 
@@ -102,10 +106,68 @@ const BlockRenderer = memo(function BlockRenderer({ block, blocksArray, blockInd
     if (blockRef.current) blockRef.current.classList.remove('drag-over-top', 'drag-over-bottom');
   }, [block.id, moveBlock]);
 
+  const handleMouseDown = useCallback((e) => {
+    // If clicked on the highlighter padding/border area (which is the left 24px of .block-content or .block-content itself)
+    const blockContentEl = e.target.closest('.block-content');
+    if (blockContentEl && (block.type === 'quote' || block.highlightEnabled)) {
+      const rect = blockContentEl.getBoundingClientRect();
+      const isHighlighterClick = e.clientX >= rect.left && e.clientX <= rect.left + 24;
+      if (isHighlighterClick || e.target === blockContentEl) {
+        e.preventDefault();
+        e.stopPropagation();
+        showContextMenu(e.clientX, e.clientY, [], rect, 'block', block.id, 'color-artifacts');
+        return;
+      }
+    }
+
+    if (e.shiftKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      const startId = selectionStartId || activeBlockId || (selectedBlockIds && selectedBlockIds[0]);
+      if (startId) {
+        const all = flatVisibleBlocks();
+        const idxStart = all.findIndex(b => b.id === startId);
+        const idxEnd = all.findIndex(b => b.id === block.id);
+        if (idxStart !== -1 && idxEnd !== -1) {
+          const min = Math.min(idxStart, idxEnd);
+          const max = Math.max(idxStart, idxEnd);
+          const rangeIds = all.slice(min, max + 1).map(b => b.id);
+          setSelectedBlockIds(rangeIds);
+          window.getSelection()?.removeAllRanges();
+          if (document.activeElement) {
+            document.activeElement.blur();
+          }
+        }
+      }
+    }
+  }, [block.id, block.type, block.highlightEnabled, showContextMenu, selectionStartId, activeBlockId, selectedBlockIds, flatVisibleBlocks, setSelectedBlockIds]);
+
+  const handleBlockClick = useCallback((e) => {
+    if (e.shiftKey) return;
+    // Don't interfere with clicks on interactive elements
+    if (e.target.closest('[contenteditable], input, button, select, textarea, .block-controls, .toggle-icon, .toggle-empty-placeholder')) return;
+    // Find the nearest contenteditable within this specific block (not nested child blocks)
+    const el = blockRef.current?.querySelector(':scope > div > .block-content [contenteditable], :scope > div > [contenteditable]');
+    const fallbackEl = blockRef.current?.querySelector('[contenteditable]');
+    const target = el || fallbackEl;
+    if (target) {
+      e.stopPropagation();
+      target.focus();
+      const sel = window.getSelection();
+      const r = document.createRange();
+      r.selectNodeContents(target);
+      r.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(r);
+    }
+  }, []);
+
   const typeClass = `block-${block.type.replace(/_/g, '-')}`;
   const extraClasses = [];
   if ((block.type === 'toggle' || block.type.startsWith('toggle_heading')) && block.open) extraClasses.push('open');
   if (block.type === 'todo' && block.checked) extraClasses.push('checked');
+  if (selectedBlockIds && selectedBlockIds.includes(block.id)) extraClasses.push('is-selected');
+  if (block.highlightEnabled) extraClasses.push('block-highlighted');
 
   const blockStyle = {};
   if (block.fontFamily) {
@@ -134,6 +196,9 @@ const BlockRenderer = memo(function BlockRenderer({ block, blocksArray, blockInd
   if (block.backgroundColor) {
     blockStyle['--nn-bg-color-local'] = block.backgroundColor;
   }
+  if (block.quoteColor) {
+    blockStyle['--nn-quote-color-local'] = block.quoteColor;
+  }
 
   return (
     <div
@@ -144,6 +209,8 @@ const BlockRenderer = memo(function BlockRenderer({ block, blocksArray, blockInd
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
+      onMouseDown={handleMouseDown}
+      onClick={handleBlockClick}
     >
       <div className="block-controls">
         <div className="block-plus" onClick={handlePlusClick} title="Add block">+</div>
@@ -156,7 +223,23 @@ const BlockRenderer = memo(function BlockRenderer({ block, blocksArray, blockInd
           title="Drag or click for options"
         >⠿</div>
       </div>
-      <Component block={block} />
+      <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minWidth: 0 }}>
+        <Component block={block} />
+        {block.type !== 'toggle' && !block.type.startsWith('toggle_heading') && block.children && block.children.length > 0 && (
+          <div className="block-nested-children" style={{ paddingLeft: '24px', marginTop: '4px' }}>
+            <div className="blocks-container">
+              {block.children.map((child, idx) => (
+                <BlockRenderer
+                  key={child.id}
+                  block={child}
+                  blocksArray={block.children}
+                  blockIndex={idx}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 });

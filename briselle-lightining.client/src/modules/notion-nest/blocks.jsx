@@ -4,18 +4,52 @@
 import { useRef, useCallback, useEffect, useState, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePageContext } from './PageContext';
-import { NotionIconPicker, SVG_ICONS, renderIconSvg, hasPageIcon, renderPageIcon } from './menus';
+import { NotionIconPicker, NotionCoverPicker, LucideIcon, SVG_ICONS, renderIconSvg, hasPageIcon, renderPageIcon } from './menus';
 import UploadZone from './components/UploadZone';
-import { getCaretPosition, setCaretToEnd, getCaretCoordinates, findBlockContainer, flatVisibleBlocks as flatVis, markdownShortcuts, slashMenuSections } from './utils';
+import { getCaretPosition, setCaretToEnd, getCaretCoordinates, findBlockContainer, flatVisibleBlocks as flatVis, markdownShortcuts, slashMenuSections, isCaretOnFirstLine, isCaretOnLastLine } from './utils';
 import { useAuthStore } from '../../stores/authStore';
 import { listNotionPages, createNotionNestRecord, notionNestPagePath } from './notionPageStorage';
 
 /* ---- Shared: focus helper ---- */
-function focusBlock(blockId, atEnd = false) {
-  requestAnimationFrame(() => {
-    const el = document.querySelector(`[data-block-id="${blockId}"] [contenteditable]`);
-    if (el) { el.focus(); if (atEnd) setCaretToEnd(el); }
-  });
+function focusBlock(blockId, atEnd = false, direction = -1) {
+  let attempts = 0;
+  const focusTarget = () => {
+    let el = document.querySelector(`[data-block-id="${blockId}"] [contenteditable]`);
+    if (!el) {
+      if (attempts < 10) {
+        attempts++;
+        requestAnimationFrame(focusTarget);
+        return;
+      }
+      const blocksInDom = Array.from(document.querySelectorAll('.block'));
+      const targetBlockIdx = blocksInDom.findIndex(b => b.getAttribute('data-block-id') === blockId);
+      if (targetBlockIdx !== -1) {
+        let scanIdx = targetBlockIdx + direction;
+        while (scanIdx >= 0 && scanIdx < blocksInDom.length) {
+          const nextEl = blocksInDom[scanIdx].querySelector('[contenteditable]');
+          if (nextEl) {
+            el = nextEl;
+            break;
+          }
+          scanIdx += direction;
+        }
+      }
+    }
+    if (el) {
+      el.focus();
+      if (atEnd) {
+        setCaretToEnd(el);
+      } else {
+        const sel = window.getSelection();
+        const r = document.createRange();
+        r.selectNodeContents(el);
+        r.collapse(true); // Collapses to start
+        sel.removeAllRanges();
+        sel.addRange(r);
+      }
+    }
+  };
+  requestAnimationFrame(focusTarget);
 }
 
 /* ---- Shared: useEditable hook ---- */
@@ -82,6 +116,28 @@ function useEditable(block, opts = {}) {
       }
       return;
     }
+    if ((e.key === 'Backspace' || e.key === 'Delete') && ref.current) {
+      const selection = window.getSelection();
+      if (selection && !selection.isCollapsed) {
+        const anchorNode = selection.anchorNode;
+        const focusNode = selection.focusNode;
+        if (anchorNode && focusNode) {
+          const anchorBlock = anchorNode.nodeType === Node.ELEMENT_NODE ? anchorNode.closest('.block') : anchorNode.parentElement?.closest('.block');
+          const focusBlockEl = focusNode.nodeType === Node.ELEMENT_NODE ? focusNode.closest('.block') : focusNode.parentElement?.closest('.block');
+          
+          if (anchorBlock && focusBlockEl && anchorBlock !== focusBlockEl) {
+            e.preventDefault();
+            const id1 = anchorBlock.getAttribute('data-block-id');
+            const id2 = focusBlockEl.getAttribute('data-block-id');
+            if (id1 && id2) {
+              ctx.deleteAndMergeBlocks(id1, id2);
+              return;
+            }
+          }
+        }
+      }
+    }
+
     if (e.key === 'Delete' && ref.current) {
       const text = ref.current.textContent || '';
       if (text.trim().length === 0) {
@@ -103,8 +159,21 @@ function useEditable(block, opts = {}) {
       if (e.key === 'y') { e.preventDefault(); document.execCommand('redo'); return; }
       if (e.key === 'd') { e.preventDefault(); ctx.duplicateBlock(block.id); return; }
     }
+    
+    if (e.key === 'Tab' && !isCode) {
+      e.preventDefault();
+      const caretOffset = ref.current ? getCaretPosition(ref.current) : 0;
+      if (e.shiftKey) {
+        ctx.outdentBlock(block.id, caretOffset);
+      } else {
+        ctx.indentBlock(block.id, caretOffset);
+      }
+      return;
+    }
+    
     if (isCode && e.key === 'Tab') { e.preventDefault(); document.execCommand('insertText', false, '  '); return; }
-    if (e.key === 'Enter' && !e.shiftKey && !isCode) {
+    
+    if ((e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey && !isCode) {
       if (ref.current) {
         const text = ref.current.textContent.trim();
         if (text.startsWith('/')) {
@@ -124,49 +193,249 @@ function useEditable(block, opts = {}) {
             ctx.changeBlockType(block.id, matchedType);
             ctx.hideSlashMenu();
             requestAnimationFrame(() => {
-              if (ref.current) {
-                ref.current.textContent = '';
-                ref.current.innerHTML = '';
-                ref.current.focus();
+              const el = document.querySelector(`[data-block-id="${block.id}"] [contenteditable]`);
+              if (el) {
+                el.textContent = '';
+                el.innerHTML = '';
+                el.focus();
               }
             });
             return;
           }
         }
       }
-      e.preventDefault();
-      const nb = ctx.addBlock('paragraph', block.id);
-      if (nb) focusBlock(nb.id);
-      return;
-    }
-    if (e.key === 'Backspace' && ref.current) {
-      const text = ref.current.textContent.trim();
-      if (text.length === 0 && getCaretPosition(ref.current) === 0) {
-        const all = ctx.flatVisibleBlocks();
-        const idx = all.findIndex(b => b.id === block.id);
-        const prev = idx > 0 ? all[idx - 1] : null;
-        if (prev || idx > 0) { e.preventDefault(); ctx.deleteBlock(block.id); if (prev) focusBlock(prev.id, true); }
+      
+      if (e.key === 'Enter') {
+        const isQuoteOrCallout = ['quote', 'callout'].includes(block.type);
+        if (isQuoteOrCallout) {
+          const currentText = ref.current ? ref.current.textContent || '' : '';
+          if (currentText.trim().length === 0) {
+            e.preventDefault();
+            ctx.changeBlockType(block.id, 'paragraph');
+            return;
+          }
+
+          const html = ref.current ? ref.current.innerHTML || '' : '';
+          const trimmedHtml = html.trim();
+          const endsWithBr = 
+            trimmedHtml.endsWith('<div><br></div><div><br></div>') || 
+            trimmedHtml.endsWith('<p><br></p><p><br></p>') || 
+            trimmedHtml.endsWith('<br><br>') ||
+            trimmedHtml.endsWith('<br><br><br>');
+          
+          if (endsWithBr) {
+            e.preventDefault();
+            let cleanedHtml = trimmedHtml
+              .replace(/(?:<div><br><\/div>)+$/, '')
+              .replace(/(?:<p><br><\/p>)+$/, '')
+              .replace(/(?:<br\s*\/?>|&nbsp;)+$/, '');
+            ctx.updateBlockContent(block.id, cleanedHtml);
+            if (ref.current) ref.current.innerHTML = cleanedHtml;
+
+            const nb = ctx.addBlock('paragraph', block.id, '');
+            if (nb) focusBlock(nb.id);
+            return;
+          }
+          
+          // Let the browser handle line break natively
+          return;
+        }
+
+        const isListOrQuoteType = ['bulleted_list', 'numbered_list', 'todo', 'toggle'].includes(block.type);
+        const currentText = ref.current ? ref.current.textContent || '' : '';
+        
+        if (isListOrQuoteType && currentText.trim().length === 0) {
+          ctx.changeBlockType(block.id, 'paragraph');
+          return;
+        }
+
+        const selection = window.getSelection();
+        let contentBefore = '';
+        let contentAfter = '';
+        if (selection && selection.rangeCount > 0 && ref.current) {
+          const range = selection.getRangeAt(0);
+          
+          const preRange = range.cloneRange();
+          preRange.selectNodeContents(ref.current);
+          preRange.setEnd(range.startContainer, range.startOffset);
+          const divBefore = document.createElement('div');
+          divBefore.appendChild(preRange.cloneContents());
+          contentBefore = divBefore.innerHTML;
+          
+          const postRange = range.cloneRange();
+          postRange.selectNodeContents(ref.current);
+          postRange.setStart(range.endContainer, range.endOffset);
+          const divAfter = document.createElement('div');
+          divAfter.appendChild(postRange.cloneContents());
+          contentAfter = divAfter.innerHTML;
+          
+          ctx.updateBlockContent(block.id, contentBefore);
+          ref.current.innerHTML = contentBefore;
+        }
+        
+        const isToggleType = block.type === 'toggle' || block.type.startsWith('toggle_heading');
+        const afterText = contentAfter.replace(/<[^>]*>/g, '').trim();
+        const isAtEnd = afterText.length === 0;
+        
+        const forceChild = isToggleType && isAtEnd && block.open;
+        const nextType = isListOrQuoteType ? block.type : 'paragraph';
+        
+        const nb = ctx.addBlock(nextType, block.id, contentAfter, forceChild);
+        if (nb) focusBlock(nb.id);
         return;
       }
     }
-    if (e.key === 'ArrowUp' && ref.current && getCaretPosition(ref.current) === 0) {
+    
+    if (e.key === 'Backspace' && ref.current) {
+      const caretPos = getCaretPosition(ref.current);
+      const text = ref.current.textContent || '';
+      if (caretPos === 0) {
+        const isEmpty = text.trim().length === 0;
+        if (isEmpty) {
+          const all = ctx.flatVisibleBlocks();
+          const idx = all.findIndex(b => b.id === block.id);
+          const prev = idx > 0 ? all[idx - 1] : null;
+          if (prev) {
+            e.preventDefault();
+            ctx.deleteBlock(block.id);
+            focusBlock(prev.id, true, -1);
+          }
+          return;
+        }
+
+        const all = ctx.flatVisibleBlocks();
+        const idx = all.findIndex(b => b.id === block.id);
+        const prev = idx > 0 ? all[idx - 1] : null;
+        if (prev) {
+          e.preventDefault();
+          const prevEl = document.querySelector(`[data-block-id="${prev.id}"] [contenteditable]`);
+          if (prevEl) {
+            const prevContent = prevEl.innerHTML || '';
+            const currentContent = ref.current.innerHTML || '';
+            const mergedContent = prevContent + currentContent;
+            const prevTextLen = prevEl.textContent.length;
+            ctx.updateBlockContent(prev.id, mergedContent);
+            ctx.deleteBlock(block.id);
+            
+            let attempts = 0;
+            const focusMerge = () => {
+              const el = document.querySelector(`[data-block-id="${prev.id}"] [contenteditable]`);
+              if (el) {
+                if (el.innerHTML !== mergedContent) {
+                  el.innerHTML = mergedContent;
+                }
+                el.focus();
+                let charCount = 0;
+                let set = false;
+                function traverse(node) {
+                  if (node.nodeType === Node.TEXT_NODE) {
+                    const nextCount = charCount + node.length;
+                    if (prevTextLen >= charCount && prevTextLen <= nextCount) {
+                      const sel = window.getSelection();
+                      const r = document.createRange();
+                      r.setStart(node, prevTextLen - charCount);
+                      r.collapse(true);
+                      sel.removeAllRanges();
+                      sel.addRange(r);
+                      set = true;
+                      return true;
+                    }
+                    charCount = nextCount;
+                  } else {
+                    for (let i = 0; i < node.childNodes.length; i++) {
+                      if (traverse(node.childNodes[i])) return true;
+                    }
+                  }
+                  return false;
+                }
+                traverse(el);
+                if (!set) {
+                  const sel = window.getSelection();
+                  const r = document.createRange();
+                  r.selectNodeContents(el);
+                  r.collapse(false);
+                  sel.removeAllRanges();
+                  sel.addRange(r);
+                }
+              } else if (attempts < 10) {
+                attempts++;
+                requestAnimationFrame(focusMerge);
+              }
+            };
+            requestAnimationFrame(focusMerge);
+          }
+        }
+        return;
+      }
+    }
+    
+    if (e.shiftKey && (e.key === 'ArrowDown' || e.key === 'ArrowUp') && ref.current) {
+      const isAtEnd = getCaretPosition(ref.current) >= (ref.current.textContent || '').length;
+      const isAtStart = getCaretPosition(ref.current) === 0;
+      
+      if ((e.key === 'ArrowDown' && isAtEnd) || (e.key === 'ArrowUp' && isAtStart)) {
+        e.preventDefault();
+        window.getSelection().removeAllRanges();
+        ref.current.blur();
+        
+        const all = ctx.flatVisibleBlocks();
+        const idx = all.findIndex(b => b.id === block.id);
+        if (idx !== -1) {
+          let nextIds = [block.id];
+          if (e.key === 'ArrowDown' && idx < all.length - 1) {
+            nextIds.push(all[idx + 1].id);
+          } else if (e.key === 'ArrowUp' && idx > 0) {
+            nextIds.push(all[idx - 1].id);
+          }
+          ctx.setSelectedBlockIds(nextIds);
+          ctx.setSelectionStartId(block.id);
+        }
+        return;
+      }
+    }
+
+    if (e.key === 'ArrowUp' && !e.shiftKey && ref.current && isCaretOnFirstLine(ref.current)) {
       const all = ctx.flatVisibleBlocks();
       const idx = all.findIndex(b => b.id === block.id);
-      if (idx > 0) { e.preventDefault(); focusBlock(all[idx - 1].id, true); }
+      if (idx > 0) { e.preventDefault(); focusBlock(all[idx - 1].id, true, -1); }
     }
-    if (e.key === 'ArrowDown' && ref.current && getCaretPosition(ref.current) >= ref.current.textContent.length) {
+    if (e.key === 'ArrowDown' && !e.shiftKey && ref.current && isCaretOnLastLine(ref.current)) {
       const all = ctx.flatVisibleBlocks();
       const idx = all.findIndex(b => b.id === block.id);
-      if (idx < all.length - 1) { e.preventDefault(); focusBlock(all[idx + 1].id); }
+      if (idx < all.length - 1) { e.preventDefault(); focusBlock(all[idx + 1].id, false, 1); }
     }
-  }, [block.id, isCode]);
+    if (e.key === 'ArrowLeft' && !e.shiftKey && ref.current && getCaretPosition(ref.current) === 0) {
+      const all = ctx.flatVisibleBlocks();
+      const idx = all.findIndex(b => b.id === block.id);
+      if (idx > 0) { e.preventDefault(); focusBlock(all[idx - 1].id, true, -1); }
+    }
+    if (e.key === 'ArrowRight' && !e.shiftKey && ref.current && getCaretPosition(ref.current) >= ref.current.textContent.length) {
+      const all = ctx.flatVisibleBlocks();
+      const idx = all.findIndex(b => b.id === block.id);
+      if (idx < all.length - 1) { e.preventDefault(); focusBlock(all[idx + 1].id, false, 1); }
+    }
+  }, [block, isCode, ctx]);
 
   const handleFocus = useCallback(() => ctx.setActiveBlockId(block.id), [block.id]);
 
   useEffect(() => {
     if (!ref.current) return;
-    if (isCode) { if (ref.current.textContent !== (block.content || '')) ref.current.textContent = block.content || ''; }
-    else { if (ref.current.innerHTML !== (block.content || '')) ref.current.innerHTML = block.content || ''; }
+    if (isCode) {
+      if (ref.current.textContent !== (block.content || '')) {
+        ref.current.textContent = block.content || '';
+      }
+    } else {
+      const currentHTML = ref.current.innerHTML || '';
+      const targetHTML = block.content || '';
+      if (currentHTML !== targetHTML) {
+        // If both are functionally empty, do not overwrite to prevent selection loss
+        const isCurrentEmpty = currentHTML === '' || currentHTML === '<br>' || currentHTML === '<br/>';
+        const isTargetEmpty = targetHTML === '';
+        if (!(isCurrentEmpty && isTargetEmpty)) {
+          ref.current.innerHTML = targetHTML;
+        }
+      }
+    }
     ref.current.classList.toggle('is-empty', !(block.content && block.content.trim().length > 0));
   }, [block.id, block.content, isCode]);
 
@@ -220,31 +489,71 @@ export const TodoBlock = memo(function TodoBlock({ block }) {
 
 export const ToggleBlock = memo(function ToggleBlock({ block }) {
   const { ref, handleInput, handleKeyDown, handleFocus } = useEditable(block, { placeholder: 'Toggle' });
-  const { updateBlockProperty } = usePageContext();
+  const { updateBlockProperty, addBlock } = usePageContext();
   // Use dynamic import to avoid circular dep
   const [BR, setBR] = useState(null);
   useEffect(() => { import('./BlockRenderer').then(m => setBR(() => m.default)); }, []);
   const children = block.children || [];
   return (
     <>
-      <div className="block-content">
-        <span className="toggle-icon" onClick={() => updateBlockProperty(block.id, 'open', !block.open)}>▶</span>
+      <div className="block-content" onClick={() => ref.current?.focus()} style={{ cursor: 'text' }}>
+        <span 
+          className="toggle-icon" 
+          onClick={(e) => {
+            e.stopPropagation();
+            updateBlockProperty(block.id, 'open', !block.open);
+          }}
+          style={{ cursor: 'pointer', userSelect: 'none', marginRight: '4px' }}
+        >
+          ▶
+        </span>
         <div ref={ref} contentEditable suppressContentEditableWarning data-placeholder="Toggle"
           onInput={handleInput} onKeyDown={handleKeyDown} onFocus={handleFocus} style={{ flex: 1 }} />
       </div>
-      <div className="block-toggle-children">
-        <div className="blocks-container">
-          {BR && children.map((child, i) => <BR key={child.id} block={child} blocksArray={children} blockIndex={i} />)}
+      {block.open && (
+        <div className="block-toggle-children" style={{ paddingLeft: '24px' }}>
+          <div className="blocks-container">
+            {BR && children.map((child, i) => <BR key={child.id} block={child} blocksArray={children} blockIndex={i} />)}
+            {children.length === 0 && (
+              <div 
+                className="toggle-empty-placeholder" 
+                style={{ 
+                  color: '#aaa', 
+                  fontSize: '0.9em', 
+                  padding: '4px 8px', 
+                  cursor: 'pointer',
+                  userSelect: 'none'
+                }}
+                onClick={() => {
+                  const nb = addBlock('paragraph', block.id);
+                  if (nb) focusBlock(nb.id);
+                }}
+              >
+                + Empty toggle. Click to add a block inside
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </>
   );
 });
 
 export const QuoteBlock = memo(function QuoteBlock({ block }) {
   const { ref, handleInput, handleKeyDown, handleFocus } = useEditable(block, { placeholder: 'Quote' });
+  const { showContextMenu } = usePageContext();
+
+  const handleMouseDown = (e) => {
+    if (e.target === e.currentTarget) {
+      e.preventDefault();
+      e.stopPropagation();
+      const rect = e.currentTarget.getBoundingClientRect();
+      showContextMenu(e.clientX, e.clientY, [], rect, 'block', block.id, 'color');
+    }
+  };
+
   return (
-    <div className="block-content">
+    <div className="block-content" onMouseDown={handleMouseDown}>
       <div ref={ref} contentEditable suppressContentEditableWarning data-placeholder="Quote"
         onInput={handleInput} onKeyDown={handleKeyDown} onFocus={handleFocus} />
     </div>
@@ -253,25 +562,45 @@ export const QuoteBlock = memo(function QuoteBlock({ block }) {
 
 export const CalloutBlock = memo(function CalloutBlock({ block }) {
   const { ref, handleInput, handleKeyDown, handleFocus } = useEditable(block, { placeholder: 'Callout' });
-  const { updateBlockProperty } = usePageContext();
-  const [showPicker, setShowPicker] = useState(false);
+  const { updateBlockProperty, activeMediaPickerId, setActiveMediaPickerId } = usePageContext();
   const [pickerPos, setPickerPos] = useState({ x: 0, y: 30 });
   const iconSpanRef = useRef(null);
   
   const icon = block.calloutIcon || '💡';
+  const showPicker = activeMediaPickerId === `callout-${block.id}`;
+  const setShowPicker = (val) => {
+    setActiveMediaPickerId(val ? `callout-${block.id}` : null);
+  };
 
   const handleIconClick = (e) => {
-    const el = e.currentTarget;
-    if (el) {
-      const rect = el.getBoundingClientRect();
-      setPickerPos({ x: Math.max(8, rect.left), y: rect.bottom + 6 });
-    }
+    e.preventDefault();
+    e.stopPropagation();
     setShowPicker(!showPicker);
   };
 
+  useEffect(() => {
+    if (!showPicker) return;
+    const updatePosition = () => {
+      if (iconSpanRef.current) {
+        const rect = iconSpanRef.current.getBoundingClientRect();
+        const leftVal = Math.min(rect.left, window.innerWidth - 360);
+        const finalLeft = Math.max(10, leftVal);
+        const finalTop = rect.bottom + 6;
+        setPickerPos({ x: finalLeft, y: finalTop });
+      }
+    };
+    updatePosition();
+    window.addEventListener('scroll', updatePosition, true);
+    window.addEventListener('resize', updatePosition);
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true);
+      window.removeEventListener('resize', updatePosition);
+    };
+  }, [showPicker]);
+
   return (
     <div className="block-content" style={{ position: 'relative' }}>
-      <span className="block-callout-icon" ref={iconSpanRef} onClick={handleIconClick}>
+      <span className="block-callout-icon" ref={iconSpanRef} onMouseDown={handleIconClick} style={{ cursor: 'pointer' }}>
         {renderPageIcon(icon, '20px') || '💡'}
       </span>
       <div ref={ref} contentEditable suppressContentEditableWarning data-placeholder="Callout"
@@ -313,140 +642,140 @@ export const CodeBlock = memo(function CodeBlock({ block }) {
   );
 });
 
-const UNSPLASH_PRESETS_MINI = [
-  { name: 'Forest', url: 'https://images.unsplash.com/photo-1447752875215-b2761acb3c5d?q=80&w=800' },
-  { name: 'Mountain', url: 'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?q=80&w=800' },
-  { name: 'Ocean', url: 'https://images.unsplash.com/photo-1507525428034-b723cf961d3e?q=80&w=800' },
-  { name: 'Space', url: 'https://images.unsplash.com/photo-1506318137071-a8e063b4bec0?q=80&w=800' },
-  { name: 'Minimal', url: 'https://images.unsplash.com/photo-1550684848-fac1c5b4e853?q=80&w=800' },
-  { name: 'Abstract', url: 'https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?q=80&w=800' }
-];
+function MediaBlockPicker({ blockId, blockType, onSelect }) {
+  const { activeMediaPickerId, setActiveMediaPickerId } = usePageContext();
+  const [coords, setCoords] = useState({ left: 0, top: 46 });
+  const wrapperRef = useRef(null);
 
-function MediaBlockPicker({ blockType, onSelect }) {
-  const [tab, setTab] = useState('upload');
-  const [unsplashQuery, setUnsplashQuery] = useState('');
-  const [unsplashResults, setUnsplashResults] = useState([]);
-  const [searchTriggered, setSearchTriggered] = useState(false);
-
-  const handleUnsplashSearch = (e) => {
-    if (e) e.preventDefault();
-    if (unsplashQuery.trim()) {
-      const q = unsplashQuery.trim().toLowerCase();
-      const results = Array.from({ length: 6 }).map((_, i) => ({
-        name: `${q.charAt(0).toUpperCase() + q.slice(1)} ${i + 1}`,
-        url: `https://images.unsplash.com/featured/800x600/?${encodeURIComponent(q)}&sig=${i + 1}`
-      }));
-      setUnsplashResults(results);
-      setSearchTriggered(true);
-    } else {
-      setSearchTriggered(false);
-      setUnsplashResults([]);
-    }
+  const showPicker = activeMediaPickerId === blockId;
+  const setShowPicker = (val) => {
+    setActiveMediaPickerId(val ? blockId : null);
   };
+
+  useEffect(() => {
+    if (!showPicker) return;
+    const updatePosition = () => {
+      if (wrapperRef.current) {
+        const rect = wrapperRef.current.getBoundingClientRect();
+        const leftVal = Math.min(rect.left, window.innerWidth - 420);
+        const finalLeft = Math.max(10, leftVal);
+        const finalTop = rect.bottom + 6;
+        setCoords({ left: finalLeft, top: finalTop });
+      }
+    };
+    updatePosition();
+    window.addEventListener('scroll', updatePosition, true);
+    window.addEventListener('resize', updatePosition);
+    return () => {
+      window.removeEventListener('scroll', updatePosition, true);
+      window.removeEventListener('resize', updatePosition);
+    };
+  }, [showPicker]);
 
   const getIcon = () => {
     switch (blockType) {
-      case 'image': return '🖼';
-      case 'video': return '🎬';
-      case 'audio': return '🎵';
-      default: return '📎';
+      case 'image': return <LucideIcon name="Image" className="w-5 h-5 text-gray-500" />;
+      case 'video': return <LucideIcon name="Video" className="w-5 h-5 text-gray-500" />;
+      case 'audio': return <LucideIcon name="Music" className="w-5 h-5 text-gray-500" />;
+      default: return <LucideIcon name="Paperclip" className="w-5 h-5 text-gray-500" />;
     }
   };
 
-  const getPlaceholderText = () => {
+  const getLabel = () => {
     switch (blockType) {
-      case 'image': return 'Drop image file here';
-      case 'video': return 'Drop video file here';
-      case 'audio': return 'Drop audio file here';
-      default: return 'Drop file here';
-    }
-  };
-
-  const getSubtext = () => {
-    switch (blockType) {
-      case 'image': return 'or click to select an image';
-      case 'video': return 'or click to select a video';
-      case 'audio': return 'or click to select an audio file';
-      default: return 'or click to select a file';
+      case 'image': return 'Add an image';
+      case 'video': return 'Add a video';
+      case 'audio': return 'Add music / audio';
+      default: return 'Add a file';
     }
   };
 
   return (
-    <div className="nn-media-picker" onClick={e => e.stopPropagation()}>
-      <div className="nmp-header">
-        <span className="nmp-icon">{getIcon()}</span>
-        <span className="nmp-title">Add {blockType.charAt(0).toUpperCase() + blockType.slice(1)}</span>
-      </div>
-      
-      <div className="nip-tabs" style={{ borderBottom: '1px solid #F3F4F6', marginBottom: '12px' }}>
-        <button className={`nip-tab${tab === 'upload' ? ' active' : ''}`} onClick={() => setTab('upload')}>Upload</button>
-        <button className={`nip-tab${tab === 'link' ? ' active' : ''}`} onClick={() => setTab('link')}>Embed Link</button>
-        {blockType === 'image' && (
-          <button className={`nip-tab${tab === 'unsplash' ? ' active' : ''}`} onClick={() => setTab('unsplash')}>Unsplash</button>
-        )}
+    <div className="media-block-placeholder-wrapper" ref={wrapperRef} style={{ position: 'relative', width: '100%' }} onMouseDown={e => e.stopPropagation()}>
+      <div 
+        className="media-placeholder-card" 
+        onClick={() => setShowPicker(!showPicker)}
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: '12px',
+          padding: '12px 16px',
+          background: '#f4f6f9',
+          border: '1px dashed #dddbda',
+          borderRadius: '6px',
+          cursor: 'pointer',
+          color: '#4f5052',
+          transition: 'all 0.2s ease',
+          fontSize: '14px',
+          fontWeight: '500'
+        }}
+        onMouseOver={e => {
+          e.currentTarget.style.background = '#eef1f6';
+          e.currentTarget.style.borderColor = '#0176d3';
+          e.currentTarget.style.color = '#0176d3';
+        }}
+        onMouseOut={e => {
+          e.currentTarget.style.background = '#f4f6f9';
+          e.currentTarget.style.borderColor = '#dddbda';
+          e.currentTarget.style.color = '#4f5052';
+        }}
+      >
+        <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{getIcon()}</span>
+        <span>{getLabel()}</span>
       </div>
 
-      <div className="nmp-body">
-        {tab === 'upload' && (
-          <div style={{ padding: '8px 0' }}>
-            <UploadZone
-              onSelect={(url, fileName) => onSelect(url, fileName)}
-              accept={blockType === 'image' ? 'image/*' : blockType === 'video' ? 'video/*' : blockType === 'audio' ? 'audio/*' : '*'}
-              placeholderText={getPlaceholderText()}
-              subtext={getSubtext()}
-              allowLink={false}
-            />
-          </div>
-        )}
-        {tab === 'link' && (
-          <div style={{ padding: '8px 0' }}>
-            <UploadZone
-              onSelect={(url) => onSelect(url)}
-              onlyLink={true}
-            />
-          </div>
-        )}
-        {tab === 'unsplash' && blockType === 'image' && (
-          <div className="ncp-unsplash-container">
-            <form onSubmit={handleUnsplashSearch} className="ncp-unsplash-search">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></svg>
-              <input
-                type="text"
-                placeholder="Search Unsplash..."
-                value={unsplashQuery}
-                onChange={e => setUnsplashQuery(e.target.value)}
-              />
-              <button type="submit">Search</button>
-            </form>
-            
-            <div className="ncp-gallery-scroll" style={{ maxHeight: '180px' }}>
-              <div className="ncp-grid">
-                {(searchTriggered ? unsplashResults : UNSPLASH_PRESETS_MINI).map(p => (
-                  <div key={p.url} className="ncp-thumb" style={{ backgroundImage: `url(${p.url})` }} onClick={() => onSelect(p.url)}>
-                    <div className="ncp-thumb-overlay">{p.name}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+      {showPicker && (
+        <NotionCoverPicker
+          position={{ x: coords.left, y: coords.top }}
+          onSelect={(url, name) => {
+            onSelect(url, name);
+            setShowPicker(false);
+          }}
+          onClose={() => setShowPicker(false)}
+          blockType={blockType}
+        />
+      )}
     </div>
   );
 }
 
 export const ImageBlock = memo(function ImageBlock({ block }) {
   const { updateBlockProperty } = usePageContext();
+  const [hovered, setHovered] = useState(false);
   return (
-    <div className="block-content">
+    <div 
+      className="block-content" 
+      style={{ position: 'relative' }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       {block.url ? (
-        <>
-          <img src={block.url} alt="" />
+        <div style={{ position: 'relative', display: 'inline-block', maxWidth: '100%' }}>
+          {hovered && (
+            <div style={{ position: 'absolute', top: '8px', right: '8px', zIndex: 10 }}>
+              <button 
+                onClick={() => updateBlockProperty(block.id, 'url', '')}
+                style={{
+                  background: 'rgba(255,255,255,0.95)',
+                  border: '1px solid #d8dde6',
+                  borderRadius: '4px',
+                  padding: '4px 8px',
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  cursor: 'pointer',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                }}
+              >
+                Change / Remove
+              </button>
+            </div>
+          )}
+          <img src={block.url} alt="" style={{ maxWidth: '100%', borderRadius: '4px' }} />
           <div className="image-caption" contentEditable suppressContentEditableWarning
             data-placeholder="Add a caption" onBlur={e => updateBlockProperty(block.id, 'caption', e.target.textContent)}>{block.caption || ''}</div>
-        </>
+        </div>
       ) : (
-        <MediaBlockPicker blockType="image" onSelect={(url) => updateBlockProperty(block.id, 'url', url)} />
+        <MediaBlockPicker blockId={block.id} blockType="image" onSelect={(url) => updateBlockProperty(block.id, 'url', url)} />
       )}
     </div>
   );
@@ -472,38 +801,402 @@ export const BookmarkBlock = memo(function BookmarkBlock({ block }) {
 });
 
 export const TableBlock = memo(function TableBlock({ block }) {
-  const { updateBlockProperty } = usePageContext();
-  const rows = block.rows || [['','',''],['','','']];
+  const { updateBlockProperty, showContextMenu, contextMenu, getBlockById } = usePageContext();
+  const rows      = block.rows      || [['','',''],['','',''],['','','']];
+  const lockCols  = block.lockCols  || false;
+  const lockTable = block.lockTable || false;
+
+  const [selCells, setSelCells] = useState(new Set());
+  const [selStart, setSelStart] = useState(null);
+  const [cellDrag, setCellDrag] = useState(false);
+  const [hoveredRow, setHoveredRow] = useState(null);
+  const [hoveredCol, setHoveredCol] = useState(null);
+
+  const wrapRef  = useRef(null);
+  const tableRef = useRef(null);
+
+  const colCount = rows[0]?.length || 0;
+
+  const updCell  = (ri, ci, val) => { if (lockTable) return; const nr=rows.map(r=>[...r]); nr[ri][ci]=val; updateBlockProperty(block.id,'rows',nr); };
+  const addRow   = () => { if (lockTable) return; updateBlockProperty(block.id,'rows',[...rows.map(r=>[...r]),new Array(colCount).fill('')]); };
+  const addCol   = () => { if (lockTable||lockCols) return; updateBlockProperty(block.id,'rows',rows.map(r=>[...r,''])); };
+  const insRowAt = (ri,dir) => { if (lockTable) return; const nr=[...rows]; nr.splice(dir==='below'?ri+1:ri,0,new Array(colCount).fill('')); updateBlockProperty(block.id,'rows',nr); };
+  const insColAt = (ci,dir) => { if (lockTable||lockCols) return; const nr=rows.map(r=>{const c=[...r];c.splice(dir==='right'?ci+1:ci,0,'');return c;}); updateBlockProperty(block.id,'rows',nr); };
+  const delRow   = (ri) => { if (lockTable||rows.length<=1) return; updateBlockProperty(block.id,'rows',rows.filter((_,i)=>i!==ri)); };
+  const delCol   = (ci) => { if (lockTable||colCount<=1)   return; updateBlockProperty(block.id,'rows',rows.map(r=>r.filter((_,i)=>i!==ci))); };
+  const clearRow = (ri) => { if (lockTable) return; const nr=rows.map((r,i)=>i===ri?r.map(()=>''):[...r]); updateBlockProperty(block.id,'rows',nr); };
+  const clearCol = (ci) => { if (lockTable) return; const nr=rows.map(r=>{const c=[...r];c[ci]='';return c;}); updateBlockProperty(block.id,'rows',nr); };
+  const dupCol   = (ci) => { if (lockTable) return; const nr=rows.map(r=>{const c=[...r];c.splice(ci+1,0,c[ci]);return c;}); updateBlockProperty(block.id,'rows',nr); };
+
+  const hasHeader   = block.hasHeader === true;
+  const hasTotalRow = block.hasTotalRow === true;
+  const colBorders  = block.colBorders !== false;
+  const rowBorders  = block.rowBorders !== false;
+  const striped     = block.striped === true;
+
+  const openCellMenu = (e, ri, ci) => {
+    e.preventDefault(); e.stopPropagation();
+    const items = [
+      { label:'Color',           action:()=>{} },
+      { divider:true },
+      { label:'Enable Header Row', action: () => { const b = getBlockById(block.id); updateBlockProperty(block.id, 'hasHeader', !(b?.hasHeader === true)); }, isToggle: true, checked: hasHeader },
+      { label:'Enable Total Row', action: () => { const b = getBlockById(block.id); updateBlockProperty(block.id, 'hasTotalRow', !(b?.hasTotalRow === true)); }, isToggle: true, checked: hasTotalRow },
+      { label:'Enable Row Borders', action: () => { const b = getBlockById(block.id); updateBlockProperty(block.id, 'rowBorders', !(b?.rowBorders !== false)); }, isToggle: true, checked: rowBorders },
+      { label:'Enable Column Borders', action: () => { const b = getBlockById(block.id); updateBlockProperty(block.id, 'colBorders', !(b?.colBorders !== false)); }, isToggle: true, checked: colBorders },
+      { label:'Enable Stripe Rows', action: () => { const b = getBlockById(block.id); updateBlockProperty(block.id, 'striped', !(b?.striped === true)); }, isToggle: true, checked: striped },
+      { divider:true },
+      { label:'Insert above',    action:()=>insRowAt(ri,'above'), disabled:lockTable },
+      { label:'Insert below',    action:()=>insRowAt(ri,'below'), disabled:lockTable },
+      { label:'Insert left',     action:()=>insColAt(ci,'left'),  disabled:lockTable||lockCols },
+      { label:'Insert right',    action:()=>insColAt(ci,'right'), disabled:lockTable||lockCols },
+      { divider:true },
+      { label:'Duplicate',       action:()=>dupCol(ci), shortcut:'Ctrl+D', disabled:lockTable||lockCols },
+      { label:'Clear contents',  action:()=>{clearRow(ri);clearCol(ci);}, disabled:lockTable },
+      { label:'Delete',          action:()=>delRow(ri), danger:true, disabled:lockTable||rows.length<=1 },
+    ];
+    showContextMenu(e.clientX, e.clientY, items, { ri, ci, selCells }, 'table-cell', block.id);
+  };
+
+  const openRowMenu = (e, ri) => {
+    e.preventDefault(); e.stopPropagation();
+    const s = new Set();
+    rows[ri]?.forEach((_, ci) => s.add(`${ri},${ci}`));
+    setSelCells(s);
+
+    const items = [
+      { label:'Color',          action:()=>{} },
+      { divider:true },
+      { label:'Enable Header Row', action: () => { const b = getBlockById(block.id); updateBlockProperty(block.id, 'hasHeader', !(b?.hasHeader === true)); }, isToggle: true, checked: hasHeader },
+      { label:'Enable Total Row', action: () => { const b = getBlockById(block.id); updateBlockProperty(block.id, 'hasTotalRow', !(b?.hasTotalRow === true)); }, isToggle: true, checked: hasTotalRow },
+      { label:'Enable Row Borders', action: () => { const b = getBlockById(block.id); updateBlockProperty(block.id, 'rowBorders', !(b?.rowBorders !== false)); }, isToggle: true, checked: rowBorders },
+      { label:'Enable Column Borders', action: () => { const b = getBlockById(block.id); updateBlockProperty(block.id, 'colBorders', !(b?.colBorders !== false)); }, isToggle: true, checked: colBorders },
+      { label:'Enable Stripe Rows', action: () => { const b = getBlockById(block.id); updateBlockProperty(block.id, 'striped', !(b?.striped === true)); }, isToggle: true, checked: striped },
+      { divider:true },
+      { label:'Insert above',   action:()=>insRowAt(ri,'above'), disabled:lockTable },
+      { label:'Insert below',   action:()=>insRowAt(ri,'below'), disabled:lockTable },
+      { divider:true },
+      { label:'Duplicate',      action:()=>{ const nr=[...rows.map(r=>[...r])]; nr.splice(ri+1,0,[...rows[ri]]); updateBlockProperty(block.id,'rows',nr); }, shortcut:'Ctrl+D', disabled:lockTable },
+      { label:'Clear contents', action:()=>clearRow(ri), disabled:lockTable },
+      { label:'Delete',         action:()=>delRow(ri), danger:true, disabled:lockTable||rows.length<=1 },
+    ];
+    showContextMenu(e.clientX, e.clientY, items, { ri, selCells: s }, 'table-row', block.id);
+  };
+
+  const openColMenu = (e, ci) => {
+    e.preventDefault(); e.stopPropagation();
+    const s = new Set();
+    rows.forEach((_, ri) => s.add(`${ri},${ci}`));
+    setSelCells(s);
+
+    const items = [
+      { label:'Color',          action:()=>{} },
+      { divider:true },
+      { label:'Enable Header Row', action: () => { const b = getBlockById(block.id); updateBlockProperty(block.id, 'hasHeader', !(b?.hasHeader === true)); }, isToggle: true, checked: hasHeader },
+      { label:'Enable Total Row', action: () => { const b = getBlockById(block.id); updateBlockProperty(block.id, 'hasTotalRow', !(b?.hasTotalRow === true)); }, isToggle: true, checked: hasTotalRow },
+      { label:'Enable Row Borders', action: () => { const b = getBlockById(block.id); updateBlockProperty(block.id, 'rowBorders', !(b?.rowBorders !== false)); }, isToggle: true, checked: rowBorders },
+      { label:'Enable Column Borders', action: () => { const b = getBlockById(block.id); updateBlockProperty(block.id, 'colBorders', !(b?.colBorders !== false)); }, isToggle: true, checked: colBorders },
+      { label:'Enable Stripe Rows', action: () => { const b = getBlockById(block.id); updateBlockProperty(block.id, 'striped', !(b?.striped === true)); }, isToggle: true, checked: striped },
+      { divider:true },
+      { label:'Insert left',    action:()=>insColAt(ci,'left'),  disabled:lockTable||lockCols },
+      { label:'Insert right',   action:()=>insColAt(ci,'right'), disabled:lockTable||lockCols },
+      { divider:true },
+      { label:'Duplicate',      action:()=>dupCol(ci), shortcut:'Ctrl+D', disabled:lockTable||lockCols },
+      { label:'Clear contents', action:()=>clearCol(ci), disabled:lockTable },
+      { label:'Delete',         action:()=>delCol(ci), danger:true, disabled:lockTable||colCount<=1 },
+    ];
+    showContextMenu(e.clientX, e.clientY, items, { ci, selCells: s }, 'table-col', block.id);
+  };
+
+  const onCellDown = (e, ri, ci) => {
+    if (e.button !== 0) return;
+    const key = `${ri},${ci}`;
+    if (e.shiftKey && selStart) {
+      const [sr,sc] = selStart.split(',').map(Number);
+      const s = new Set();
+      for (let r=Math.min(sr,ri);r<=Math.max(sr,ri);r++) for (let c=Math.min(sc,ci);c<=Math.max(sc,ci);c++) s.add(`${r},${c}`);
+      setSelCells(s);
+    } else { setSelCells(new Set([key])); setSelStart(key); }
+    setCellDrag(true);
+  };
+
+  const onCellEnter = (ri, ci) => {
+    if (!cellDrag || !selStart) return;
+    const [sr,sc] = selStart.split(',').map(Number);
+    const s = new Set();
+    for (let r=Math.min(sr,ri);r<=Math.max(sr,ri);r++) for (let c=Math.min(sc,ci);c<=Math.max(sc,ci);c++) s.add(`${r},${c}`);
+    setSelCells(s);
+  };
+
+  useEffect(() => { const up=()=>setCellDrag(false); window.addEventListener('mouseup',up); return ()=>window.removeEventListener('mouseup',up); }, []);
+  useEffect(() => { const d=(e)=>{if(!wrapRef.current?.contains(e.target)){setSelCells(new Set());setSelStart(null);}}; document.addEventListener('mousedown',d,true); return ()=>document.removeEventListener('mousedown',d,true); }, []);
+
+  const tableCls   = ['nn-table',!colBorders&&'nn-no-col-borders',!rowBorders&&'nn-no-row-borders',striped&&'nn-striped'].filter(Boolean).join(' ');
+
+  const renderCell = (cellVal, ri, ci, isHead, isTotal = false) => {
+    const Tag   = isHead ? 'th' : 'td';
+    const isSel = selCells.has(`${ri},${ci}`);
+
+    const colorInfo = block.cellColors?.[`${ri},${ci}`] || {};
+    const cellStyle = {};
+    if (colorInfo.textColor) {
+      cellStyle.color = colorInfo.textColor;
+    }
+    if (colorInfo.backgroundColor) {
+      cellStyle.backgroundColor = colorInfo.backgroundColor;
+    }
+
+    const isColHovered = hoveredCol === ci;
+    const isRowHovered = hoveredRow === ri;
+    const isColActive = contextMenu.open && contextMenu.blockId === block.id && contextMenu.type === 'table-col' && contextMenu.triggerRect?.ci === ci;
+    const isRowActive = contextMenu.open && contextMenu.blockId === block.id && contextMenu.type === 'table-row' && contextMenu.triggerRect?.ri === ri;
+
+    return (
+      <Tag key={ci}
+        className={[
+          'nn-tc',
+          isSel && 'nn-tc-sel',
+          isHead && 'nn-tc-head',
+          isTotal && 'nn-tc-total',
+          isColActive && 'nn-cell-active-col',
+          isRowActive && 'nn-cell-active-row'
+        ].filter(Boolean).join(' ')}
+        style={{ ...cellStyle, position: 'relative' }}
+        onMouseDown={e=>onCellDown(e,ri,ci)}
+        onMouseEnter={() => {
+          onCellEnter(ri,ci);
+          setHoveredRow(ri);
+          setHoveredCol(ci);
+        }}
+        onMouseLeave={() => {
+          setHoveredRow(null);
+          setHoveredCol(null);
+        }}
+        onContextMenu={e=>openCellMenu(e,ri,ci)}
+        contentEditable={!lockTable}
+        suppressContentEditableWarning
+        onBlur={e=>updCell(ri,ci,e.target.textContent)}
+        onFocus={() => {
+          setSelCells(new Set([`${ri},${ci}`]));
+          setSelStart(`${ri},${ci}`);
+        }}
+      >
+        <span 
+          style={{ display: 'inline-block', width: '100%', minHeight: '1.2em', outline: 'none', color: colorInfo.textColor }}
+          dangerouslySetInnerHTML={{__html:cellVal}}
+        />
+        {/* Absolute column handle at the top-center of row 0 cell headers */}
+        {ri === 0 && (
+          <div 
+            className={['nn-table-col-handle-wrap', (isColHovered || isColActive) && 'visible', isColActive && 'active'].filter(Boolean).join(' ')}
+            contentEditable={false}
+            suppressContentEditableWarning
+            onMouseEnter={() => setHoveredCol(ci)}
+            onMouseLeave={() => setHoveredCol(null)}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); openColMenu(e, ci); }}
+            onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); openColMenu(e, ci); }}
+          >
+            <div className="nn-table-col-handle-line" />
+            <div className="nn-table-col-handle-dots">
+              <span className="nn-bh-dots">
+                {[0,1,2,3,4,5].map(i=><span key={i} className="nn-bh-dot"/>)}
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Absolute row handle at the left-center of column 0 first cells */}
+        {ci === 0 && (
+          <div 
+            className={['nn-table-row-handle-wrap', (isRowHovered || isRowActive) && 'visible', isRowActive && 'active'].filter(Boolean).join(' ')}
+            contentEditable={false}
+            suppressContentEditableWarning
+            onMouseEnter={() => setHoveredRow(ri)}
+            onMouseLeave={() => setHoveredRow(null)}
+            onClick={(e) => { e.preventDefault(); e.stopPropagation(); openRowMenu(e, ri); }}
+            onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); openRowMenu(e, ri); }}
+          >
+            <div className="nn-table-row-handle-line" />
+            <div className="nn-table-row-handle-dots">
+              <span className="nn-bh-dots nn-vertical">
+                {[0,1,2,3,4,5].map(i=><span key={i} className="nn-bh-dot"/>)}
+              </span>
+            </div>
+          </div>
+        )}
+      </Tag>
+    );
+  };
+
+  const bodyRows = hasHeader ? rows.slice(1) : rows;
+  const headRow  = hasHeader ? rows[0] : null;
+
+  const hasTotal = hasTotalRow && (hasHeader ? rows.length > 2 : rows.length > 1);
+  const totalRow = hasTotal ? bodyRows[bodyRows.length - 1] : null;
+  const mainBodyRows = hasTotal ? bodyRows.slice(0, -1) : bodyRows;
+
   return (
     <div className="block-content">
-      <table>
-        <thead><tr>{rows[0]?.map((c, ci) => <th key={ci} contentEditable suppressContentEditableWarning onBlur={e => { const nr = rows.map(r => [...r]); nr[0][ci] = e.target.textContent; updateBlockProperty(block.id, 'rows', nr); }}>{c}</th>)}</tr></thead>
-        <tbody>{rows.slice(1).map((row, ri) => <tr key={ri+1}>{row.map((c, ci) => <td key={ci} contentEditable suppressContentEditableWarning onBlur={e => { const nr = rows.map(r => [...r]); nr[ri+1][ci] = e.target.textContent; updateBlockProperty(block.id, 'rows', nr); }}>{c}</td>)}</tr>)}</tbody>
-      </table>
-      <div className="table-controls">
-        <button onClick={() => updateBlockProperty(block.id, 'rows', [...rows.map(r => [...r]), new Array(rows[0].length).fill('')])}>+ Row</button>
-        <button onClick={() => updateBlockProperty(block.id, 'rows', rows.map(r => [...r, '']))}>+ Column</button>
+      <div className="nn-table-wrap" ref={wrapRef}>
+        <div style={{ display: 'flex', width: '100%', position: 'relative' }}>
+          <table className={tableCls} ref={tableRef} style={{ flex: 1 }}>
+            {headRow && (
+              <thead>
+                <tr>{headRow.map((c,ci)=>renderCell(c,0,ci,true))}</tr>
+              </thead>
+            )}
+            <tbody>
+              {mainBodyRows.map((row,relRi)=>{
+                const ri = hasHeader ? relRi+1 : relRi;
+                return (<tr key={ri}>{row.map((c,ci)=>renderCell(c,ri,ci,false))}</tr>);
+              })}
+            </tbody>
+            {totalRow && (
+              <tfoot>
+                <tr className="nn-tr-total">
+                  {totalRow.map((c,ci)=>renderCell(c,rows.length-1,ci,false,true))}
+                </tr>
+              </tfoot>
+            )}
+          </table>
+
+          {/* Add Column Button (Right) */}
+          {!lockTable && !lockCols && (
+            <div 
+              className="nn-table-add-col-trigger" 
+              onClick={addCol}
+              data-tooltip="Add column"
+              contentEditable={false}
+              suppressContentEditableWarning
+            >
+              <LucideIcon name="Plus" size={14} className="nn-table-add-icon" />
+            </div>
+          )}
+        </div>
+
+        {/* Add Row Button (Bottom) */}
+        {!lockTable && (
+          <div 
+            className="nn-table-add-row-trigger" 
+            onClick={addRow}
+            data-tooltip="Add row"
+            contentEditable={false}
+            suppressContentEditableWarning
+          >
+            <LucideIcon name="Plus" size={14} className="nn-table-add-icon" />
+          </div>
+        )}
       </div>
     </div>
   );
 });
 
 export const ColumnsBlock = memo(function ColumnsBlock({ block }) {
+  const { updateBlockProperty, insertColumn, deleteColumn, showContextMenu, addBlock } = usePageContext();
   const [BR, setBR] = useState(null);
+  const [resizing, setResizing] = useState(null); // { colIdx, startX, startWidths }
+  const wrapRef = useRef(null);
+
   useEffect(() => { import('./BlockRenderer').then(m => setBR(() => m.default)); }, []);
+
   const columns = block.columns || [];
+  // colWidths: array of flex-grow values (default 1 per col)
+  const rawWidths = block.colWidths || columns.map(() => 1);
+  const colWidths = rawWidths.length === columns.length ? rawWidths : columns.map(() => 1);
+
+  // ---- drag resize divider ----
+  const startResize = (e, idx) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidths = [...colWidths];
+    const total = startWidths.reduce((a,b)=>a+b,0);
+    setResizing({ idx, startX, startWidths, total });
+  };
+
+  useEffect(() => {
+    if (!resizing) return;
+    const onMove = (e) => {
+      if (!wrapRef.current) return;
+      const wrapW = wrapRef.current.getBoundingClientRect().width;
+      const dx = e.clientX - resizing.startX;
+      const ratio = dx / wrapW;
+      const totalFlex = resizing.total;
+      const delta = ratio * totalFlex;
+      const newWidths = [...resizing.startWidths];
+      const leftMin  = totalFlex * 0.1;
+      const rightMin = totalFlex * 0.1;
+      newWidths[resizing.idx]     = Math.max(leftMin,  resizing.startWidths[resizing.idx]     + delta);
+      newWidths[resizing.idx + 1] = Math.max(rightMin, resizing.startWidths[resizing.idx + 1] - delta);
+      // normalize so sum stays constant
+      const newTotal = newWidths.reduce((a,b)=>a+b,0);
+      const scale    = totalFlex / newTotal;
+      updateBlockProperty(block.id, 'colWidths', newWidths.map(w => +(w * scale).toFixed(3)));
+    };
+    const onUp = () => setResizing(null);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup',   onUp);
+    return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
+  }, [resizing, block.id, updateBlockProperty]);
+
+  // ---- col context menu ----
+  const openColMenu = (e, col, idx) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const items = [
+      { label: 'Insert column left',  action: () => insertColumn(block.id, col.id, 'left'),  disabled: columns.length >= 5 },
+      { label: 'Insert column right', action: () => insertColumn(block.id, col.id, 'right'), disabled: columns.length >= 5 },
+      { divider: true },
+      { label: 'Delete column', action: () => deleteColumn(block.id, col.id), danger: true, disabled: columns.length <= 1 },
+    ];
+    showContextMenu(e.clientX, e.clientY, items, null, 'column', block.id);
+  };
+
   return (
     <div className="block-content">
-      {columns.map(col => (
-        <div className="block-column" key={col.id}>
-          <div className="blocks-container">
-            {BR && col.blocks.map((b, i) => <BR key={b.id} block={b} blocksArray={col.blocks} blockIndex={i} />)}
+      <div className="nn-columns-wrap" ref={wrapRef} style={{ display: 'flex', width: '100%', gap: 0 }}>
+        {columns.map((col, idx) => (
+          <div key={col.id} style={{ display: 'flex', flex: colWidths[idx] || 1, minWidth: 0 }}>
+            {/* Column content */}
+            <div className="nn-column" data-col-id={col.id} style={{ flex: 1, minWidth: 0 }}>
+              {/* Column handle (6-dot menu) */}
+              <div
+                className="nn-col-menu-btn"
+                onClick={e => openColMenu(e, col, idx)}
+                onContextMenu={e => openColMenu(e, col, idx)}
+                title="Column options"
+              >⠿</div>
+              <div className="blocks-container">
+                {BR && col.blocks.map((b, i) => (
+                  <BR key={b.id} block={b} blocksArray={col.blocks} blockIndex={i} />
+                ))}
+              </div>
+              {/* Add block inside column */}
+              {!BR && null}
+            </div>
+            {/* Drag divider between columns */}
+            {idx < columns.length - 1 && (
+              <div
+                className={`nn-col-divider${resizing?.idx === idx ? ' nn-col-divider-active' : ''}`}
+                onMouseDown={e => startResize(e, idx)}
+                title="Drag to resize"
+              />
+            )}
           </div>
-        </div>
-      ))}
+        ))}
+        {/* Add column button (+) after last col, if < 5 */}
+        {columns.length < 5 && (
+          <div
+            className="nn-add-col-btn"
+            onClick={() => insertColumn(block.id, columns[columns.length - 1]?.id, 'right')}
+            title="Add column"
+          >
+            +
+          </div>
+        )}
+      </div>
     </div>
   );
 });
+
 
 export const TocBlock = memo(function TocBlock() {
   const { pageState } = usePageContext();
@@ -539,6 +1232,8 @@ export const TocBlock = memo(function TocBlock() {
 
 export const VideoBlock = memo(function VideoBlock({ block }) {
   const { updateBlockProperty } = usePageContext();
+  const [hovered, setHovered] = useState(false);
+  
   const getEmbedUrl = (url) => {
     if (!url) return url;
     const yt = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]+)/);
@@ -547,14 +1242,45 @@ export const VideoBlock = memo(function VideoBlock({ block }) {
     if (vim) return `https://player.vimeo.com/video/${vim[1]}`;
     return url;
   };
+
+  const isEmbed = block.url && (block.url.includes('youtube.com') || block.url.includes('youtu.be') || block.url.includes('vimeo.com') || block.url.includes('embed'));
+
   return (
-    <div className="block-content">
+    <div 
+      className="block-content" 
+      style={{ position: 'relative' }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       {block.url ? (
-        <div className="block-video">
-          <iframe src={getEmbedUrl(block.url)} title="Video" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen style={{ width: '100%', height: '400px', borderRadius: '4px' }} />
+        <div style={{ position: 'relative', width: '100%' }}>
+          {hovered && (
+            <div style={{ position: 'absolute', top: '8px', right: '8px', zIndex: 10 }}>
+              <button 
+                onClick={() => updateBlockProperty(block.id, 'url', '')}
+                style={{
+                  background: 'rgba(255,255,255,0.95)',
+                  border: '1px solid #d8dde6',
+                  borderRadius: '4px',
+                  padding: '4px 8px',
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  cursor: 'pointer',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                }}
+              >
+                Change / Remove
+              </button>
+            </div>
+          )}
+          {isEmbed ? (
+            <iframe src={getEmbedUrl(block.url)} title="Video" frameBorder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen style={{ width: '100%', height: '400px', borderRadius: '4px' }} />
+          ) : (
+            <video src={block.url} controls style={{ width: '100%', maxHeight: '400px', borderRadius: '4px', background: '#000' }} />
+          )}
         </div>
       ) : (
-        <MediaBlockPicker blockType="video" onSelect={(url) => updateBlockProperty(block.id, 'url', url)} />
+        <MediaBlockPicker blockId={block.id} blockType="video" onSelect={(url) => updateBlockProperty(block.id, 'url', url)} />
       )}
     </div>
   );
@@ -562,14 +1288,42 @@ export const VideoBlock = memo(function VideoBlock({ block }) {
 
 export const AudioBlock = memo(function AudioBlock({ block }) {
   const { updateBlockProperty } = usePageContext();
+  const [hovered, setHovered] = useState(false);
   return (
-    <div className="block-content">
+    <div 
+      className="block-content" 
+      style={{ position: 'relative' }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       {block.url ? (
-        <div className="block-audio">
-          <audio controls src={block.url} style={{ width: '100%' }}>Your browser does not support audio.</audio>
+        <div style={{ position: 'relative', width: '100%' }}>
+          {hovered && (
+            <div style={{ position: 'absolute', top: '8px', right: '8px', zIndex: 10 }}>
+              <button 
+                onClick={() => updateBlockProperty(block.id, 'url', '')}
+                style={{
+                  background: 'rgba(255,255,255,0.95)',
+                  border: '1px solid #d8dde6',
+                  borderRadius: '4px',
+                  padding: '4px 8px',
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  cursor: 'pointer',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                }}
+              >
+                Change / Remove
+              </button>
+            </div>
+          )}
+          <div style={{ background: '#f3f4f6', padding: '24px 16px', borderRadius: '4px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+            <LucideIcon name="Music" className="w-8 h-8 text-gray-400" />
+            <audio controls src={block.url} style={{ width: '100%' }}>Your browser does not support audio.</audio>
+          </div>
         </div>
       ) : (
-        <MediaBlockPicker blockType="audio" onSelect={(url) => updateBlockProperty(block.id, 'url', url)} />
+        <MediaBlockPicker blockId={block.id} blockType="audio" onSelect={(url) => updateBlockProperty(block.id, 'url', url)} />
       )}
     </div>
   );
@@ -577,17 +1331,48 @@ export const AudioBlock = memo(function AudioBlock({ block }) {
 
 export const FileBlock = memo(function FileBlock({ block }) {
   const { updateBlockProperty } = usePageContext();
+  const [hovered, setHovered] = useState(false);
   return (
-    <div className="block-content">
+    <div 
+      className="block-content" 
+      style={{ position: 'relative' }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
       {block.url ? (
-        <div className="block-file">
-          <a href={block.url} target="_blank" rel="noopener noreferrer" className="file-card">
-            <span className="file-icon">📎</span>
-            <span className="file-name">{block.fileName || block.url.split('/').pop() || 'File'}</span>
-          </a>
+        <div style={{ position: 'relative', width: '100%' }}>
+          {hovered && (
+            <div style={{ position: 'absolute', top: '8px', right: '8px', zIndex: 10 }}>
+              <button 
+                onClick={() => {
+                  updateBlockProperty(block.id, 'url', '');
+                  updateBlockProperty(block.id, 'fileName', '');
+                }}
+                style={{
+                  background: 'rgba(255,255,255,0.95)',
+                  border: '1px solid #d8dde6',
+                  borderRadius: '4px',
+                  padding: '4px 8px',
+                  fontSize: '12px',
+                  fontWeight: '500',
+                  cursor: 'pointer',
+                  boxShadow: '0 1px 3px rgba(0,0,0,0.1)'
+                }}
+              >
+                Change / Remove
+              </button>
+            </div>
+          )}
+          <div className="block-file">
+            <a href={block.url} target="_blank" rel="noopener noreferrer" className="file-card">
+              <LucideIcon name="Paperclip" className="w-4 h-4 text-gray-500 mr-2 flex-shrink-0" />
+              <span className="file-name">{block.fileName || block.url.split('/').pop() || 'File'}</span>
+            </a>
+          </div>
         </div>
       ) : (
         <MediaBlockPicker
+          blockId={block.id}
           blockType="file"
           onSelect={(url, fileName) => {
             updateBlockProperty(block.id, 'url', url);
@@ -651,22 +1436,51 @@ export const EquationBlock = memo(function EquationBlock({ block }) {
 export const ToggleHeadingBlock = memo(function ToggleHeadingBlock({ block }) {
   const headingLevel = block.type.replace('toggle_heading', '');
   const { ref, handleInput, handleKeyDown, handleFocus } = useEditable(block, { placeholder: `Toggle Heading ${headingLevel}` });
-  const { updateBlockProperty } = usePageContext();
+  const { updateBlockProperty, addBlock } = usePageContext();
   const [BR, setBR] = useState(null);
   useEffect(() => { import('./BlockRenderer').then(m => setBR(() => m.default)); }, []);
   const children = block.children || [];
   return (
     <>
-      <div className="block-content">
-        <span className="toggle-icon" onClick={() => updateBlockProperty(block.id, 'open', !block.open)}>▶</span>
+      <div className="block-content" onClick={() => ref.current?.focus()} style={{ cursor: 'text' }}>
+        <span 
+          className="toggle-icon" 
+          onClick={(e) => {
+            e.stopPropagation();
+            updateBlockProperty(block.id, 'open', !block.open);
+          }}
+          style={{ cursor: 'pointer', userSelect: 'none', marginRight: '4px' }}
+        >
+          ▶
+        </span>
         <div ref={ref} contentEditable suppressContentEditableWarning data-placeholder={`Toggle Heading ${headingLevel}`}
           onInput={handleInput} onKeyDown={handleKeyDown} onFocus={handleFocus} style={{ flex: 1 }} />
       </div>
-      <div className="block-toggle-children">
-        <div className="blocks-container">
-          {BR && children.map((child, i) => <BR key={child.id} block={child} blocksArray={children} blockIndex={i} />)}
+      {block.open && (
+        <div className="block-toggle-children" style={{ paddingLeft: '24px' }}>
+          <div className="blocks-container">
+            {BR && children.map((child, i) => <BR key={child.id} block={child} blocksArray={children} blockIndex={i} />)}
+            {children.length === 0 && (
+              <div 
+                className="toggle-empty-placeholder" 
+                style={{ 
+                  color: '#aaa', 
+                  fontSize: '0.9em', 
+                  padding: '4px 8px', 
+                  cursor: 'pointer',
+                  userSelect: 'none'
+                }}
+                onClick={() => {
+                  const nb = addBlock('paragraph', block.id);
+                  if (nb) focusBlock(nb.id);
+                }}
+              >
+                + Empty toggle. Click to add a block inside
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
     </>
   );
 });

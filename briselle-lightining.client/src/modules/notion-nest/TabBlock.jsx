@@ -212,6 +212,7 @@ const TabBlock = memo(function TabBlock({ block }) {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [iconPickerState, setIconPickerState] = useState(null);
   const [BR, setBR] = useState(null);
+  const [nameKeys, setNameKeys] = useState({});  // force re-mount of tab-name span after rename
   const barRef = useRef(null);
   const settingsBtnRef = useRef(null);
 
@@ -374,6 +375,8 @@ const TabBlock = memo(function TabBlock({ block }) {
       const newName = el.textContent.trim() || 'Untitled';
       const newTabs = tabs.map(t => t.id === tabId ? { ...t, name: newName } : t);
       updateBlockProperty(block.id, 'tabs', newTabs);
+      // Force remount of span so React owns the text content again
+      setNameKeys(prev => ({ ...prev, [tabId]: (prev[tabId] || 0) + 1 }));
     }
     setEditingTabId(null);
   }, [block.id, tabs, updateBlockProperty]);
@@ -531,14 +534,19 @@ const TabBlock = memo(function TabBlock({ block }) {
               onDrop={(e) => handleDrop(e, tab.id)}
             >
               {tab.icon && <span className="tab-icon">{renderTabIcon(tab.icon)}</span>}
-              <span className="tab-name" contentEditable={editingTabId === tab.id} suppressContentEditableWarning
+              <span
+                key={`name-${tab.id}-${nameKeys[tab.id] || 0}`}
+                className="tab-name"
+                contentEditable={editingTabId === tab.id}
+                suppressContentEditableWarning
                 onBlur={() => finishRename(tab.id)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') { e.preventDefault(); finishRename(tab.id); }
                   if (e.key === 'Escape') { e.preventDefault(); setEditingTabId(null); e.target.contentEditable = 'false'; }
                 }}
                 onClick={(e) => { if (editingTabId === tab.id) e.stopPropagation(); }}
-              >{tab.name}</span>
+                dangerouslySetInnerHTML={{ __html: tab.name || `Tab ${tabs.indexOf(tab) + 1}` }}
+              />
             </div>
           ))}
           <div className="tab-add-btn" onClick={addTab} title="Add tab">+</div>

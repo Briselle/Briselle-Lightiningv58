@@ -45,7 +45,18 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
   });
   const [slashMenu, setSlashMenu] = useState({ open: false, blockId: null, position: null, filter: '' });
   const [contextMenu, setContextMenu] = useState({ open: false, x: 0, y: 0, items: [], triggerRect: null, type: null, blockId: null, initialSubmenu: null });
-  const [activeBlockId, setActiveBlockId] = useState(null);
+  const [activeBlockId, _setActiveBlockId] = useState(null);
+  const [selectedBlockIds, setSelectedBlockIds] = useState([]);
+  const [selectionStartId, setSelectionStartId] = useState(null);
+  const [activeMediaPickerId, setActiveMediaPickerId] = useState(null);
+
+  const setActiveBlockId = useCallback((id) => {
+    _setActiveBlockId(id);
+    if (id) {
+      setSelectionStartId(id);
+    }
+  }, []);
+
   // Load persisted comments from initialComments (db)
   const [comments, setComments] = useState(() => {
     if (initialComments && Array.isArray(initialComments)) {
@@ -151,7 +162,7 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     return _flatVisibleBlocks(pageRef.current.blocks);
   }, []);
   /* ---- Mutations ---- */
-  const addBlock = useCallback((type, afterBlockId, initialContent = '') => {
+  const addBlock = useCallback((type, afterBlockId, initialContent = '', forceChild = false) => {
     const newBlock = createNewBlock(type);
     if (initialContent) {
       newBlock.content = initialContent;
@@ -159,11 +170,20 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     setPageState(prev => {
       const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
       if (afterBlockId) {
-        const container = _findBlockContainer(afterBlockId, next.blocks);
-        if (container) {
-          container.arr.splice(container.index + 1, 0, newBlock);
+        const afterBlock = _getBlockById(afterBlockId, next.blocks);
+        if (afterBlock && (afterBlock.type === 'toggle' || afterBlock.type.startsWith('toggle_heading')) && (afterBlock.open || forceChild)) {
+          afterBlock.open = true;
+          if (!afterBlock.children) {
+            afterBlock.children = [];
+          }
+          afterBlock.children.unshift(newBlock);
         } else {
-          next.blocks.push(newBlock);
+          const container = _findBlockContainer(afterBlockId, next.blocks);
+          if (container) {
+            container.arr.splice(container.index + 1, 0, newBlock);
+          } else {
+            next.blocks.push(newBlock);
+          }
         }
       } else {
         next.blocks.push(newBlock);
@@ -171,6 +191,46 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
       return next;
     });
     return newBlock;
+  }, []);
+
+  const insertBlocks = useCallback((afterBlockId, blocksToInsert) => {
+    const reassignIds = (blocks) => {
+      return blocks.map(b => {
+        const nb = { ...b, id: generateId() };
+        if (b.children) {
+          nb.children = reassignIds(b.children);
+        }
+        if (b.tabs) {
+          nb.tabs = b.tabs.map(t => ({ ...t, id: generateId(), blocks: reassignIds(t.blocks) }));
+        }
+        if (b.columns) {
+          nb.columns = b.columns.map(c => ({ ...c, id: generateId(), blocks: reassignIds(c.blocks) }));
+        }
+        return nb;
+      });
+    };
+    
+    const freshBlocks = reassignIds(blocksToInsert);
+    
+    setPageState(prev => {
+      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
+      const container = _findBlockContainer(afterBlockId, next.blocks);
+      if (container) {
+        container.arr.splice(container.index + 1, 0, ...freshBlocks);
+      } else {
+        next.blocks.push(...freshBlocks);
+      }
+      return next;
+    });
+
+    const lastBlock = freshBlocks[freshBlocks.length - 1];
+    setTimeout(() => {
+      const el = document.querySelector(`[data-block-id="${lastBlock.id}"] [contenteditable]`);
+      if (el) {
+        el.focus();
+        setCaretToEnd(el);
+      }
+    }, 50);
   }, []);
   const deleteBlock = useCallback((blockId) => {
     const blockComments = commentsRef.current.filter(c => c.blockId === blockId);
@@ -202,6 +262,10 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
             const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
             const container = _findBlockContainer(blockId, next.blocks);
             if (container) {
+              const target = container.arr[container.index];
+              if (target && target.children && target.children.length > 0) {
+                container.arr.splice(container.index + 1, 0, ...target.children);
+              }
               container.arr.splice(container.index, 1);
             }
             return next;
@@ -218,6 +282,10 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
         const container = _findBlockContainer(blockId, next.blocks);
         if (!container) return prev;
         if (container.arr.length <= 1 && container.arr === next.blocks) return prev;
+        const target = container.arr[container.index];
+        if (target && target.children && target.children.length > 0) {
+          container.arr.splice(container.index + 1, 0, ...target.children);
+        }
         container.arr.splice(container.index, 1);
         return next;
       });
@@ -265,7 +333,7 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
       if (newType === 'toggle') { block.open = false; block.children = [makeBlock('paragraph', '')]; }
       if (newType === 'callout') block.calloutIcon = '💡';
       if (newType === 'code') { block.language = 'javascript'; block.content = textContent; }
-      if (newType === 'table') { block.rows = [['Col 1', 'Col 2', 'Col 3'], ['', '', ''], ['', '', '']]; block.content = ''; }
+      if (newType === 'table') { block.rows = [['', '', ''], ['', '', ''], ['', '', '']]; block.content = ''; }
       if (newType === 'columns') { block.content = ''; block.columns = [{ id: generateId(), blocks: [makeBlock('paragraph', textContent)] }, { id: generateId(), blocks: [makeBlock('paragraph', '')] }]; }
       if (newType === 'tabs') { block.content = ''; block.tabs = [{ id: generateId(), name: 'Tab 1', blocks: [makeBlock('paragraph', textContent)] }, { id: generateId(), name: 'Tab 2', blocks: [makeBlock('paragraph', '')] }]; block.activeTabId = block.tabs[0].id; }
       if (newType === 'divider' || newType === 'toc') block.content = '';
@@ -346,6 +414,33 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
         } else {
           block[prop] = value;
         }
+      }
+      return next;
+    });
+  }, []);
+  /* ---- Column mutations (for ColumnsBlock) ---- */
+  const insertColumn = useCallback((blockId, afterColumnId, direction = 'right') => {
+    setPageState(prev => {
+      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
+      const block = _getBlockById(blockId, next.blocks);
+      if (block && block.columns) {
+        const newCol = { id: generateId(), blocks: [makeBlock('paragraph', '')] };
+        const idx = block.columns.findIndex(c => c.id === afterColumnId);
+        if (idx === -1) {
+          block.columns.push(newCol);
+        } else {
+          block.columns.splice(direction === 'right' ? idx + 1 : idx, 0, newCol);
+        }
+      }
+      return next;
+    });
+  }, []);
+  const deleteColumn = useCallback((blockId, columnId) => {
+    setPageState(prev => {
+      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
+      const block = _getBlockById(blockId, next.blocks);
+      if (block && block.columns && block.columns.length > 1) {
+        block.columns = block.columns.filter(c => c.id !== columnId);
       }
       return next;
     });
@@ -855,15 +950,303 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     });
     return newComment;
   }, []);
+
+  const indentBlock = useCallback((blockId, caretOffset = 0) => {
+    setPageState(prev => {
+      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
+      const container = _findBlockContainer(blockId, next.blocks);
+      if (!container || container.index === 0) return prev; // Cannot indent first child
+      
+      const block = container.arr[container.index];
+      const prevSibling = container.arr[container.index - 1];
+      
+      // Move block to prevSibling's children
+      container.arr.splice(container.index, 1);
+      if (!prevSibling.children) {
+        prevSibling.children = [];
+      }
+      prevSibling.children.push(block);
+      
+      // If previous sibling is toggle/toggle_heading, expand it
+      if (prevSibling.type === 'toggle' || prevSibling.type.startsWith('toggle_heading')) {
+        prevSibling.open = true;
+      }
+      
+      return next;
+    });
+    
+    // Restore focus after React DOM updates
+    let attempts = 0;
+    const focusTarget = () => {
+      const el = document.querySelector(`[data-block-id="${blockId}"] [contenteditable]`);
+      if (el) {
+        el.focus();
+        const sel = window.getSelection();
+        const r = document.createRange();
+        
+        let charCount = 0;
+        let set = false;
+        function traverse(node) {
+          if (node.nodeType === Node.TEXT_NODE) {
+            const nextCount = charCount + node.length;
+            if (caretOffset >= charCount && caretOffset <= nextCount) {
+              r.setStart(node, caretOffset - charCount);
+              r.collapse(true);
+              sel.removeAllRanges();
+              sel.addRange(r);
+              set = true;
+              return true;
+            }
+            charCount = nextCount;
+          } else {
+            for (let i = 0; i < node.childNodes.length; i++) {
+              if (traverse(node.childNodes[i])) return true;
+            }
+          }
+          return false;
+        }
+        traverse(el);
+        if (!set) {
+          r.selectNodeContents(el);
+          r.collapse(caretOffset === 0);
+          sel.removeAllRanges();
+          sel.addRange(r);
+        }
+      } else if (attempts < 10) {
+        attempts++;
+        requestAnimationFrame(focusTarget);
+      }
+    };
+    requestAnimationFrame(focusTarget);
+  }, []);
+
+  const outdentBlock = useCallback((blockId, caretOffset = 0) => {
+    setPageState(prev => {
+      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
+      
+      let foundParent = null;
+      let foundContainer = null;
+      
+      const search = (list, parent = null) => {
+        const idx = list.findIndex(b => b.id === blockId);
+        if (idx !== -1) {
+          foundParent = parent;
+          foundContainer = { arr: list, index: idx };
+          return true;
+        }
+        for (const b of list) {
+          if (b.children && search(b.children, b)) return true;
+          if (b.tabs) {
+            for (const t of b.tabs) {
+              if (search(t.blocks, null)) return true;
+            }
+          }
+          if (b.columns) {
+            for (const c of b.columns) {
+              if (search(c.blocks, null)) return true;
+            }
+          }
+        }
+        return false;
+      };
+      
+      search(next.blocks);
+      if (!foundParent || !foundContainer) return prev; // Cannot outdent if no parent
+      
+      const block = foundContainer.arr[foundContainer.index];
+      foundContainer.arr.splice(foundContainer.index, 1);
+      
+      // Insert after parent in parent's container
+      const parentContainer = _findBlockContainer(foundParent.id, next.blocks);
+      if (parentContainer) {
+        parentContainer.arr.splice(parentContainer.index + 1, 0, block);
+      } else {
+        next.blocks.push(block);
+      }
+      
+      return next;
+    });
+    
+    // Restore focus after React DOM updates
+    let attempts = 0;
+    const focusTarget = () => {
+      const el = document.querySelector(`[data-block-id="${blockId}"] [contenteditable]`);
+      if (el) {
+        el.focus();
+        const sel = window.getSelection();
+        const r = document.createRange();
+        
+        let charCount = 0;
+        let set = false;
+        function traverse(node) {
+          if (node.nodeType === Node.TEXT_NODE) {
+            const nextCount = charCount + node.length;
+            if (caretOffset >= charCount && caretOffset <= nextCount) {
+              r.setStart(node, caretOffset - charCount);
+              r.collapse(true);
+              sel.removeAllRanges();
+              sel.addRange(r);
+              set = true;
+              return true;
+            }
+            charCount = nextCount;
+          } else {
+            for (let i = 0; i < node.childNodes.length; i++) {
+              if (traverse(node.childNodes[i])) return true;
+            }
+          }
+          return false;
+        }
+        traverse(el);
+        if (!set) {
+          r.selectNodeContents(el);
+          r.collapse(caretOffset === 0);
+          sel.removeAllRanges();
+          sel.addRange(r);
+        }
+      } else if (attempts < 10) {
+        attempts++;
+        requestAnimationFrame(focusTarget);
+      }
+    };
+    requestAnimationFrame(focusTarget);
+  }, []);
+
+  const deleteAndMergeBlocks = useCallback((id1, id2) => {
+    const all = _flatVisibleBlocks(pageRef.current.blocks);
+    let idx1 = all.findIndex(b => b.id === id1);
+    let idx2 = all.findIndex(b => b.id === id2);
+    if (idx1 === -1 || idx2 === -1) return;
+    if (idx1 > idx2) {
+      const tmp = idx1; idx1 = idx2; idx2 = tmp;
+    }
+    
+    const startBlock = all[idx1];
+    const endBlock = all[idx2];
+    
+    const selection = window.getSelection();
+    if (selection.rangeCount === 0) return;
+    const range = selection.getRangeAt(0);
+    
+    const startEl = document.querySelector(`[data-block-id="${startBlock.id}"] [contenteditable]`);
+    const endEl = document.querySelector(`[data-block-id="${endBlock.id}"] [contenteditable]`);
+    
+    if (!startEl || !endEl) return;
+    
+    // Get start block content before selection
+    const preRange = range.cloneRange();
+    preRange.selectNodeContents(startEl);
+    preRange.setEnd(range.startContainer, range.startOffset);
+    const divBefore = document.createElement('div');
+    divBefore.appendChild(preRange.cloneContents());
+    const contentBefore = divBefore.innerHTML;
+    
+    // Get end block content after selection
+    const postRange = range.cloneRange();
+    postRange.selectNodeContents(endEl);
+    postRange.setStart(range.endContainer, range.endOffset);
+    const divAfter = document.createElement('div');
+    divAfter.appendChild(postRange.cloneContents());
+    const contentAfter = divAfter.innerHTML;
+    
+    const mergedContent = contentBefore + contentAfter;
+    
+    // Update state
+    setPageState(prev => {
+      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
+      
+      // Update first block
+      const targetStart = _getBlockById(startBlock.id, next.blocks);
+      if (targetStart) {
+        targetStart.content = mergedContent;
+      }
+      
+      // Delete end block and intermediate blocks
+      for (let i = idx1 + 1; i <= idx2; i++) {
+        const blockToDelete = all[i];
+        const container = _findBlockContainer(blockToDelete.id, next.blocks);
+        if (container) {
+          const target = container.arr[container.index];
+          if (target && target.children && target.children.length > 0) {
+            container.arr.splice(container.index + 1, 0, ...target.children);
+          }
+          container.arr.splice(container.index, 1);
+        }
+      }
+      return next;
+    });
+    
+    // Place cursor at merge point
+    requestAnimationFrame(() => {
+      const el = document.querySelector(`[data-block-id="${startBlock.id}"] [contenteditable]`);
+      if (el) {
+        el.innerHTML = mergedContent;
+        el.focus();
+        
+        const tempDiv = document.createElement('div');
+        tempDiv.innerHTML = contentBefore;
+        const caretOffset = tempDiv.textContent.length;
+        
+        const sel = window.getSelection();
+        const r = document.createRange();
+        
+        let charCount = 0;
+        let nodeToFocus = el;
+        let offsetInNode = 0;
+        
+        function traverse(node) {
+          if (node.nodeType === Node.TEXT_NODE) {
+            const nextCount = charCount + node.length;
+            if (caretOffset >= charCount && caretOffset <= nextCount) {
+              nodeToFocus = node;
+              offsetInNode = caretOffset - charCount;
+              return true;
+            }
+            charCount = nextCount;
+          } else {
+            for (let i = 0; i < node.childNodes.length; i++) {
+              if (traverse(node.childNodes[i])) return true;
+            }
+          }
+          return false;
+        }
+        
+        traverse(el);
+        r.setStart(nodeToFocus, offsetInNode);
+        r.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(r);
+      }
+    });
+  }, []);
+
+  const deleteMultipleBlocks = useCallback((blockIds) => {
+    setPageState(prev => {
+      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
+      blockIds.forEach(id => {
+        const container = _findBlockContainer(id, next.blocks);
+        if (container) {
+          container.arr.splice(container.index, 1);
+        }
+      });
+      return next;
+    });
+  }, []);
+
   const value = {
     pageState, setPageState: updateState, updatePage,
     addBlock, deleteBlock, duplicateBlock, changeBlockType, moveBlock,
+    indentBlock, outdentBlock, deleteAndMergeBlocks, deleteMultipleBlocks, insertBlocks,
     updateBlockContent, updateBlockProperty, clearAllBlockFonts,
+    insertColumn, deleteColumn,
     getBlockById, findBlockContainer, flatVisibleBlocks,
     triggerUpdate, tick,
     slashMenu, showSlashMenu, hideSlashMenu, updateSlashFilter,
     contextMenu, showContextMenu, hideContextMenu,
     activeBlockId, setActiveBlockId,
+    activeMediaPickerId, setActiveMediaPickerId,
+    selectedBlockIds, setSelectedBlockIds,
+    selectionStartId, setSelectionStartId,
     comments, addComment, addPageComment, addDraftComment, saveDraftComment, cancelDraftComment, addReply, resolveComment,
     updateCommentMsg, deleteCommentMsg, deleteComment, toggleUnreadComment, toggleMuteComment, addReaction, markCommentAsRead,
     commentSidebarOpen, setCommentSidebarOpen,

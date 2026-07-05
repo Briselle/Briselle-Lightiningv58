@@ -350,7 +350,17 @@
   top: 3px;
   opacity: 0;
   transition: opacity .15s;
-  gap: 1px
+  gap: 1px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.block-controls *,
+.toggle-icon,
+.list-marker,
+.todo-checkbox {
+  user-select: none !important;
+  -webkit-user-select: none !important;
 }
 
 .block-handle {
@@ -416,7 +426,7 @@
 }
 
 .block-heading1 {
-  margin-top: 20px;
+  margin-top: 28px;
   margin-bottom: 4px;
 }
 
@@ -433,7 +443,7 @@
 }
 
 .block-heading2 {
-  margin-top: 16px;
+  margin-top: 20px;
   margin-bottom: 4px;
 }
 
@@ -446,7 +456,7 @@
 }
 
 .block-heading3 {
-  margin-top: 12px;
+  margin-top: 14px;
   margin-bottom: 4px;
 }
 
@@ -514,35 +524,38 @@
 }
 
 .block-toggle {
-  flex-direction: column
+  --nn-fs: 16px;
+  --nn-lh: 1.6;
 }
 
-.block-toggle>.block-content {
+.block-toggle > div > .block-content {
   display: flex;
-  align-items: flex-start
+  align-items: flex-start;
+  width: 100%;
 }
 
 .toggle-icon {
-  width: 24px;
-  height: 24px;
-  min-width: 24px;
+  width: var(--nn-fs, 16px);
+  height: var(--nn-fs, 16px);
+  min-width: var(--nn-fs, 16px);
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   color: #706e6b;
   transition: transform .2s;
-  font-size: 12px;
+  font-size: calc(var(--nn-fs, 16px) * 0.6);
   border-radius: 3px;
-  margin-top: 2px;
-  flex-shrink: 0
+  align-self: flex-start;
+  margin-top: calc((var(--nn-lh, 1.6) * var(--nn-fs, 16px) - var(--nn-fs, 16px)) / 2);
+  flex-shrink: 0;
 }
 
 .toggle-icon:hover {
   background: #f3f2f1
 }
 
-.block-toggle.open .toggle-icon {
+.block-toggle.open > div > .block-content > .toggle-icon {
   transform: rotate(90deg)
 }
 
@@ -551,33 +564,47 @@
   display: none
 }
 
-.block-toggle.open .block-toggle-children {
+.block-toggle.open > div > .block-toggle-children {
   display: block
 }
 
 .block-quote .block-content {
-  border-left: 3px solid #0176d2;
-  padding-left: 14px
+  border-left: 3px solid var(--nn-quote-color-local, var(--nn-text-color-local, #0176d2));
+  padding-left: 14px;
+  cursor: pointer;
 }
 
 .block-quote [contenteditable] {
-  font-size: 16px;
-  line-height: 1.6;
-  color: #514f4d
+  font-size: 16px !important;
+  line-height: 1.6 !important;
+  color: #514f4d !important;
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
+}
+
+.block-highlighted > .block-content,
+.block-highlighted > div > .block-content {
+  border-left: 3px solid var(--nn-quote-color-local, var(--nn-text-color-local, #0176d2)) !important;
+  padding-left: 14px !important;
+  cursor: pointer;
 }
 
 .block-callout {
-  background: #eef4fb;
-  border: 1px solid rgba(1, 118, 211, 0.15);
-  border-radius: 4px;
-  padding: 16px 16px 16px 12px
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0 !important;
+  padding: 0 !important;
 }
 
 .block-callout .block-content {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
-  width: 100%
+  gap: 12px;
+  width: 100%;
+  background: #eef4fb;
+  border: 1px solid rgba(1, 118, 211, 0.15);
+  border-radius: 4px;
+  padding: 14px 16px;
 }
 
 .block-callout-icon {
@@ -588,7 +615,12 @@
 }
 
 .block-callout [contenteditable] {
-  flex: 1
+  flex: 1;
+  font-size: 16px !important;
+  line-height: 1.6 !important;
+  color: #180505 !important;
+  white-space: pre-wrap !important;
+  word-break: break-word !important;
 }
 
 .block-divider {
@@ -597,7 +629,7 @@
 
 .block-divider hr {
   border: none;
-  border-top: 1px solid #dddbda
+  border-top: 1px solid var(--nn-quote-color-local, var(--nn-text-color-local, #dddbda)) !important;
 }
 
 .block-code {
@@ -731,68 +763,543 @@
   color: #706e6b
 }
 
-.block-table {
-  overflow-x: auto
-}
+/* =====================================================
+   TableBlock — Notion-parity styles (nn-table-*)
+   ===================================================== */
 
-.block-table table {
+/* wrapper: no scroll; table fills block width */
+.nn-table-wrap {
+  position: relative;
   width: 100%;
-  border-collapse: collapse
+  overflow: visible
 }
 
-.block-table th,
-.block-table td {
-  border: 1px solid #dddbda;
-  padding: 6px 12px;
+/* ── floating overlay (indicator + handle live here) ── */
+.nn-border-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 12;
+  overflow: visible
+}
+
+/* gray dash — shown when cursor is within 7px of a border */
+.nn-border-indicator {
+  position: absolute;
+  background: rgba(120,120,120,0.45);
+  border-radius: 999px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease-out, transform 150ms ease-out;
+}
+.nn-border-indicator.nn-horizontal {
+  transform: translateY(-3px);
+}
+.nn-border-indicator.nn-horizontal.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+.nn-border-indicator.nn-vertical {
+  transform: translateX(-3px);
+}
+.nn-border-indicator.nn-vertical.visible {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+/* blue floating handle — shown when cursor is over the dash */
+.nn-border-handle {
+  position: absolute;
+  background: #0b80e0;
+  border-radius: 8px;
+  opacity: 0;
+  pointer-events: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 20;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.18);
+  transition: opacity 150ms ease-out, transform 150ms ease-out;
+}
+.nn-border-handle:hover {
+  background: #0070cc;
+}
+.nn-border-handle.nn-horizontal {
+  transform: translateY(-3px);
+}
+.nn-border-handle.nn-horizontal.visible {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+.nn-border-handle.nn-vertical {
+  transform: translateX(-3px);
+}
+.nn-border-handle.nn-vertical.visible {
+  opacity: 1;
+  transform: translateX(0);
+  pointer-events: auto;
+}
+
+/* 6 white dots inside the handle */
+.nn-bh-dots {
+  display: grid;
+  grid-template-columns: repeat(3, 3px);
+  grid-template-rows: repeat(2, 3px);
+  gap: 2px;
+}
+.nn-border-handle.nn-vertical .nn-bh-dots {
+  grid-template-columns: repeat(2, 3px);
+  grid-template-rows: repeat(3, 3px);
+}
+.nn-bh-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: #fff;
+  display: block;
+}
+
+/* table: fixed layout, fills wrapper, no min-width forcing scroll */
+.nn-table {
+  border-collapse: collapse;
+  width: 100%;
+  table-layout: fixed;
+  font-size: 14px
+}
+
+/* data cells */
+.nn-tc {
+  border: 1px solid #e3e2e0;
+  padding: 6px 10px;
   text-align: left;
-  font-size: 14px;
   outline: none;
-  min-width: 120px
+  overflow: visible;
+  word-break: break-word;
+  transition: background .1s;
+  vertical-align: top
 }
-
-.block-table th {
+.nn-tc-head {
   background: #f3f2f1;
   font-weight: 600;
   color: #080707
 }
-
-.block-table td {
-  color: #180505
+.nn-tc-sel {
+  background: rgba(1,118,210,0.1) !important;
+  outline: 1.5px solid rgba(1,118,210,0.5)
+}
+.nn-tc[contenteditable]:focus {
+  outline: 2px solid #0176d2;
+  background: rgba(1,118,210,0.04)
 }
 
-.table-controls {
+/* =====================================================
+   Table Interactive Handles & Selections
+   ===================================================== */
+
+/* Column handle container */
+.nn-table-col-handle-wrap {
+  position: absolute;
+  top: -15px; /* Centers the 30px height hitbox perfectly on the top border (0px) */
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 100;
   display: flex;
-  gap: 6px;
-  margin-top: 6px
-}
-
-.table-controls button {
-  background: #ffffff;
-  border: 1px solid #dddbda;
-  color: #706e6b;
-  padding: 4px 12px;
-  border-radius: 4px;
-  font-size: 12px;
+  align-items: center;
+  justify-content: center;
+  width: 40px; /* Expanded hitbox width */
+  height: 30px; /* Expanded hitbox height */
   cursor: pointer;
-  font-family: inherit
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease-out;
+}
+.nn-table-col-handle-wrap.visible {
+  opacity: 1;
+  pointer-events: auto;
 }
 
-.table-controls button:hover {
+/* Horizontal line mark shown on hover of column cells */
+.nn-table-col-handle-line {
+  width: 14px;
+  height: 3px;
+  background-color: #dddbda; /* Salesforce border grey */
+  border-radius: 99px;
+  display: block;
+}
+
+/* 6-dot pill button shown on hover of the line mark itself */
+.nn-table-col-handle-dots {
+  display: none;
+  background-color: #ffffff;
+  border: 1px solid #dddbda; /* Salesforce border grey */
+  border-radius: 4px;
+  padding: 3px 5px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.nn-table-col-handle-wrap:hover .nn-table-col-handle-line {
+  display: none;
+}
+.nn-table-col-handle-wrap:hover .nn-table-col-handle-dots {
+  display: flex;
+}
+
+/* Active state: when the column context menu is open */
+.nn-table-col-handle-wrap.active .nn-table-col-handle-dots {
+  display: flex;
+  background-color: #0176d2;
   border-color: #0176d2;
-  background: #eef4fb;
+}
+.nn-table-col-handle-wrap.active .nn-table-col-handle-line {
+  display: none;
+}
+.nn-table-col-handle-wrap.active .nn-bh-dot {
+  background-color: #ffffff !important;
+}
+
+
+/* Row handle container */
+.nn-table-row-handle-wrap {
+  position: absolute;
+  left: -15px; /* Centers the 30px width hitbox perfectly on the left border (0px) */
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px; /* Expanded hitbox width */
+  height: 40px; /* Expanded hitbox height */
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms ease-out;
+}
+.nn-table-row-handle-wrap.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+/* Vertical line mark shown on hover of row cells */
+.nn-table-row-handle-line {
+  width: 3px;
+  height: 14px;
+  background-color: #dddbda; /* Salesforce border grey */
+  border-radius: 99px;
+  display: block;
+}
+
+/* 6-dot pill button shown on hover of the line mark itself */
+.nn-table-row-handle-dots {
+  display: none;
+  background-color: #ffffff;
+  border: 1px solid #dddbda; /* Salesforce border grey */
+  border-radius: 4px;
+  padding: 5px 3px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.nn-table-row-handle-wrap:hover .nn-table-row-handle-line {
+  display: none;
+}
+.nn-table-row-handle-wrap:hover .nn-table-row-handle-dots {
+  display: flex;
+}
+
+/* Active state: when the row context menu is open */
+.nn-table-row-handle-wrap.active .nn-table-row-handle-dots {
+  display: flex;
+  background-color: #0176d2;
+  border-color: #0176d2;
+}
+.nn-table-row-handle-wrap.active .nn-table-row-handle-line {
+  display: none;
+}
+.nn-table-row-handle-wrap.active .nn-bh-dot {
+  background-color: #ffffff !important;
+}
+
+
+/* 6-dot alignment layout */
+.nn-table-col-handle-dots .nn-bh-dots,
+.nn-table-row-handle-dots .nn-bh-dots {
+  display: grid;
+  grid-template-columns: repeat(3, 3px);
+  grid-template-rows: repeat(2, 3px);
+  gap: 1.5px;
+  align-items: center;
+  justify-content: center;
+}
+.nn-table-col-handle-dots .nn-bh-dots.nn-vertical,
+.nn-table-row-handle-dots .nn-bh-dots.nn-vertical {
+  grid-template-columns: repeat(2, 3px);
+  grid-template-rows: repeat(3, 3px);
+}
+.nn-table-col-handle-dots .nn-bh-dot,
+.nn-table-row-handle-dots .nn-bh-dot {
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background-color: #706e6b; /* Salesforce grey dots */
+  display: block;
+}
+
+
+/* Active selection highlights */
+.nn-cell-active-col {
+  border-left: 2px solid #0176d2 !important;
+  border-right: 2px solid #0176d2 !important;
+  background-color: rgba(1, 118, 210, 0.04) !important;
+}
+tr:first-child .nn-cell-active-col {
+  border-top: 2px solid #0176d2 !important;
+}
+tr:last-child .nn-cell-active-col {
+  border-bottom: 2px solid #0176d2 !important;
+}
+
+.nn-cell-active-row {
+  border-top: 2px solid #0176d2 !important;
+  border-bottom: 2px solid #0176d2 !important;
+  background-color: rgba(1, 118, 210, 0.04) !important;
+}
+.nn-cell-active-row:first-child {
+  border-left: 2px solid #0176d2 !important;
+}
+.nn-cell-active-row:last-child {
+  border-right: 2px solid #0176d2 !important;
+}
+
+
+/* Row and Column Addition Triggers (Salesforce styling) */
+.nn-table-add-col-trigger {
+  width: 14px; /* Thin vertical bar */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  margin-left: 2px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 150ms ease, background-color 150ms ease, border-color 150ms ease;
+  color: #706e6b; /* Salesforce grey plus icon */
+}
+.nn-table-wrap:hover .nn-table-add-col-trigger {
+  opacity: 1;
+}
+.nn-table-add-col-trigger:hover {
+  background-color: #ffffff;
+  border-color: #dddbda;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.nn-table-add-col-trigger:active {
+  background-color: #c9c7c5 !important;
+  border-color: #aeaeae !important;
+  color: #181818 !important;
+}
+
+.nn-table-add-row-trigger {
+  width: 100%;
+  height: 14px; /* Thin horizontal bar */
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  margin-top: 2px;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity 150ms ease, background-color 150ms ease, border-color 150ms ease;
+  color: #706e6b; /* Salesforce grey plus icon */
+}
+.nn-table-wrap:hover .nn-table-add-row-trigger {
+  opacity: 1;
+}
+.nn-table-add-row-trigger:hover {
+  background-color: #ffffff;
+  border-color: #dddbda;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+.nn-table-add-row-trigger:active {
+  background-color: #c9c7c5 !important;
+  border-color: #aeaeae !important;
+  color: #181818 !important;
+}
+
+/* Lucide Icon override */
+.nn-table-add-col-trigger .nn-table-add-icon,
+.nn-table-add-row-trigger .nn-table-add-icon {
+  width: 10px;
+  height: 10px;
+}
+
+
+/* Custom tooltips on hover */
+.nn-table-add-col-trigger::after,
+.nn-table-add-row-trigger::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  background-color: #1e293b; /* dark slate-800 tooltip bubble */
+  color: #ffffff;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  z-index: 1000;
+  box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1), 0 2px 4px -1px rgba(0,0,0,0.06);
+}
+
+.nn-table-add-col-trigger::after {
+  top: 50%;
+  right: calc(100% + 8px);
+  transform: translateY(-50%) scale(0.95);
+}
+.nn-table-add-col-trigger:hover::after {
+  opacity: 1;
+  transform: translateY(-50%) scale(1);
+}
+
+.nn-table-add-row-trigger::after {
+  bottom: calc(100% + 8px);
+  left: 50%;
+  transform: translateX(-50%) scale(0.95);
+}
+.nn-table-add-row-trigger:hover::after {
+  opacity: 1;
+  transform: translateX(-50%) scale(1);
+}
+
+/* no-border modifiers */
+.nn-no-col-borders .nn-tc { border-left: none; border-right: none }
+.nn-no-row-borders .nn-tc { border-top: none; border-bottom: none }
+
+/* striped rows */
+.nn-striped tbody tr:nth-child(even) .nn-tc { background: #f9f9f8 }
+
+
+
+/* =====================================================
+   ColumnsBlock — Notion-parity styles (nn-col-*)
+   ===================================================== */
+.block-columns .block-content {
+  overflow: visible;
+  padding: 0
+}
+
+.nn-columns-wrap {
+  width: 100%;
+  position: relative
+}
+
+/* per-column area */
+.nn-column {
+  position: relative;
+  padding: 4px 8px 4px 4px;
+  border-radius: 4px;
+  transition: background .15s
+}
+.nn-column:hover {
+  background: rgba(0,0,0,.02)
+}
+
+/* 6-dot handle inside each column */
+.nn-col-menu-btn {
+  position: absolute;
+  top: 4px;
+  left: -12px;
+  width: 16px;
+  height: 16px;
+  font-size: 10px;
+  color: #b0adab;
+  opacity: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: opacity .15s, background .15s;
+  user-select: none;
+  z-index: 2
+}
+.nn-column:hover .nn-col-menu-btn {
+  opacity: 1
+}
+.nn-col-menu-btn:hover {
+  background: rgba(0,0,0,.08);
+  color: #333
+}
+
+/* drag divider between columns */
+.nn-col-divider {
+  width: 6px;
+  flex-shrink: 0;
+  cursor: col-resize;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background .15s;
+  border-radius: 3px
+}
+.nn-col-divider::after {
+  content: '';
+  position: absolute;
+  top: 10%;
+  bottom: 10%;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 3px;
+  background: transparent;
+  border-radius: 2px;
+  transition: background .15s
+}
+.nn-col-divider:hover::after,
+.nn-col-divider-active::after {
+  background: #0176d2
+}
+.nn-col-divider:hover {
+  background: rgba(1,118,210,.06)
+}
+.nn-col-divider-active {
+  background: rgba(1,118,210,.1)
+}
+
+/* add column (+) button */
+.nn-add-col-btn {
+  width: 24px;
+  height: 24px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  align-self: flex-start;
+  margin-top: 8px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #b0adab;
+  cursor: pointer;
+  border-radius: 4px;
+  opacity: 0;
+  transition: opacity .15s, background .15s, color .15s;
+  user-select: none
+}
+.nn-columns-wrap:hover .nn-add-col-btn {
+  opacity: 1
+}
+.nn-add-col-btn:hover {
+  background: rgba(1,118,210,.08);
   color: #0176d2
 }
 
-.block-columns .block-content {
-  display: flex;
-  gap: 16px;
-  width: 100%
-}
-
-.block-column {
-  flex: 1;
-  min-width: 0
-}
 
 .block-toc .toc-list {
   list-style: none;
@@ -1492,7 +1999,7 @@
   border: 1px solid #dddbda;
   border-radius: 8px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, .15);
-  z-index: 1000;
+  z-index: 20000 !important;
   max-height: 400px;
   overflow-y: auto;
   width: 320px;
@@ -1970,21 +2477,23 @@ kbd {
 
 /* ---- Toggle Heading Blocks ---- */
 .block-toggle-heading1 {
-  flex-direction: column;
-  margin-top: 20px;
+  margin-top: 28px;
   margin-bottom: 4px;
+  --nn-fs: 30px;
+  --nn-lh: 1.3;
 }
 
 .block-toggle-heading1:first-child {
   margin-top: 0;
 }
 
-.block-toggle-heading1>.block-content {
+.block-toggle-heading1 > div > .block-content {
   display: flex;
-  align-items: flex-start
+  align-items: flex-start;
+  width: 100%;
 }
 
-.block-toggle-heading1 [contenteditable] {
+.block-toggle-heading1 > div > .block-content > [contenteditable] {
   font-size: 30px;
   font-weight: 700;
   line-height: 1.3;
@@ -1992,39 +2501,37 @@ kbd {
   margin-top: 0
 }
 
-.block-toggle-heading1.open .toggle-icon {
+.block-toggle-heading1.open > div > .block-content > .toggle-icon {
   transform: rotate(90deg)
 }
 
-.block-toggle-heading1 .toggle-icon {
-  margin-top: 8px
-}
-
-.block-toggle-heading1 .block-toggle-children {
+.block-toggle-heading1 > div > .block-toggle-children {
   padding-left: 24px;
   display: none
 }
 
-.block-toggle-heading1.open .block-toggle-children {
+.block-toggle-heading1.open > div > .block-toggle-children {
   display: block
 }
 
 .block-toggle-heading2 {
-  flex-direction: column;
-  margin-top: 16px;
+  margin-top: 20px;
   margin-bottom: 4px;
+  --nn-fs: 24px;
+  --nn-lh: 1.3;
 }
 
 .block-toggle-heading2:first-child {
   margin-top: 0;
 }
 
-.block-toggle-heading2>.block-content {
+.block-toggle-heading2 > div > .block-content {
   display: flex;
-  align-items: flex-start
+  align-items: flex-start;
+  width: 100%;
 }
 
-.block-toggle-heading2 [contenteditable] {
+.block-toggle-heading2 > div > .block-content > [contenteditable] {
   font-size: 24px;
   font-weight: 600;
   line-height: 1.3;
@@ -2032,39 +2539,37 @@ kbd {
   margin-top: 0
 }
 
-.block-toggle-heading2.open .toggle-icon {
+.block-toggle-heading2.open > div > .block-content > .toggle-icon {
   transform: rotate(90deg)
 }
 
-.block-toggle-heading2 .toggle-icon {
-  margin-top: 5px
-}
-
-.block-toggle-heading2 .block-toggle-children {
+.block-toggle-heading2 > div > .block-toggle-children {
   padding-left: 24px;
   display: none
 }
 
-.block-toggle-heading2.open .block-toggle-children {
+.block-toggle-heading2.open > div > .block-toggle-children {
   display: block
 }
 
 .block-toggle-heading3 {
-  flex-direction: column;
-  margin-top: 12px;
+  margin-top: 14px;
   margin-bottom: 4px;
+  --nn-fs: 20px;
+  --nn-lh: 1.3;
 }
 
 .block-toggle-heading3:first-child {
   margin-top: 0;
 }
 
-.block-toggle-heading3>.block-content {
+.block-toggle-heading3 > div > .block-content {
   display: flex;
-  align-items: flex-start
+  align-items: flex-start;
+  width: 100%;
 }
 
-.block-toggle-heading3 [contenteditable] {
+.block-toggle-heading3 > div > .block-content > [contenteditable] {
   font-size: 20px;
   font-weight: 600;
   line-height: 1.3;
@@ -2072,20 +2577,16 @@ kbd {
   margin-top: 0
 }
 
-.block-toggle-heading3.open .toggle-icon {
+.block-toggle-heading3.open > div > .block-content > .toggle-icon {
   transform: rotate(90deg)
 }
 
-.block-toggle-heading3 .toggle-icon {
-  margin-top: 3px
-}
-
-.block-toggle-heading3 .block-toggle-children {
+.block-toggle-heading3 > div > .block-toggle-children {
   padding-left: 24px;
   display: none
 }
 
-.block-toggle-heading3.open .block-toggle-children {
+.block-toggle-heading3.open > div > .block-toggle-children {
   display: block
 }
 
@@ -5178,3 +5679,188 @@ kbd {
 .ca-msg-reactions-popover .notion-icon-picker {
   z-index: 10100 !important;
 }
+
+/* Notion-style block selection highlighting */
+.block.is-selected {
+  background-color: transparent !important;
+}
+.block.is-selected > div > .block-content,
+.block.is-selected > .block-content {
+  background-color: rgba(35, 131, 226, 0.14) !important;
+  border-radius: 3px;
+}
+.block.is-selected [contenteditable] {
+  caret-color: transparent !important;
+}
+
+/* ============================================================
+   TableContextMenu — Notion-parity styling
+   ============================================================ */
+@keyframes nnMenuIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.nn-table-ctx-menu {
+  position: fixed;
+  background: #ffffff;
+  border: 1px solid rgba(15, 15, 15, 0.08);
+  border-radius: 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.15);
+  z-index: 10001;
+  min-width: 240px;
+  padding: 6px;
+  animation: nnMenuIn 180ms ease-out;
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.nn-tctx-search-wrap {
+  padding: 2px 4px 6px 4px;
+}
+
+.nn-tctx-search {
+  width: 100%;
+  box-sizing: border-box;
+  border: none;
+  background: rgba(55, 53, 47, 0.03);
+  outline: none;
+  font-size: 12.5px;
+  padding: 5px 8px;
+  border-radius: 6px;
+  color: #37352f;
+}
+.nn-tctx-search::placeholder {
+  color: rgba(55, 53, 47, 0.35);
+}
+
+.nn-tctx-item {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #37352f;
+  user-select: none;
+  gap: 8px;
+  box-sizing: border-box;
+}
+
+.nn-tctx-item:hover {
+  background: rgba(55, 53, 47, 0.04);
+}
+
+.nn-tctx-item.danger {
+  color: #eb5757;
+}
+.nn-tctx-item.danger:hover {
+  background: rgba(235, 87, 87, 0.06);
+}
+
+.nn-tctx-item.disabled {
+  color: rgba(55, 53, 47, 0.3);
+  cursor: not-allowed;
+  pointer-events: none;
+}
+.nn-tctx-item.disabled .nn-tctx-icon {
+  color: rgba(55, 53, 47, 0.2);
+}
+
+.nn-tctx-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  color: rgba(55, 53, 47, 0.55);
+}
+
+.nn-tctx-label {
+  flex: 1;
+}
+
+.nn-tctx-shortcut {
+  font-size: 11px;
+  color: rgba(55, 53, 47, 0.35);
+  margin-left: auto;
+  font-weight: 400;
+}
+
+.nn-tctx-divider {
+  height: 1px;
+  background: rgba(55, 53, 47, 0.08);
+  margin: 4px 0;
+}
+
+.nn-tctx-header {
+  font-size: 10.5px;
+  font-weight: 600;
+  color: rgba(55, 53, 47, 0.45);
+  padding: 6px 8px 4px 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.nn-tctx-empty {
+  padding: 12px;
+  font-size: 12.5px;
+  color: rgba(55, 53, 47, 0.4);
+  text-align: center;
+}
+
+.nn-submenu-list::-webkit-scrollbar {
+  width: 4px;
+}
+.nn-submenu-list::-webkit-scrollbar-thumb {
+  background: rgba(55, 53, 47, 0.2);
+  border-radius: 2px;
+}
+.context-menu-item {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #37352f;
+  user-select: none;
+  gap: 8px;
+  box-sizing: border-box;
+}
+.context-menu-item:hover {
+  background: rgba(55, 53, 47, 0.04);
+}
+.nn-color-icon-a {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(55, 53, 47, 0.09);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: bold;
+  background: #fff;
+}
+.nn-color-icon-bg {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid rgba(55, 53, 47, 0.09);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: bold;
+}
+
+

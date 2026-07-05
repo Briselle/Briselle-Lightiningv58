@@ -17,6 +17,32 @@ import { listNotionPages } from './notionPageStorage';
 import { resolveUserDisplayName, formatAuditDateTime } from './layout';
 import { useAuthStore } from '../../stores/authStore';
 
+export const textColors = [
+  { name: 'Default', value: undefined, color: '#37352f' },
+  { name: 'Gray', value: '#787774', color: '#787774' },
+  { name: 'Brown', value: '#9f6b53', color: '#9f6b53' },
+  { name: 'Orange', value: '#d9730d', color: '#d9730d' },
+  { name: 'Yellow', value: '#cb912f', color: '#cb912f' },
+  { name: 'Green', value: '#448361', color: '#448361' },
+  { name: 'Blue', value: '#337ea9', color: '#337ea9' },
+  { name: 'Purple', value: '#9065b0', color: '#9065b0' },
+  { name: 'Pink', value: '#c14c8a', color: '#c14c8a' },
+  { name: 'Red', value: '#d44c47', color: '#d44c47' },
+];
+
+export const bgColors = [
+  { name: 'Default', value: undefined, color: 'transparent' },
+  { name: 'Gray', value: '#f1f1ef', color: '#f1f1ef' },
+  { name: 'Brown', value: '#f4eee9', color: '#f4eee9' },
+  { name: 'Orange', value: '#fbecdd', color: '#fbecdd' },
+  { name: 'Yellow', value: '#fbf3db', color: '#fbf3db' },
+  { name: 'Green', value: '#edf3ec', color: '#edf3ec' },
+  { name: 'Blue', value: '#e7f3f8', color: '#e7f3f8' },
+  { name: 'Purple', value: '#f3f0f5', color: '#f3f0f5' },
+  { name: 'Pink', value: '#f9f0f4', color: '#f9f0f4' },
+  { name: 'Red', value: '#fdebec', color: '#fdebec' },
+];
+
 export function formatRelativeTime(timeStr) {
   if (!timeStr) return '';
   if (timeStr === 'Just now') return 'now';
@@ -334,6 +360,15 @@ export const SlashMenu = memo(function SlashMenu() {
     if (slashMenu.blockId) {
       updateBlockContent(slashMenu.blockId, '');
       changeBlockType(slashMenu.blockId, type);
+      const targetId = slashMenu.blockId;
+      requestAnimationFrame(() => {
+        const el = document.querySelector(`[data-block-id="${targetId}"] [contenteditable]`);
+        if (el) {
+          el.textContent = '';
+          el.innerHTML = '';
+          el.focus();
+        }
+      });
     }
     hideSlashMenu();
   }, [slashMenu.blockId, updateBlockContent, changeBlockType, hideSlashMenu]);
@@ -342,22 +377,39 @@ export const SlashMenu = memo(function SlashMenu() {
   useLayoutEffect(() => {
     if (!slashMenu.open || !menuRef.current || !slashMenu.position) return;
     const menuEl = menuRef.current;
-    const rect = menuEl.getBoundingClientRect();
-    const viewportHeight = window.innerHeight;
-    const viewportWidth = window.innerWidth;
+    
+    const adjustPosition = () => {
+      const rect = menuEl.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+      const viewportWidth = window.innerWidth;
 
-    let left = Math.max(8, (slashMenu.position.x || 0) - 16);
-    let top = (slashMenu.position.y || 0) + 6;
+      let left = (slashMenu.position.x || 0) - 16;
+      let top = (slashMenu.position.y || 0) + 6;
 
-    if (top + rect.height > viewportHeight - 16) {
-      top = Math.max(8, (slashMenu.position.y || 0) - 24 - rect.height);
-    }
+      if (top + rect.height > viewportHeight - 8) {
+        top = (slashMenu.position.y || 0) - 6 - rect.height;
+      }
 
-    if (left + rect.width > viewportWidth - 16) {
-      left = Math.max(8, viewportWidth - rect.width - 16);
-    }
+      if (top < 8) {
+        top = 8;
+      }
+      if (top + rect.height > viewportHeight - 8) {
+        top = Math.max(8, viewportHeight - rect.height - 8);
+      }
 
-    setCoords({ left, top });
+      if (left < 8) {
+        left = 8;
+      }
+      if (left + rect.width > viewportWidth - 8) {
+        left = Math.max(8, viewportWidth - rect.width - 8);
+      }
+
+      setCoords({ left, top });
+    };
+
+    adjustPosition();
+    window.addEventListener('resize', adjustPosition);
+    return () => window.removeEventListener('resize', adjustPosition);
   }, [slashMenu.open, slashMenu.position, slashMenu.filter]);
 
   // Keep selectedIndex in bounds when filter changes
@@ -379,16 +431,21 @@ export const SlashMenu = memo(function SlashMenu() {
       const idx = selectedIndexRef.current;
       if (e.key === 'ArrowDown') {
         e.preventDefault();
+        e.stopPropagation();
         setSelectedIndex(i => (i + 1) % Math.max(1, visible.length));
       } else if (e.key === 'ArrowUp') {
         e.preventDefault();
+        e.stopPropagation();
         setSelectedIndex(i => (i - 1 + visible.length) % Math.max(1, visible.length));
-      } else if (e.key === 'Enter') {
+      } else if (e.key === 'Enter' || e.key === 'Tab') {
         e.preventDefault();
+        e.stopPropagation();
         if (visible[idx]) {
           selectItem(visible[idx].type);
         }
       } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
         hideSlashMenu();
       }
     };
@@ -454,7 +511,7 @@ export const SlashMenu = memo(function SlashMenu() {
 /* ==================================================================
    CONTEXT MENU — fixed: submenu items don't auto-close
    ================================================================== */
-const LucideIcon = ({ name, className, style }) => {
+export const LucideIcon = ({ name, className, style }) => {
   const IconComponent = allLucideIcons[name] || allLucideIcons.FileText;
   return <IconComponent className={className} style={style} />;
 };
@@ -503,7 +560,14 @@ export function BlockContextMenu({ menuRef }) {
   } = usePageContext();
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeSubmenu, setActiveSubmenu] = useState(() => contextMenu.initialSubmenu || 'main');
+  const [activeSubmenu, setActiveSubmenu] = useState(() => {
+    if (contextMenu.initialSubmenu === 'color-artifacts') return 'color';
+    return contextMenu.initialSubmenu || 'main';
+  });
+  const [colorTab, setColorTab] = useState(() => {
+    if (contextMenu.initialSubmenu === 'color-artifacts') return 'artifacts';
+    return 'text';
+  });
   const [submenuTop, setSubmenuTop] = useState(0);
   const [siblingPages, setSiblingPages] = useState([]);
   const [position, setPosition] = useState({ left: 0, top: 0 });
@@ -514,7 +578,15 @@ export function BlockContextMenu({ menuRef }) {
 
   useEffect(() => {
     if (contextMenu.initialSubmenu) {
-      setActiveSubmenu(contextMenu.initialSubmenu);
+      if (contextMenu.initialSubmenu === 'color-artifacts') {
+        setActiveSubmenu('color');
+        setColorTab('artifacts');
+      } else {
+        setActiveSubmenu(contextMenu.initialSubmenu);
+        if (contextMenu.initialSubmenu === 'color') {
+          setColorTab('text');
+        }
+      }
     } else {
       setActiveSubmenu('main');
     }
@@ -852,6 +924,45 @@ export function BlockContextMenu({ menuRef }) {
           <span>Color</span>
           <span className="ml-auto text-[10px] opacity-50">▶</span>
         </div>
+        <div
+          className="context-menu-item"
+          onClick={() => {
+            if (block.type !== 'quote') {
+              updateBlockProperty(block.id, 'highlightEnabled', !block.highlightEnabled);
+              hideContextMenu();
+            }
+          }}
+          style={{ opacity: block.type === 'quote' ? 0.7 : 1, cursor: block.type === 'quote' ? 'not-allowed' : 'pointer' }}
+        >
+          <LucideIcon name="Highlighter" className="w-4 h-4 mr-2 opacity-75" />
+          <span>Highlight Block</span>
+          <div 
+            className={`nn-toggle-switch ${block.type === 'quote' || !!block.highlightEnabled ? 'checked' : ''}`}
+            style={{
+              marginLeft: 'auto',
+              width: '28px',
+              height: '16px',
+              borderRadius: '8px',
+              background: (block.type === 'quote' || !!block.highlightEnabled) ? '#0176d2' : '#b0adab',
+              position: 'relative',
+              cursor: block.type === 'quote' ? 'not-allowed' : 'pointer',
+              transition: 'background-color 0.2s',
+            }}
+          >
+            <div 
+              style={{
+                width: '12px',
+                height: '12px',
+                borderRadius: '50%',
+                background: '#ffffff',
+                position: 'absolute',
+                top: '2px',
+                left: (block.type === 'quote' || !!block.highlightEnabled) ? '14px' : '2px',
+                transition: 'left 0.2s'
+              }}
+            />
+          </div>
+        </div>
         <div className={`context-menu-item ${activeSubmenu === 'font' ? 'active' : ''}`} onClick={(e) => handleSubmenuTrigger(e, 'font')}>
           <LucideIcon name="Type" className="w-4 h-4 mr-2 opacity-75" />
           <span>Font Setup</span>
@@ -952,16 +1063,15 @@ export function BlockContextMenu({ menuRef }) {
       );
     }
 
-    if (activeSubmenu === 'color') {
+    if (activeSubmenu === 'quote-color') {
       return (
         <div className="nn-block-menu-submenu-panel">
           <div className="context-menu-header flex items-center justify-between" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
-            <span>Color</span>
+            <span>Quote Highlighter Color</span>
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                updateBlockProperty(block.id, 'textColor', undefined);
-                updateBlockProperty(block.id, 'backgroundColor', undefined);
+                updateBlockProperty(block.id, 'quoteColor', undefined);
                 hideContextMenu();
               }}
               style={{
@@ -981,13 +1091,12 @@ export function BlockContextMenu({ menuRef }) {
           </div>
           <div className="context-menu-divider" />
           <div className="nn-submenu-list max-h-[320px] overflow-y-auto">
-            <div className="nncs-label px-3 py-1 text-[11px] font-semibold text-gray-400 select-none uppercase tracking-wide">Text Color</div>
             {textColors.map((tc) => (
               <div
-                key={`tc-${tc.name}`}
+                key={`qc-${tc.name}`}
                 className="context-menu-item"
                 onClick={() => {
-                  updateBlockProperty(block.id, 'textColor', tc.value);
+                  updateBlockProperty(block.id, 'quoteColor', tc.value);
                   hideContextMenu();
                 }}
               >
@@ -997,53 +1106,223 @@ export function BlockContextMenu({ menuRef }) {
             ))}
             <div className="context-menu-item custom-color-picker-item">
               <LucideIcon name="Palette" className="w-4 h-4 mr-2 opacity-75" />
-              <span>Custom Text Color</span>
+              <span>Custom Color</span>
               <input
                 type="color"
-                value={block.textColor || '#37352f'}
+                value={block.quoteColor || '#0176d2'}
                 onChange={(e) => {
-                  updateBlockProperty(block.id, 'textColor', e.target.value);
+                  updateBlockProperty(block.id, 'quoteColor', e.target.value);
                 }}
                 className="nn-custom-color-input ml-auto"
               />
             </div>
+          </div>
+        </div>
+      );
+    }
 
-            <div className="nncs-divider my-1 border-t border-gray-100" />
-            <div className="nncs-label px-3 py-1 text-[11px] font-semibold text-gray-400 select-none uppercase tracking-wide">Background Color</div>
-            {bgColors.map((bc) => (
-              <div
-                key={`bc-${bc.name}`}
-                className="context-menu-item"
-                onClick={() => {
-                  updateBlockProperty(block.id, 'backgroundColor', bc.value);
-                  hideContextMenu();
-                }}
-              >
-                <span className="nn-color-icon-bg mr-2 flex-shrink-0" style={{ backgroundColor: bc.color, color: '#37352f' }}>A</span>
-                <span style={{
-                  backgroundColor: bc.color !== 'transparent' ? bc.color : 'transparent',
-                  padding: bc.color !== 'transparent' ? '2px 6px' : '0',
-                  borderRadius: '3px',
-                  color: '#37352f',
-                  border: bc.color !== 'transparent' ? '1px solid rgba(0,0,0,0.05)' : 'none',
-                  fontWeight: bc.name !== 'Default' ? 500 : 'normal'
-                }}>
-                  {bc.name} Background
-                </span>
-              </div>
-            ))}
-            <div className="context-menu-item custom-color-picker-item">
-              <LucideIcon name="Palette" className="w-4 h-4 mr-2 opacity-75" />
-              <span>Custom Background</span>
-              <input
-                type="color"
-                value={block.backgroundColor || '#ffffff'}
-                onChange={(e) => {
-                  updateBlockProperty(block.id, 'backgroundColor', e.target.value);
-                }}
-                className="nn-custom-color-input ml-auto"
-              />
-            </div>
+    if (activeSubmenu === 'color') {
+      const activeTabStyle = {
+        background: '#eef4fb',
+        color: '#0176d2',
+        fontWeight: '600',
+        borderBottom: '2px solid #0176d2',
+      };
+      
+      const inactiveTabStyle = {
+        background: 'none',
+        color: '#706e6b',
+        borderBottom: '2px solid transparent',
+      };
+
+      const handleResetTab = (e) => {
+        e.stopPropagation();
+        if (colorTab === 'text') {
+          updateBlockProperty(block.id, 'textColor', undefined);
+        } else if (colorTab === 'background') {
+          updateBlockProperty(block.id, 'backgroundColor', undefined);
+        } else if (colorTab === 'artifacts') {
+          updateBlockProperty(block.id, 'quoteColor', undefined);
+        }
+        hideContextMenu();
+      };
+
+      return (
+        <div className="nn-block-menu-submenu-panel" style={{ width: '100%' }}>
+          <div className="context-menu-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 12px', borderBottom: '1px solid #dddbda' }}>
+            <span style={{ fontWeight: '600' }}>Color</span>
+            <button
+              onClick={handleResetTab}
+              style={{
+                fontSize: '10px',
+                backgroundColor: '#f1f1ef',
+                color: '#787774',
+                border: 'none',
+                borderRadius: '3px',
+                padding: '2px 6px',
+                cursor: 'pointer',
+                fontWeight: 500,
+                textAlign: 'right',
+                marginLeft: 'auto',
+                whiteSpace: 'nowrap',
+                flexShrink: 0
+              }}
+            >
+              Reset {colorTab.charAt(0).toUpperCase() + colorTab.slice(1)}
+            </button>
+          </div>
+          
+          {/* Tabs Header */}
+          <div style={{ display: 'flex', borderBottom: '1px solid #eef1f6', padding: '0 8px' }}>
+            <button 
+              onClick={() => setColorTab('text')}
+              style={{
+                flex: '1 1 0px',
+                padding: '8px 4px',
+                fontSize: '12px',
+                border: 'none',
+                cursor: 'pointer',
+                textAlign: 'center',
+                outline: 'none',
+                transition: 'all 0.15s',
+                ...(colorTab === 'text' ? activeTabStyle : inactiveTabStyle)
+              }}
+            >
+              Text
+            </button>
+            <button 
+              onClick={() => setColorTab('background')}
+              style={{
+                flex: '1 1 0px',
+                padding: '8px 4px',
+                fontSize: '12px',
+                border: 'none',
+                cursor: 'pointer',
+                textAlign: 'center',
+                outline: 'none',
+                transition: 'all 0.15s',
+                ...(colorTab === 'background' ? activeTabStyle : inactiveTabStyle)
+              }}
+            >
+              Background
+            </button>
+            <button 
+              onClick={() => setColorTab('artifacts')}
+              style={{
+                flex: '1 1 0px',
+                padding: '8px 4px',
+                fontSize: '12px',
+                border: 'none',
+                cursor: 'pointer',
+                textAlign: 'center',
+                outline: 'none',
+                transition: 'all 0.15s',
+                ...(colorTab === 'artifacts' ? activeTabStyle : inactiveTabStyle)
+              }}
+            >
+              Artifacts
+            </button>
+          </div>
+
+          <div className="nn-submenu-list max-h-[260px] overflow-y-auto" style={{ padding: '4px 0' }}>
+            {colorTab === 'text' && (
+              <>
+                {textColors.map((tc) => (
+                  <div
+                    key={`tc-${tc.name}`}
+                    className="context-menu-item"
+                    onClick={() => {
+                      updateBlockProperty(block.id, 'textColor', tc.value);
+                      hideContextMenu();
+                    }}
+                  >
+                    <span className="nn-color-icon-a mr-2 flex-shrink-0" style={{ color: tc.color }}>A</span>
+                    <span style={{ color: tc.color, fontWeight: tc.name !== 'Default' ? 500 : 'normal' }}>{tc.name}</span>
+                  </div>
+                ))}
+                <div className="context-menu-item custom-color-picker-item" style={{ display: 'flex', alignItems: 'center', padding: '6px 14px' }}>
+                  <LucideIcon name="Palette" className="w-4 h-4 mr-2 opacity-75" />
+                  <span>Custom Text Color</span>
+                  <input
+                    type="color"
+                    value={block.textColor || '#37352f'}
+                    onChange={(e) => {
+                      updateBlockProperty(block.id, 'textColor', e.target.value);
+                    }}
+                    className="nn-custom-color-input ml-auto"
+                  />
+                </div>
+              </>
+            )}
+
+            {colorTab === 'background' && (
+              <>
+                {bgColors.map((bc) => (
+                  <div
+                    key={`bc-${bc.name}`}
+                    className="context-menu-item"
+                    onClick={() => {
+                      updateBlockProperty(block.id, 'backgroundColor', bc.value);
+                      hideContextMenu();
+                    }}
+                  >
+                    <span className="nn-color-icon-bg mr-2 flex-shrink-0" style={{ backgroundColor: bc.color, color: '#37352f' }}>A</span>
+                    <span style={{
+                      backgroundColor: bc.color !== 'transparent' ? bc.color : 'transparent',
+                      padding: bc.color !== 'transparent' ? '2px 6px' : '0',
+                      borderRadius: '3px',
+                      color: '#37352f',
+                      border: bc.color !== 'transparent' ? '1px solid rgba(0,0,0,0.05)' : 'none',
+                      fontWeight: bc.name !== 'Default' ? 500 : 'normal'
+                    }}>
+                      {bc.name} Background
+                    </span>
+                  </div>
+                ))}
+                <div className="context-menu-item custom-color-picker-item" style={{ display: 'flex', alignItems: 'center', padding: '6px 14px' }}>
+                  <LucideIcon name="Palette" className="w-4 h-4 mr-2 opacity-75" />
+                  <span>Custom Background</span>
+                  <input
+                    type="color"
+                    value={block.backgroundColor || '#ffffff'}
+                    onChange={(e) => {
+                      updateBlockProperty(block.id, 'backgroundColor', e.target.value);
+                    }}
+                    className="nn-custom-color-input ml-auto"
+                  />
+                </div>
+              </>
+            )}
+
+            {colorTab === 'artifacts' && (
+              <>
+                {textColors.map((tc) => (
+                  <div
+                    key={`ac-${tc.name}`}
+                    className="context-menu-item"
+                    onClick={() => {
+                      updateBlockProperty(block.id, 'quoteColor', tc.value);
+                      hideContextMenu();
+                    }}
+                  >
+                    <LucideIcon name="Highlighter" className="w-4 h-4 mr-2 opacity-75" style={{ color: tc.color }} />
+                    <span style={{ color: tc.color, fontWeight: tc.name !== 'Default' ? 500 : 'normal' }}>{tc.name}</span>
+                  </div>
+                ))}
+                <div className="context-menu-item custom-color-picker-item" style={{ display: 'flex', alignItems: 'center', padding: '6px 14px' }}>
+                  <LucideIcon name="Palette" className="w-4 h-4 mr-2 opacity-75" />
+                  <span>Custom Artifacts Color</span>
+                  <input
+                    type="color"
+                    value={block.quoteColor || '#0176d2'}
+                    onChange={(e) => {
+                      updateBlockProperty(block.id, 'quoteColor', e.target.value);
+                    }}
+                    className="nn-custom-color-input ml-auto"
+                  />
+                </div>
+              </>
+            )}
           </div>
         </div>
       );
@@ -1266,7 +1545,7 @@ export function BlockContextMenu({ menuRef }) {
               top: adjustedTop,
               position: 'fixed',
               zIndex: 99999,
-              width: activeSubmenu === 'font' ? '380px' : '260px',
+              width: activeSubmenu === 'font' ? '380px' : activeSubmenu === 'color' ? '320px' : '260px',
             }}
           >
             {renderSubmenuContent()}
@@ -1277,14 +1556,340 @@ export function BlockContextMenu({ menuRef }) {
   );
 }
 
+/* ============================================================
+   TableContextMenu — Notion-parity table row/col/cell menu
+   with Search box + icons matching the screenshot exactly
+   ============================================================ */
+function TableContextMenu({ menuRef }) {
+  const { contextMenu, hideContextMenu, updateBlockProperty, getBlockById } = usePageContext();
+  const [query, setQuery] = useState('');
+  const inputRef = useRef(null);
+  const [pos, setPos] = useState({ left: contextMenu.x, top: contextMenu.y });
+  const [activeSubmenu, setActiveSubmenu] = useState('main');
+  const [colorTab, setColorTab] = useState('text');
+
+  const block = getBlockById(contextMenu.blockId);
+
+  useLayoutEffect(() => {
+    if (!menuRef.current) return;
+    const mw = activeSubmenu === 'color' ? 260 : 240;
+    const mh = menuRef.current.offsetHeight || 300;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    let l = contextMenu.x, t = contextMenu.y;
+    if (l + mw > vw - 8) l = vw - mw - 8;
+    if (l < 8) l = 8;
+    if (t + mh > vh - 8) t = vh - mh - 8;
+    if (t < 8) t = 8;
+    setPos({ left: l, top: t });
+  }, [contextMenu.x, contextMenu.y, activeSubmenu]);
+
+  useEffect(() => { if (inputRef.current) inputRef.current.focus(); }, [activeSubmenu]);
+
+  const applyColor = (type, val) => {
+    if (!block) return;
+    const cellColors = { ...(block.cellColors || {}) };
+    const targetCells = [];
+
+    if (contextMenu.type === 'table-cell') {
+      const { ri, ci, selCells } = contextMenu.triggerRect || {};
+      if (selCells && selCells.size > 0 && selCells.has(`${ri},${ci}`)) {
+        targetCells.push(...Array.from(selCells));
+      } else if (ri !== undefined && ci !== undefined) {
+        targetCells.push(`${ri},${ci}`);
+      }
+    } else if (contextMenu.type === 'table-row') {
+      const { ri } = contextMenu.triggerRect || {};
+      if (ri !== undefined) {
+        const colCount = block.rows[0]?.length || 0;
+        for (let c = 0; c < colCount; c++) {
+          targetCells.push(`${ri},${c}`);
+        }
+      }
+    } else if (contextMenu.type === 'table-col') {
+      const { ci } = contextMenu.triggerRect || {};
+      if (ci !== undefined) {
+        for (let r = 0; r < block.rows.length; r++) {
+          targetCells.push(`${r},${ci}`);
+        }
+      }
+    }
+
+    targetCells.forEach(key => {
+      cellColors[key] = { ...(cellColors[key] || {}) };
+      if (type === 'text') {
+        if (val === undefined) delete cellColors[key].textColor;
+        else cellColors[key].textColor = val;
+      } else if (type === 'background') {
+        if (val === undefined) delete cellColors[key].backgroundColor;
+        else cellColors[key].backgroundColor = val;
+      }
+      if (Object.keys(cellColors[key]).length === 0) {
+        delete cellColors[key];
+      }
+    });
+
+    updateBlockProperty(block.id, 'cellColors', cellColors);
+  };
+
+  const isChecked = (label) => {
+    if (!block) return false;
+    const l = label.toLowerCase();
+    if (l.includes('header row')) return block.hasHeader === true;
+    if (l.includes('total row')) return block.hasTotalRow === true;
+    if (l.includes('row borders')) return block.rowBorders !== false;
+    if (l.includes('column borders')) return block.colBorders !== false;
+    if (l.includes('stripe rows')) return block.striped === true;
+    return false;
+  };
+
+  const allItems = contextMenu.items || [];
+  const filtered = query.trim()
+    ? allItems.filter(it => !it.divider && !it.header && it.label?.toLowerCase().includes(query.toLowerCase()))
+    : allItems;
+
+  const iconFor = (label) => {
+    const l = label?.toLowerCase() || '';
+    if (l.includes('color'))            return 'Palette';
+    if (l.includes('insert left') || l.includes('insert column left'))  return 'ArrowLeft';
+    if (l.includes('insert right') || l.includes('insert column right')) return 'ArrowRight';
+    if (l.includes('insert above') || l.includes('insert row above'))   return 'ArrowUp';
+    if (l.includes('insert below') || l.includes('insert row below'))   return 'ArrowDown';
+    if (l.includes('duplicate'))        return 'Copy';
+    if (l.includes('clear'))            return 'X';
+    if (l.includes('delete'))           return 'Trash2';
+    if (l.includes('header'))           return 'AlignLeft';
+    if (l.includes('lock'))             return 'Lock';
+    if (l.includes('border'))           return 'Grid';
+    if (l.includes('striped'))          return 'AlignJustify';
+    if (l.includes('add row'))          return 'PlusSquare';
+    if (l.includes('add col'))          return 'PlusSquare';
+    return null;
+  };
+
+  if (activeSubmenu === 'color') {
+    const activeTabStyle = {
+      background: '#eef4fb',
+      color: '#0176d2',
+      fontWeight: '600',
+      borderBottom: '2px solid #0176d2',
+    };
+    
+    const inactiveTabStyle = {
+      background: 'none',
+      color: '#706e6b',
+      borderBottom: '2px solid transparent',
+    };
+
+    const handleResetTab = (e) => {
+      e.stopPropagation();
+      applyColor(colorTab, undefined);
+      hideContextMenu();
+    };
+
+    return (
+      <div className="nn-table-ctx-menu" ref={menuRef} style={{ left: pos.left, top: pos.top, width: '260px' }}>
+        <div className="context-menu-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 12px', borderBottom: '1px solid #dddbda' }}>
+          <span style={{ fontWeight: '600' }}>Color</span>
+          <button
+            onClick={handleResetTab}
+            style={{
+              fontSize: '10px',
+              backgroundColor: '#f1f1ef',
+              color: '#787774',
+              border: 'none',
+              borderRadius: '3px',
+              padding: '2px 6px',
+              cursor: 'pointer',
+              fontWeight: 500,
+              textAlign: 'right',
+              marginLeft: 'auto',
+              whiteSpace: 'nowrap',
+              flexShrink: 0
+            }}
+          >
+            Reset {colorTab.charAt(0).toUpperCase() + colorTab.slice(1)}
+          </button>
+        </div>
+        
+        {/* Tabs Header */}
+        <div style={{ display: 'flex', borderBottom: '1px solid #eef1f6', padding: '0 8px' }}>
+          <button 
+            onClick={() => setColorTab('text')}
+            style={{
+              flex: '1 1 0px',
+              padding: '8px 4px',
+              fontSize: '12px',
+              border: 'none',
+              cursor: 'pointer',
+              textAlign: 'center',
+              outline: 'none',
+              ...(colorTab === 'text' ? activeTabStyle : inactiveTabStyle)
+            }}
+          >
+            Text
+          </button>
+          <button 
+            onClick={() => setColorTab('background')}
+            style={{
+              flex: '1 1 0px',
+              padding: '8px 4px',
+              fontSize: '12px',
+              border: 'none',
+              cursor: 'pointer',
+              textAlign: 'center',
+              outline: 'none',
+              ...(colorTab === 'background' ? activeTabStyle : inactiveTabStyle)
+            }}
+          >
+            Background
+          </button>
+        </div>
+
+        <div className="nn-submenu-list max-h-[260px] overflow-y-auto" style={{ padding: '4px 0' }}>
+          {colorTab === 'text' && (
+            <>
+              {textColors.map((tc) => (
+                <div
+                  key={`tc-${tc.name}`}
+                  className="context-menu-item"
+                  onClick={() => {
+                    applyColor('text', tc.value);
+                    hideContextMenu();
+                  }}
+                >
+                  <span className="nn-color-icon-a mr-2 flex-shrink-0" style={{ color: tc.color }}>A</span>
+                  <span style={{ color: tc.color, fontWeight: tc.name !== 'Default' ? 500 : 'normal' }}>{tc.name}</span>
+                </div>
+              ))}
+            </>
+          )}
+
+          {colorTab === 'background' && (
+            <>
+              {bgColors.map((bc) => (
+                <div
+                  key={`bc-${bc.name}`}
+                  className="context-menu-item"
+                  onClick={() => {
+                    applyColor('background', bc.value);
+                    hideContextMenu();
+                  }}
+                >
+                  <span className="nn-color-icon-bg mr-2 flex-shrink-0" style={{ backgroundColor: bc.color, color: '#37352f' }}>A</span>
+                  <span style={{
+                    backgroundColor: bc.color !== 'transparent' ? bc.color : 'transparent',
+                    padding: bc.color !== 'transparent' ? '2px 6px' : '0',
+                    borderRadius: '3px',
+                    color: '#37352f',
+                    border: bc.color !== 'transparent' ? '1px solid rgba(0,0,0,0.05)' : 'none',
+                    fontWeight: bc.name !== 'Default' ? 500 : 'normal'
+                  }}>
+                    {bc.name} Background
+                  </span>
+                </div>
+              ))}
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="nn-table-ctx-menu" ref={menuRef} style={{ left: pos.left, top: pos.top }}>
+      {/* Search box */}
+      <div className="nn-tctx-search-wrap">
+        <input
+          ref={inputRef}
+          className="nn-tctx-search"
+          placeholder="Search actions..."
+          value={query}
+          onChange={e => setQuery(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Escape') { if (query) setQuery(''); else hideContextMenu(); } }}
+        />
+      </div>
+      {/* Items */}
+      {filtered.map((item, i) => {
+        if (!query && item.divider) return <div key={`d-${i}`} className="nn-tctx-divider" />;
+        if (!query && item.header)  return <div key={`h-${i}`} className="nn-tctx-header">{item.label}</div>;
+        if (item.divider || item.header) return null;
+        const icon = iconFor(item.label);
+        const checked = item.isToggle ? isChecked(item.label) : false;
+        return (
+          <div
+            key={`${item.label}-${i}`}
+            className={`nn-tctx-item${item.danger ? ' danger' : ''}${item.disabled ? ' disabled' : ''}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              if (item.disabled) return;
+              if (item.label === 'Color') {
+                setActiveSubmenu('color');
+                return;
+              }
+              if (item.action) item.action(e);
+              if (!item.isToggle) {
+                hideContextMenu();
+              }
+            }}
+          >
+            <span className="nn-tctx-icon">
+              {icon ? <LucideIcon name={icon} size={14} /> : <span style={{ display:'inline-block', width:14 }} />}
+            </span>
+            <span className="nn-tctx-label">{item.label}</span>
+            {item.shortcut && <span className="nn-tctx-shortcut">{item.shortcut}</span>}
+            
+            {item.label === 'Color' && (
+              <span className="nn-tctx-submenu-arrow" style={{ marginLeft: 'auto', display: 'inline-flex', alignItems: 'center', opacity: 0.5 }}>
+                <LucideIcon name="ChevronRight" size={14} />
+              </span>
+            )}
+
+            {item.isToggle && (
+              <div 
+                className={`nn-menu-toggle-switch ${checked ? 'checked' : ''}`} 
+                style={{
+                  marginLeft: 'auto',
+                  width: '28px',
+                  height: '16px',
+                  borderRadius: '999px',
+                  background: checked ? '#0076D3' : '#E0E0E0',
+                  position: 'relative',
+                  transition: 'background 0.2s',
+                  cursor: 'pointer'
+                }}
+              >
+                <div 
+                  className="nn-menu-toggle-thumb"
+                  style={{
+                    width: '12px',
+                    height: '12px',
+                    borderRadius: '50%',
+                    background: '#FFF',
+                    position: 'absolute',
+                    top: '2px',
+                    left: checked ? '14px' : '2px',
+                    transition: 'left 0.2s'
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {filtered.length === 0 && (
+        <div className="nn-tctx-empty">No actions found</div>
+      )}
+    </div>
+  );
+}
+
 export const ContextMenu = memo(function ContextMenu() {
   const { contextMenu, hideContextMenu } = usePageContext();
   const menuRef = useRef(null);
   useEffect(() => {
     if (!contextMenu.open) return;
     const handler = (e) => {
-      // Allow clicks on the context menu and submenus
-      if (e.target.closest('.context-menu') || e.target.closest('.nn-block-context-menu') || e.target.closest('.nn-submenu-popover')) {
+      if (e.target.closest('.context-menu') || e.target.closest('.nn-block-context-menu') || e.target.closest('.nn-submenu-popover') || e.target.closest('.nn-table-ctx-menu')) {
         return;
       }
       hideContextMenu();
@@ -1298,6 +1903,11 @@ export const ContextMenu = memo(function ContextMenu() {
 
   if (contextMenu.type === 'block') {
     return <BlockContextMenu menuRef={menuRef} />;
+  }
+
+  // Table-specific Notion-parity menu
+  if (contextMenu.type === 'table-row' || contextMenu.type === 'table-col' || contextMenu.type === 'table-cell') {
+    return <TableContextMenu menuRef={menuRef} />;
   }
 
   return (
@@ -2377,9 +2987,57 @@ const UNSPLASH_PRESETS = [
   { name: 'Foggy Forest', url: 'https://images.unsplash.com/photo-1447752875215-b2761acb3c5d?q=80&w=800' }
 ];
 
-export const NotionCoverPicker = memo(function NotionCoverPicker({ position, onSelect, onClose }) {
+const VIDEO_GALLERY = [
+  {
+    title: 'Curated 4K Videos',
+    items: [
+      { name: 'Waterfall Forest', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4' },
+      { name: 'Stars Space', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4' },
+      { name: 'City Night Traffic', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4' },
+      { name: 'Aerial Ocean Waves', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4' }
+    ]
+  }
+];
+
+const MUSIC_GALLERY = [
+  {
+    title: 'Curated Audio Tracks',
+    items: [
+      { name: 'Chill Lofi Beats', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' },
+      { name: 'Retro Synthwave', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3' },
+      { name: 'Ambient Forest Rain', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3' },
+      { name: 'Acoustic Morning Breeze', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3' }
+    ]
+  }
+];
+
+const FILE_GALLERY = [
+  {
+    title: 'Sample Documents',
+    items: [
+      { name: 'Sample PDF Document', url: 'https://www.w3.org/WAI/ER/tests/xhtml/testfiles/resources/pdf/dummy.pdf' },
+      { name: 'Sample Text File', url: 'https://www.w3.org/TR/PNG/iso_8859-1.txt' },
+      { name: 'Sample Dataset CSV', url: 'https://raw.githubusercontent.com/datasciencedojo/datasets/master/titanic.csv' },
+      { name: 'Sample Presentation PDF', url: 'https://raw.githubusercontent.com/rdmpage/pdf-tests/master/test.pdf' }
+    ]
+  }
+];
+
+export const NotionCoverPicker = memo(function NotionCoverPicker({ position, onSelect, onClose, blockType = 'cover' }) {
   const ref = useRef(null);
-  const [tab, setTab] = useState('gallery');
+  
+  const getTabs = () => {
+    if (blockType === 'cover' || blockType === 'image' || blockType === 'video' || blockType === 'audio') {
+      return ['gallery', 'upload', 'link', 'unsplash'];
+    }
+    return ['gallery', 'upload', 'link'];
+  };
+
+  const [tab, setTab] = useState(() => {
+    const available = getTabs();
+    return available[0] || 'gallery';
+  });
+
   const [unsplashQuery, setUnsplashQuery] = useState('');
   const [unsplashResults, setUnsplashResults] = useState([]);
   const [searchTriggered, setSearchTriggered] = useState(false);
@@ -2396,42 +3054,176 @@ export const NotionCoverPicker = memo(function NotionCoverPicker({ position, onS
     if (e) e.preventDefault();
     if (unsplashQuery.trim()) {
       const q = unsplashQuery.trim().toLowerCase();
-      const results = Array.from({ length: 8 }).map((_, i) => ({
-        name: `${q.charAt(0).toUpperCase() + q.slice(1)} ${i + 1}`,
-        url: `https://images.unsplash.com/featured/800x600/?${encodeURIComponent(q)}&sig=${i + 1}`
-      }));
-      setUnsplashResults(results);
-      setSearchTriggered(true);
+      if (blockType === 'video') {
+        const videoResults = [
+          { name: `${q.charAt(0).toUpperCase() + q.slice(1)} Forest`, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4' },
+          { name: `${q.charAt(0).toUpperCase() + q.slice(1)} Blazes`, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4' },
+          { name: `${q.charAt(0).toUpperCase() + q.slice(1)} Street`, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4' },
+          { name: `${q.charAt(0).toUpperCase() + q.slice(1)} Ocean`, url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4' }
+        ];
+        setUnsplashResults(videoResults);
+        setSearchTriggered(true);
+      } else if (blockType === 'audio') {
+        const audioResults = Array.from({ length: 4 }).map((_, i) => ({
+          name: `${q.charAt(0).toUpperCase() + q.slice(1)} Song ${i + 1}`,
+          url: `https://www.soundhelix.com/examples/mp3/SoundHelix-Song-${i + 1}.mp3`
+        }));
+        setUnsplashResults(audioResults);
+        setSearchTriggered(true);
+      } else {
+        const results = Array.from({ length: 8 }).map((_, i) => ({
+          name: `${q.charAt(0).toUpperCase() + q.slice(1)} ${i + 1}`,
+          url: `https://images.unsplash.com/featured/800x600/?${encodeURIComponent(q)}&sig=${i + 1}`
+        }));
+        setUnsplashResults(results);
+        setSearchTriggered(true);
+      }
     } else {
       setSearchTriggered(false);
       setUnsplashResults([]);
     }
   };
 
+  const getGallerySections = () => {
+    if (blockType === 'video') return VIDEO_GALLERY;
+    if (blockType === 'audio') return MUSIC_GALLERY;
+    if (blockType === 'file') return FILE_GALLERY;
+    return GALLERY_SECTIONS;
+  };
+
+  const getUnsplashPresets = () => {
+    if (blockType === 'video') {
+      return [
+        { name: 'Waterfall Forest', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4' },
+        { name: 'Stars Space', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4' },
+        { name: 'City Night Traffic', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/SubaruOutbackOnStreetAndDirt.mp4' },
+        { name: 'Aerial Ocean Waves', url: 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4' }
+      ];
+    }
+    if (blockType === 'audio') {
+      return [
+        { name: 'Chill Lofi Beats', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3' },
+        { name: 'Retro Synthwave', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-2.mp3' },
+        { name: 'Ambient Forest Rain', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-3.mp3' },
+        { name: 'Acoustic Morning Breeze', url: 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-4.mp3' }
+      ];
+    }
+    return UNSPLASH_PRESETS;
+  };
+
+  const getUploadZoneProps = () => {
+    switch (blockType) {
+      case 'image':
+        return { accept: 'image/*', placeholderText: 'Drop image file here', subtext: 'or click to select an image' };
+      case 'video':
+        return { accept: 'video/*', placeholderText: 'Drop video file here', subtext: 'or click to select a video' };
+      case 'audio':
+        return { accept: 'audio/*', placeholderText: 'Drop audio file here', subtext: 'or click to select an audio track' };
+      case 'file':
+        return { accept: '*', placeholderText: 'Drop file here', subtext: 'or click to select a file' };
+      default:
+        return { accept: 'image/*', placeholderText: 'Drop image file here', subtext: 'or click to select an image' };
+    }
+  };
+
   return (
     <div ref={ref} className="notion-cover-picker" style={{ left: position?.x || 0, top: position?.y || 0 }} onMouseDown={e => e.stopPropagation()}>
       <div className="nip-tabs">
-        <button className={`nip-tab${tab === 'gallery' ? ' active' : ''}`} onClick={() => setTab('gallery')}>Gallery</button>
-        <button className={`nip-tab${tab === 'upload' ? ' active' : ''}`} onClick={() => setTab('upload')}>Upload</button>
-        <button className={`nip-tab${tab === 'link' ? ' active' : ''}`} onClick={() => setTab('link')}>Link</button>
-        <button className={`nip-tab${tab === 'unsplash' ? ' active' : ''}`} onClick={() => setTab('unsplash')}>Unsplash</button>
+        {getTabs().includes('gallery') && (
+          <button className={`nip-tab${tab === 'gallery' ? ' active' : ''}`} onClick={() => setTab('gallery')}>
+            {blockType === 'file' ? 'Library' : 'Gallery'}
+          </button>
+        )}
+        {getTabs().includes('upload') && <button className={`nip-tab${tab === 'upload' ? ' active' : ''}`} onClick={() => setTab('upload')}>Upload</button>}
+        {getTabs().includes('link') && <button className={`nip-tab${tab === 'link' ? ' active' : ''}`} onClick={() => setTab('link')}>Link</button>}
+        {getTabs().includes('unsplash') && <button className={`nip-tab${tab === 'unsplash' ? ' active' : ''}`} onClick={() => setTab('unsplash')}>Unsplash</button>}
         <button className="nip-remove" onClick={() => { onSelect(''); onClose(); }}>Remove</button>
       </div>
       <div className="nip-body">
         {tab === 'gallery' && (
           <div className="ncp-gallery-scroll">
-            {GALLERY_SECTIONS.map(sec => (
+            {getGallerySections().map(sec => (
               <div key={sec.title} className="ncp-section">
                 <div className="ncp-section-title">{sec.title}</div>
-                <div className="ncp-grid">
-                  {sec.items.map(p => (
-                    <div key={p.name} className="ncp-thumb" style={{ backgroundImage: `url(${p.url})` }} onClick={() => { onSelect(p.url); onClose(); }}>
-                      <div className="ncp-thumb-overlay">
-                        {p.name}
+                
+                {blockType === 'video' ? (
+                  <div className="ncp-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' }}>
+                    {sec.items.map(p => (
+                      <div key={p.name} className="ncp-thumb" style={{ height: '60px', position: 'relative', overflow: 'hidden' }}
+                        onMouseEnter={e => { const v = e.currentTarget.querySelector('video'); if (v) v.play().catch(()=>{}); }}
+                        onMouseLeave={e => { const v = e.currentTarget.querySelector('video'); if (v) { v.pause(); v.currentTime = 0; } }}
+                        onClick={() => { onSelect(p.url, p.name); onClose(); }}
+                      >
+                        <video src={p.url} muted loop playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }} />
+                        <div className="ncp-thumb-overlay" style={{ background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <span style={{ fontSize: '9px', fontWeight: '600', color: '#fff', textAlign: 'center', padding: '2px', lineHeight: '1.1' }}>{p.name}</span>
+                        </div>
                       </div>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                ) : blockType === 'audio' ? (
+                  <div className="ncp-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' }}>
+                    {sec.items.map(p => (
+                      <div key={p.name} className="ncp-thumb" 
+                        onClick={() => { onSelect(p.url, p.name); onClose(); }}
+                        style={{
+                          height: '60px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          padding: '4px',
+                          background: '#f9fafb',
+                          border: '1px solid #f3f4f6',
+                          borderRadius: '5px',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = '#f3f4f6'; e.currentTarget.style.borderColor = '#0176d2'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = '#f9fafb'; e.currentTarget.style.borderColor = '#f3f4f6'; }}
+                      >
+                        <LucideIcon name="Music" className="w-5 h-5 text-gray-500 mb-1" />
+                        <span style={{ fontSize: '9px', fontWeight: '600', color: '#374151', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>{p.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : blockType === 'file' ? (
+                  <div className="ncp-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' }}>
+                    {sec.items.map(p => (
+                      <div key={p.name} className="ncp-thumb" 
+                        onClick={() => { onSelect(p.url, p.name); onClose(); }}
+                        style={{
+                          height: '60px',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          padding: '4px',
+                          background: '#f9fafb',
+                          border: '1px solid #f3f4f6',
+                          borderRadius: '5px',
+                          cursor: 'pointer',
+                          transition: 'all 0.2s'
+                        }}
+                        onMouseEnter={e => { e.currentTarget.style.background = '#f3f4f6'; e.currentTarget.style.borderColor = '#0176d2'; }}
+                        onMouseLeave={e => { e.currentTarget.style.background = '#f9fafb'; e.currentTarget.style.borderColor = '#f3f4f6'; }}
+                      >
+                        <LucideIcon name="File" className="w-5 h-5 text-gray-500 mb-1" />
+                        <span style={{ fontSize: '9px', fontWeight: '600', color: '#374151', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>{p.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="ncp-grid">
+                    {sec.items.map(p => (
+                      <div key={p.name} className="ncp-thumb" style={{ backgroundImage: `url(${p.url})` }} onClick={() => { onSelect(p.url, p.name); onClose(); }}>
+                        <div className="ncp-thumb-overlay">
+                          {p.name}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             ))}
           </div>
@@ -2439,10 +3231,10 @@ export const NotionCoverPicker = memo(function NotionCoverPicker({ position, onS
         {tab === 'upload' && (
           <div style={{ padding: '16px' }}>
             <UploadZone
-              onSelect={(url) => { onSelect(url); onClose(); }}
-              accept="image/*"
-              placeholderText="Drop image file here"
-              subtext="or click to select an image"
+              onSelect={(url, name) => { onSelect(url, name); onClose(); }}
+              accept={getUploadZoneProps().accept}
+              placeholderText={getUploadZoneProps().placeholderText}
+              subtext={getUploadZoneProps().subtext}
               allowLink={false}
             />
           </div>
@@ -2450,7 +3242,7 @@ export const NotionCoverPicker = memo(function NotionCoverPicker({ position, onS
         {tab === 'link' && (
           <div style={{ padding: '16px' }}>
             <UploadZone
-              onSelect={(url) => { onSelect(url); onClose(); }}
+              onSelect={(url, name) => { onSelect(url, name); onClose(); }}
               onlyLink={true}
             />
           </div>
@@ -2461,7 +3253,7 @@ export const NotionCoverPicker = memo(function NotionCoverPicker({ position, onS
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" /></svg>
               <input
                 type="text"
-                placeholder="Search Unsplash..."
+                placeholder={blockType === 'video' ? "Search videos..." : blockType === 'audio' ? "Search music..." : "Search Unsplash..."}
                 value={unsplashQuery}
                 onChange={e => setUnsplashQuery(e.target.value)}
               />
@@ -2470,17 +3262,61 @@ export const NotionCoverPicker = memo(function NotionCoverPicker({ position, onS
             
             <div className="ncp-gallery-scroll">
               <div className="ncp-section-title">
-                {searchTriggered ? `Results for "${unsplashQuery}"` : 'Curated Photos'}
+                {searchTriggered ? `Results for "${unsplashQuery}"` : blockType === 'video' ? 'Curated Videos' : blockType === 'audio' ? 'Curated Music' : 'Curated Photos'}
               </div>
-              <div className="ncp-grid">
-                {(searchTriggered ? unsplashResults : UNSPLASH_PRESETS).map(p => (
-                  <div key={p.url} className="ncp-thumb" style={{ backgroundImage: `url(${p.url})` }} onClick={() => { onSelect(p.url); onClose(); }}>
-                    <div className="ncp-thumb-overlay">
-                      {p.name}
+              
+              {blockType === 'video' ? (
+                <div className="ncp-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' }}>
+                  {(searchTriggered ? unsplashResults : getUnsplashPresets()).map(p => (
+                    <div key={p.name} className="ncp-thumb" style={{ height: '60px', position: 'relative', overflow: 'hidden' }}
+                      onMouseEnter={e => { const v = e.currentTarget.querySelector('video'); if (v) v.play().catch(()=>{}); }}
+                      onMouseLeave={e => { const v = e.currentTarget.querySelector('video'); if (v) { v.pause(); v.currentTime = 0; } }}
+                      onClick={() => { onSelect(p.url, p.name); onClose(); }}
+                    >
+                      <video src={p.url} muted loop playsInline style={{ width: '100%', height: '100%', objectFit: 'cover', pointerEvents: 'none' }} />
+                      <div className="ncp-thumb-overlay" style={{ background: 'rgba(0,0,0,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                        <span style={{ fontSize: '9px', fontWeight: '600', color: '#fff', textAlign: 'center', padding: '2px', lineHeight: '1.1' }}>{p.name}</span>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
+              ) : blockType === 'audio' ? (
+                <div className="ncp-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px' }}>
+                  {(searchTriggered ? unsplashResults : getUnsplashPresets()).map(p => (
+                    <div key={p.name} className="ncp-thumb" 
+                      onClick={() => { onSelect(p.url, p.name); onClose(); }}
+                      style={{
+                        height: '60px',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        padding: '4px',
+                        background: '#f9fafb',
+                        border: '1px solid #f3f4f6',
+                        borderRadius: '5px',
+                        cursor: 'pointer',
+                        transition: 'all 0.2s'
+                      }}
+                      onMouseEnter={e => { e.currentTarget.style.background = '#f3f4f6'; e.currentTarget.style.borderColor = '#0176d2'; }}
+                      onMouseLeave={e => { e.currentTarget.style.background = '#f9fafb'; e.currentTarget.style.borderColor = '#f3f4f6'; }}
+                    >
+                      <LucideIcon name="Music" className="w-5 h-5 text-gray-500 mb-1" />
+                      <span style={{ fontSize: '9px', fontWeight: '600', color: '#374151', textAlign: 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', width: '100%' }}>{p.name}</span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="ncp-grid">
+                  {(searchTriggered ? unsplashResults : getUnsplashPresets()).map(p => (
+                    <div key={p.url} className="ncp-thumb" style={{ backgroundImage: `url(${p.url})` }} onClick={() => { onSelect(p.url, p.name); onClose(); }}>
+                      <div className="ncp-thumb-overlay">
+                        {p.name}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
         )}
