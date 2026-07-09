@@ -2769,9 +2769,34 @@
 
 /* NotionNest Block-Level Font/Color Customizations & Context Menu overrides */
 .block {
-  color: var(--nn-text-color-local, inherit);
+  color: var(--nn-text-color-local, initial);
   background-color: var(--nn-bg-color-local, transparent);
   border-radius: 4px;
+}
+
+/* Reset only local block-level CSS custom properties for nested children
+   to prevent block-level font/color/size changes from leaking into child blocks.
+   The non-local globals (--nn-font-family, --nn-body-size, etc.) remain
+   available so child blocks still respect the page-level defaults. */
+.block-nested-children,
+.block-toggle-children,
+.tab-content,
+.nn-column {
+  --nn-text-color-local: initial;
+  --nn-bg-color-local: initial;
+  --nn-font-family-local: initial;
+  --nn-body-size-local: initial;
+  --nn-title-size-local: initial;
+  --nn-h1-size-local: initial;
+  --nn-h2-size-local: initial;
+  --nn-h3-size-local: initial;
+}
+
+.block-nested-children,
+.block-toggle-children,
+.tab-content,
+.nn-column {
+  background-color: #ffffff !important;
 }
 
 .block[style*="--nn-bg-color-local"] {
@@ -2780,7 +2805,7 @@
 
 .notion-app-container .block [contenteditable] {
   font-family: var(--nn-font-family-local, var(--nn-font-family, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif)) !important;
-  color: inherit !important;
+  color: var(--nn-text-color-local, inherit) !important;
 }
 
 .notion-app-container .block:not(.block-heading1):not(.block-heading2):not(.block-heading3):not(.block-toggle-heading1):not(.block-toggle-heading2):not(.block-toggle-heading3) [contenteditable] {
@@ -2956,11 +2981,20 @@
   background-color: #000000 !important;
   color: #000000 !important;
   user-select: none !important;
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
   border-radius: 2px;
   padding: 0 2px;
+  cursor: default;
 }
 
 .nn-redact-text::selection {
+  background: #000000 !important;
+  color: #000000 !important;
+}
+
+.nn-redact-text::-moz-selection {
   background: #000000 !important;
   color: #000000 !important;
 }

@@ -101,7 +101,7 @@ const BlockRenderer = memo(function BlockRenderer({ block, blocksArray, blockInd
     if (sourceId && sourceId !== block.id) {
       const rect = blockRef.current?.getBoundingClientRect();
       const above = rect && e.clientY < rect.top + rect.height / 2;
-      moveBlock(sourceId, above ? 'up' : 'down');
+      moveBlock(sourceId, block.id, above ? 'before' : 'after');
     }
     if (blockRef.current) blockRef.current.classList.remove('drag-over-top', 'drag-over-bottom');
   }, [block.id, moveBlock]);
@@ -173,7 +173,6 @@ const BlockRenderer = memo(function BlockRenderer({ block, blocksArray, blockInd
   if (block.fontFamily) {
     const cssFont = POPULAR_FONTS.find(f => f.id === block.fontFamily)?.css || block.fontFamily;
     blockStyle['--nn-font-family-local'] = cssFont;
-    blockStyle['fontFamily'] = cssFont;
   }
   if (block.fontSize !== undefined && block.fontSize !== null) {
     const sizeMap = {

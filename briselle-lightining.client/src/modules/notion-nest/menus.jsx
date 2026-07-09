@@ -10,7 +10,7 @@ import {
   MessageSquare, Minus, ChevronDown, ChevronUp, Sparkles, Plus
 } from 'lucide-react';
 import { usePageContext } from './PageContext';
-import { slashMenuSections, calculateInitials } from './utils';
+import { slashMenuSections, calculateInitials, obfuscateText, deobfuscateText, obfuscateTextSecure, deobfuscateTextSecure } from './utils';
 import UploadZone from './components/UploadZone';
 import { FontSettingsPanel, POPULAR_FONTS } from './pages/NotionNestPage';
 import { listNotionPages } from './notionPageStorage';
@@ -362,11 +362,27 @@ export const SlashMenu = memo(function SlashMenu() {
       changeBlockType(slashMenu.blockId, type);
       const targetId = slashMenu.blockId;
       requestAnimationFrame(() => {
-        const el = document.querySelector(`[data-block-id="${targetId}"] [contenteditable]`);
-        if (el) {
-          el.textContent = '';
-          el.innerHTML = '';
-          el.focus();
+        if (type !== 'tabs' && type !== 'columns' && type !== 'table') {
+          const el = document.querySelector(`[data-block-id="${targetId}"] [contenteditable]`);
+          if (el) {
+            el.textContent = '';
+            el.innerHTML = '';
+            el.focus();
+          }
+        } else {
+          let el;
+          if (type === 'tabs') {
+            el = document.querySelector(`[data-block-id="${targetId}"] .tab-content [contenteditable]`);
+          } else if (type === 'columns') {
+            el = document.querySelector(`[data-block-id="${targetId}"] .nn-column [contenteditable]`);
+          } else if (type === 'table') {
+            el = document.querySelector(`[data-block-id="${targetId}"] .nn-tc[contenteditable]`);
+          } else {
+            el = document.querySelector(`[data-block-id="${targetId}"] [contenteditable]`);
+          }
+          if (el) {
+            el.focus();
+          }
         }
       });
     }
@@ -535,7 +551,13 @@ function unescapeHtml(html) {
 
 function stripSpecialWrappers(html) {
   if (!html) return '';
-  return html.replace(/<span class="nn-(?:redact|mask|strike)-text"[^>]*>([\s\S]*?)<\/span>/g, '$1');
+  return html.replace(/<span class="nn-(?:redact|mask|strike)-text"([^>]*)>([\s\S]*?)<\/span>/g, (match, attrs, innerContent) => {
+    const dataOriginalMatch = attrs.match(/data-original="([^"]*)"/);
+    if (dataOriginalMatch) {
+      return deobfuscateText(dataOriginalMatch[1]);
+    }
+    return innerContent;
+  });
 }
 
 export function BlockContextMenu({ menuRef }) {
@@ -557,6 +579,9 @@ export function BlockContextMenu({ menuRef }) {
     setPageState,
     openAiRephrase,
     closeAiRephrase,
+    storeRedactedContent,
+    getRedactedContent,
+    clearRedactedContent,
   } = usePageContext();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -699,13 +724,17 @@ export function BlockContextMenu({ menuRef }) {
 
   const handleRedact = () => {
     const stripped = stripSpecialWrappers(block.content || '');
-    updateBlockProperty(block.id, 'content', `<span class="nn-redact-text" data-original="${escapeHtml(stripped)}">${stripped}</span>`);
+    storeRedactedContent(block.id, stripped);
+    const visibleTextLength = stripped.replace(/<[^>]*>/g, '').length;
+    const redactPlaceholder = '█'.repeat(visibleTextLength || 5);
+    updateBlockProperty(block.id, 'content', `<span class="nn-redact-text">${redactPlaceholder}</span>`);
   };
 
   const handleUndoRedact = () => {
-    const match = block.content?.match(/data-original="([^"]*)"/);
-    if (match) {
-      updateBlockProperty(block.id, 'content', unescapeHtml(match[1]));
+    const original = getRedactedContent(block.id);
+    if (original) {
+      clearRedactedContent(block.id);
+      updateBlockProperty(block.id, 'content', original);
     } else {
       updateBlockProperty(block.id, 'content', stripSpecialWrappers(block.content));
     }
@@ -713,13 +742,19 @@ export function BlockContextMenu({ menuRef }) {
 
   const handleMask = () => {
     const stripped = stripSpecialWrappers(block.content || '');
-    updateBlockProperty(block.id, 'content', `<span class="nn-mask-text" data-original="${escapeHtml(stripped)}">${stripped}</span>`);
+    const obfuscated = obfuscateText(stripped);
+    updateBlockProperty(block.id, 'content', `<span class="nn-mask-text" data-original="${obfuscated}">${stripped}</span>`);
   };
 
   const handleUndoMask = () => {
     const match = block.content?.match(/data-original="([^"]*)"/);
     if (match) {
-      updateBlockProperty(block.id, 'content', unescapeHtml(match[1]));
+      const val = match[1];
+      if (val.startsWith('nnobf:')) {
+        updateBlockProperty(block.id, 'content', deobfuscateText(val));
+      } else {
+        updateBlockProperty(block.id, 'content', unescapeHtml(val));
+      }
     } else {
       updateBlockProperty(block.id, 'content', stripSpecialWrappers(block.content));
     }
@@ -727,13 +762,19 @@ export function BlockContextMenu({ menuRef }) {
 
   const handleStrike = () => {
     const stripped = stripSpecialWrappers(block.content || '');
-    updateBlockProperty(block.id, 'content', `<span class="nn-strike-text" data-original="${escapeHtml(stripped)}">${stripped}</span>`);
+    const obfuscated = obfuscateText(stripped);
+    updateBlockProperty(block.id, 'content', `<span class="nn-strike-text" data-original="${obfuscated}">${stripped}</span>`);
   };
 
   const handleUndoStrike = () => {
     const match = block.content?.match(/data-original="([^"]*)"/);
     if (match) {
-      updateBlockProperty(block.id, 'content', unescapeHtml(match[1]));
+      const val = match[1];
+      if (val.startsWith('nnobf:')) {
+        updateBlockProperty(block.id, 'content', deobfuscateText(val));
+      } else {
+        updateBlockProperty(block.id, 'content', unescapeHtml(val));
+      }
     } else {
       updateBlockProperty(block.id, 'content', stripSpecialWrappers(block.content));
     }

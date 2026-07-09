@@ -176,6 +176,15 @@ export function sanitizeNotionBlocks(blocks: unknown): any[] {
             ...(block.fontSize !== undefined ? { fontSize: block.fontSize } : {}),
             ...(block.textColor !== undefined ? { textColor: String(block.textColor) } : {}),
             ...(block.backgroundColor !== undefined ? { backgroundColor: String(block.backgroundColor) } : {}),
+            // Table-specific settings, styles, structure options
+            ...(block.hasHeader !== undefined ? { hasHeader: !!block.hasHeader } : {}),
+            ...(block.hasTotalRow !== undefined ? { hasTotalRow: !!block.hasTotalRow } : {}),
+            ...(block.colBorders !== undefined ? { colBorders: !!block.colBorders } : {}),
+            ...(block.rowBorders !== undefined ? { rowBorders: !!block.rowBorders } : {}),
+            ...(block.striped !== undefined ? { striped: !!block.striped } : {}),
+            ...(block.lockCols !== undefined ? { lockCols: !!block.lockCols } : {}),
+            ...(block.lockTable !== undefined ? { lockTable: !!block.lockTable } : {}),
+            ...(block.cellColors !== undefined ? { cellColors: block.cellColors } : {}),
         };
     }).filter(Boolean);
 }
@@ -196,6 +205,7 @@ export function createDefaultNotionPage(title?: string): NotionPagePayload {
         coverUrl: '',
         fullWidth: false,
         smallText: false,
+        restrictedDeletion: false,
         fontFamily: 'sans-serif',
         fontFavorites: ['sans-serif', 'serif', 'mono'],
         fontSize: 0,
@@ -215,6 +225,7 @@ export function parseNotionPageFromValues(values: Record<string, unknown> | null
             coverUrl: String(p.coverUrl ?? ''),
             fullWidth: p.fullWidth === true,
             smallText: p.smallText === true,
+            restrictedDeletion: p.restrictedDeletion === true,
             blocks: sanitizeNotionBlocks(p.blocks),
             comments: Array.isArray(p.comments) ? p.comments : [],
             commentsAlwaysShow: p.commentsAlwaysShow === true,

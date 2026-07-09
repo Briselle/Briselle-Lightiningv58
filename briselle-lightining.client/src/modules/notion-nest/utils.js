@@ -282,10 +282,26 @@ export function createNewBlock(type, content) {
 // ---- Deep clone block with fresh IDs ----
 export function deepCloneBlock(block) {
   const clone = JSON.parse(JSON.stringify(block));
+  const idMap = new Map();
   function reassignIds(b) {
+    const oldId = b.id;
     b.id = generateId();
+    idMap.set(oldId, b.id);
     if (b.children) b.children.forEach(reassignIds);
-    if (b.tabs) b.tabs.forEach(t => { t.id = generateId(); t.blocks.forEach(reassignIds); });
+    if (b.tabs) {
+      const oldActiveId = b.activeTabId;
+      b.tabs.forEach(t => {
+        const oldTabId = t.id;
+        t.id = generateId();
+        idMap.set(oldTabId, t.id);
+        t.blocks.forEach(reassignIds);
+      });
+      if (oldActiveId && idMap.has(oldActiveId)) {
+        b.activeTabId = idMap.get(oldActiveId);
+      } else if (b.tabs.length > 0) {
+        b.activeTabId = b.tabs[0].id;
+      }
+    }
     if (b.columns) b.columns.forEach(c => { c.id = generateId(); c.blocks.forEach(reassignIds); });
   }
   reassignIds(clone);
@@ -471,3 +487,102 @@ export function isCaretOnLastLine(el) {
     return true;
   }
 }
+
+const OBFUSCATION_KEY = 42;
+
+export function obfuscateText(text) {
+  if (!text) return '';
+  const charCodes = Array.from(text).map(char => char.charCodeAt(0) ^ OBFUSCATION_KEY);
+  const binaryString = String.fromCharCode(...charCodes);
+  return 'nnobf:' + btoa(unescape(encodeURIComponent(binaryString)));
+}
+
+export function deobfuscateText(obfuscated) {
+  if (!obfuscated) return '';
+  if (obfuscated.startsWith('nnobf:')) {
+    try {
+      const base64Part = obfuscated.slice(6);
+      const binaryString = decodeURIComponent(escape(atob(base64Part)));
+      const charCodes = Array.from(binaryString).map(char => char.charCodeAt(0) ^ OBFUSCATION_KEY);
+      return String.fromCharCode(...charCodes);
+    } catch (e) {
+      console.error("Failed to de-obfuscate:", e);
+      return obfuscated;
+    }
+  }
+  return obfuscated;
+}
+
+/* ---- Secure Redaction (in-memory only, no DOM storage) ---- */
+
+const _sessionKey = (() => {
+  const arr = new Uint8Array(32);
+  if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    crypto.getRandomValues(arr);
+  } else {
+    for (let i = 0; i < 32; i++) arr[i] = Math.floor(Math.random() * 256);
+  }
+  return Array.from(arr);
+})();
+
+function _deriveKey(byteArr) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < byteArr.length; i++) {
+    h ^= byteArr[i];
+    h = Math.imul(h, 0x01000193);
+  }
+  return h >>> 0;
+}
+
+const _derivedKey = _deriveKey(_sessionKey);
+
+function _secureXor(text, key) {
+  const charCodes = Array.from(text).map((ch, i) => ch.charCodeAt(0) ^ ((key >>> ((i % 4) * 8)) & 0xff) ^ (key >>> 24));
+  return String.fromCharCode(...charCodes);
+}
+
+function _shiftChars(text, offset) {
+  return Array.from(text).map(ch => {
+    const code = ch.charCodeAt(0);
+    return String.fromCharCode(code + offset);
+  }).join('');
+}
+
+export function obfuscateTextSecure(text) {
+  if (!text) return '';
+  const shifted = _shiftChars(text, 3);
+  const xored = _secureXor(shifted, _derivedKey);
+  const encoded = btoa(unescape(encodeURIComponent(xored)));
+  return 'nns:' + encoded;
+}
+
+export function deobfuscateTextSecure(obfuscated) {
+  if (!obfuscated || !obfuscated.startsWith('nns:')) return obfuscated || '';
+  try {
+    const base64Part = obfuscated.slice(4);
+    const xored = decodeURIComponent(escape(atob(base64Part)));
+    const shifted = _secureXor(xored, _derivedKey);
+    return _shiftChars(shifted, -3);
+  } catch (e) {
+    return '';
+  }
+}
+
+export const redactedContentMap = new Map();
+
+export function storeRedactedContent(blockId, originalHtml) {
+  redactedContentMap.set(blockId, originalHtml);
+}
+
+export function getRedactedContent(blockId) {
+  return redactedContentMap.get(blockId) || null;
+}
+
+export function clearRedactedContent(blockId) {
+  redactedContentMap.delete(blockId);
+}
+
+export function clearAllRedactedContent() {
+  redactedContentMap.clear();
+}
+

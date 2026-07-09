@@ -205,18 +205,24 @@ const TabSettingsPopover = memo(function TabSettingsPopover({ style, position, o
 
 /* ============ Main TabBlock Component ============ */
 const TabBlock = memo(function TabBlock({ block }) {
-  const { updateBlockProperty, showContextMenu } = usePageContext();
+  const { updateBlockProperty, showContextMenu, moveBlockToTab } = usePageContext();
   const [dragOverTabId, setDragOverTabId] = useState(null);
   const [dragSide, setDragSide] = useState(null);
   const [editingTabId, setEditingTabId] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [iconPickerState, setIconPickerState] = useState(null);
   const [BR, setBR] = useState(null);
-  const [nameKeys, setNameKeys] = useState({});  // force re-mount of tab-name span after rename
+  const [nameKeys, setNameKeys] = useState({});
+  const [tabRenderKey, setTabRenderKey] = useState(0);
+  const [contentDragOver, setContentDragOver] = useState(false);
   const barRef = useRef(null);
   const settingsBtnRef = useRef(null);
 
   useEffect(() => { import('./BlockRenderer').then(m => setBR(() => m.default)); }, []);
+
+  useEffect(() => {
+    setTabRenderKey(k => k + 1);
+  }, [block.tabs?.length, block.activeTabId]);
 
   const tabs = block.tabs || [];
   const activeTabId = block.activeTabId || (tabs[0] && tabs[0].id);
@@ -402,6 +408,33 @@ const TabBlock = memo(function TabBlock({ block }) {
     }
   }, [block.id, tabs, activeTab, updateBlockProperty]);
 
+  /* Drag-drop blocks into tab content */
+  const handleContentDragOver = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const hasBlockData = e.dataTransfer.types.includes('text/block-id');
+    if (hasBlockData) {
+      e.dataTransfer.dropEffect = 'move';
+      setContentDragOver(true);
+    }
+  }, []);
+
+  const handleContentDragLeave = useCallback((e) => {
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      setContentDragOver(false);
+    }
+  }, []);
+
+  const handleContentDrop = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setContentDragOver(false);
+    const sourceId = e.dataTransfer.getData('text/block-id');
+    if (sourceId && activeTabId && moveBlockToTab) {
+      moveBlockToTab(sourceId, block.id, activeTabId);
+    }
+  }, [block.id, activeTabId, moveBlockToTab]);
+
   /* Drag reorder */
   const handleDragStart = useCallback((e, tabId) => {
     e.dataTransfer.setData('text/tab-id', tabId);
@@ -545,8 +578,10 @@ const TabBlock = memo(function TabBlock({ block }) {
                   if (e.key === 'Escape') { e.preventDefault(); setEditingTabId(null); e.target.contentEditable = 'false'; }
                 }}
                 onClick={(e) => { if (editingTabId === tab.id) e.stopPropagation(); }}
-                dangerouslySetInnerHTML={{ __html: tab.name || `Tab ${tabs.indexOf(tab) + 1}` }}
-              />
+                data-tab-name={tab.name || `Tab ${tabs.indexOf(tab) + 1}`}
+              >
+                {tab.name || `Tab ${tabs.indexOf(tab) + 1}`}
+              </span>
             </div>
           ))}
           <div className="tab-add-btn" onClick={addTab} title="Add tab">+</div>
@@ -595,10 +630,13 @@ const TabBlock = memo(function TabBlock({ block }) {
         )}
 
         {/* Tab content */}
-        <div 
-          className="tab-content" 
-          key={activeTabId} 
+        <div
+          className={`tab-content${contentDragOver ? ' tab-content-drag-over' : ''}`}
+          key={activeTabId}
           onClick={handleTabContentClick}
+          onDragOver={handleContentDragOver}
+          onDragLeave={handleContentDragLeave}
+          onDrop={handleContentDrop}
           style={{ cursor: (!activeTab || !activeTab.blocks || activeTab.blocks.length === 0) ? 'text' : 'default' }}
         >
           <div className="blocks-container">

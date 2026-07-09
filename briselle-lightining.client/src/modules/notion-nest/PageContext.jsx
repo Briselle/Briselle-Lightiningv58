@@ -8,6 +8,7 @@ import {
   getBlockById as _getBlockById, findBlockContainer as _findBlockContainer,
   flatVisibleBlocks as _flatVisibleBlocks, createNewBlock, deepCloneBlock,
   calculateInitials, setCaretToEnd,
+  storeRedactedContent, getRedactedContent, clearRedactedContent, clearAllRedactedContent,
 } from './utils';
 import { supabase } from '../../utils/supabase';
 import { parseNotionPageFromValues } from './notionPageDefaults';
@@ -31,7 +32,7 @@ export function usePageContext() {
   if (!ctx) throw new Error('usePageContext must be used within PageProvider');
   return ctx;
 }
-export function PageProvider({ children, initialBlocks, initialTitle, initialIcon, initialCover, initialCoverPosition, initialComments, initialAuditData, onChange, imperativeRef }) {
+export function PageProvider({ children, initialBlocks, initialTitle, initialIcon, initialCover, initialCoverPosition, initialComments, initialAuditData, onChange, imperativeRef, restrictedDeletion = false }) {
   const [pageState, setPageState] = useState(() => {
     const blocks = initialBlocks || buildDefaultBlocks();
     fixTabDefaults(blocks);
@@ -106,6 +107,13 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     }, 30000);
     return () => clearInterval(timer);
   }, [triggerUpdate]);
+
+  useEffect(() => {
+    const handleBeforeUnload = () => clearAllRedactedContent();
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
+
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
   useEffect(() => {
@@ -233,64 +241,79 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     }, 50);
   }, []);
   const deleteBlock = useCallback((blockId) => {
+    const target = _getBlockById(blockId, pageRef.current.blocks);
+    if (!target) return;
+
     const blockComments = commentsRef.current.filter(c => c.blockId === blockId);
-    if (blockComments.length > 0) {
-      setDeleteConfirm({
-        type: 'block',
-        blockId,
-        message: `This block contains active comments. Deleting it will also delete those comments.`,
-        onConfirm: () => {
-          // Unwrap highlights in DOM first
-          blockComments.forEach(c => {
-            const markEl = document.querySelector(`.inline-comment-highlight[data-comment-id="${c.id}"], .inline-comment[data-comment-id="${c.id}"]`);
-            if (markEl) {
-              const parent = markEl.parentNode;
-              if (parent) {
-                while (markEl.firstChild) {
-                  parent.insertBefore(markEl.firstChild, markEl);
-                }
-                parent.removeChild(markEl);
+
+    const actualDelete = () => {
+      if (blockComments.length > 0) {
+        // Unwrap highlights in DOM first
+        blockComments.forEach(c => {
+          const markEl = document.querySelector(`.inline-comment-highlight[data-comment-id="${c.id}"], .inline-comment[data-comment-id="${c.id}"]`);
+          if (markEl) {
+            const parent = markEl.parentNode;
+            if (parent) {
+              while (markEl.firstChild) {
+                parent.insertBefore(markEl.firstChild, markEl);
               }
+              parent.removeChild(markEl);
             }
-          });
-          setComments(prev => {
-            const next = prev.filter(c => c.blockId !== blockId);
-            persistComments(next);
-            return next;
-          });
-          setPageState(prev => {
-            const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
-            const container = _findBlockContainer(blockId, next.blocks);
-            if (container) {
-              const target = container.arr[container.index];
-              if (target && target.children && target.children.length > 0) {
-                container.arr.splice(container.index + 1, 0, ...target.children);
-              }
-              container.arr.splice(container.index, 1);
-            }
-            return next;
-          });
-          setDeleteConfirm(null);
-        },
-        onCancel: () => {
-          setDeleteConfirm(null);
-        }
-      });
-    } else {
+          }
+        });
+        setComments(prev => {
+          const next = prev.filter(c => c.blockId !== blockId);
+          persistComments(next);
+          return next;
+        });
+      }
       setPageState(prev => {
         const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
         const container = _findBlockContainer(blockId, next.blocks);
         if (!container) return prev;
         if (container.arr.length <= 1 && container.arr === next.blocks) return prev;
-        const target = container.arr[container.index];
-        if (target && target.children && target.children.length > 0) {
-          container.arr.splice(container.index + 1, 0, ...target.children);
+        const targetNode = container.arr[container.index];
+        if (targetNode && targetNode.children && targetNode.children.length > 0) {
+          container.arr.splice(container.index + 1, 0, ...targetNode.children);
         }
         container.arr.splice(container.index, 1);
         return next;
       });
+      setDeleteConfirm(null);
+    };
+
+    const isTextType = ['paragraph', 'heading1', 'heading2', 'heading3', 'heading4', 'heading5'].includes(target.type);
+    const hasContent = target.content && target.content.trim() !== '';
+
+    // If restrictedDeletion is on, we need confirmation unless it's a text block with no content
+    const needsConfirmation = restrictedDeletion && (!isTextType || hasContent);
+
+    if (blockComments.length > 0) {
+      setDeleteConfirm({
+        type: 'block',
+        blockId,
+        title: 'Delete block & comments?',
+        message: 'This block contains active comments. Deleting it will also delete those comments.',
+        cancelText: 'Cancel',
+        confirmText: 'Delete block',
+        onConfirm: actualDelete,
+        onCancel: () => setDeleteConfirm(null)
+      });
+    } else if (needsConfirmation) {
+      setDeleteConfirm({
+        type: 'block',
+        blockId,
+        title: 'Delete Block?',
+        message: 'Are you sure you want to delete this block?',
+        cancelText: 'Cancel',
+        confirmText: 'Delete',
+        onConfirm: actualDelete,
+        onCancel: () => setDeleteConfirm(null)
+      });
+    } else {
+      actualDelete();
     }
-  }, []);
+  }, [restrictedDeletion]);
   const duplicateBlock = useCallback((blockId) => {
     const block = _getBlockById(blockId, pageRef.current.blocks);
     if (!block) return null;
@@ -328,6 +351,8 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
       delete block.checked; delete block.open; delete block.children;
       delete block.calloutIcon; delete block.language;
       delete block.rows; delete block.columns; delete block.tabs; delete block.activeTabId;
+      delete block.hasHeader; delete block.hasTotalRow; delete block.colBorders; delete block.rowBorders;
+      delete block.striped; delete block.lockCols; delete block.lockTable; delete block.cellColors;
       delete block.url; delete block.bookmarkTitle; delete block.description; delete block.caption;
       if (newType === 'todo') block.checked = false;
       if (newType === 'toggle') { block.open = false; block.children = [makeBlock('paragraph', '')]; }
@@ -342,15 +367,38 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
       return next;
     });
   }, []);
-  const moveBlock = useCallback((blockId, direction) => {
+  const moveBlock = useCallback((sourceId, targetIdOrDirection, position) => {
     setPageState(prev => {
       const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
-      const container = _findBlockContainer(blockId, next.blocks);
-      if (!container) return prev;
-      const { arr, index } = container;
-      const newIndex = direction === 'up' ? index - 1 : index + 1;
-      if (newIndex < 0 || newIndex >= arr.length) return prev;
-      [arr[index], arr[newIndex]] = [arr[newIndex], arr[index]];
+
+      // Handle legacy behavior: swapping with immediate neighbor when direction is 'up' or 'down'
+      if (targetIdOrDirection === 'up' || targetIdOrDirection === 'down') {
+        const container = _findBlockContainer(sourceId, next.blocks);
+        if (!container) return prev;
+        const { arr, index } = container;
+        const newIndex = targetIdOrDirection === 'up' ? index - 1 : index + 1;
+        if (newIndex < 0 || newIndex >= arr.length) return prev;
+        [arr[index], arr[newIndex]] = [arr[newIndex], arr[index]];
+        return next;
+      }
+
+      // Tree-agnostic drop movement: move sourceId next to targetId
+      const sourceContainer = _findBlockContainer(sourceId, next.blocks);
+      if (!sourceContainer) return prev;
+
+      // Remove source block from its current container
+      const [sourceBlock] = sourceContainer.arr.splice(sourceContainer.index, 1);
+
+      // Find target container in the modified tree
+      const targetContainer = _findBlockContainer(targetIdOrDirection, next.blocks);
+      if (!targetContainer) {
+        return prev;
+      }
+
+      const { arr: targetArr, index: targetIndex } = targetContainer;
+      const insertIndex = position === 'before' ? targetIndex : targetIndex + 1;
+      targetArr.splice(insertIndex, 0, sourceBlock);
+
       return next;
     });
   }, []);
@@ -514,6 +562,50 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
       const { arr, index } = container;
       const [block] = arr.splice(index, 1);
       arr.push(block);
+      return next;
+    });
+  }, []);
+
+  const moveBlockToTab = useCallback((sourceId, tabBlockId, tabId) => {
+    setPageState(prev => {
+      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
+      const sourceContainer = _findBlockContainer(sourceId, next.blocks);
+      if (!sourceContainer) return prev;
+      const [sourceBlock] = sourceContainer.arr.splice(sourceContainer.index, 1);
+      const tabBlock = _getBlockById(tabBlockId, next.blocks);
+      if (!tabBlock || tabBlock.type !== 'tabs' || !tabBlock.tabs) {
+        sourceContainer.arr.splice(sourceContainer.index, 0, sourceBlock);
+        return prev;
+      }
+      const tab = tabBlock.tabs.find(t => t.id === tabId);
+      if (!tab) {
+        sourceContainer.arr.splice(sourceContainer.index, 0, sourceBlock);
+        return prev;
+      }
+      if (!tab.blocks) tab.blocks = [];
+      tab.blocks.push(sourceBlock);
+      return next;
+    });
+  }, []);
+
+  const moveBlockToColumn = useCallback((sourceId, columnsBlockId, columnId) => {
+    setPageState(prev => {
+      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
+      const sourceContainer = _findBlockContainer(sourceId, next.blocks);
+      if (!sourceContainer) return prev;
+      const [sourceBlock] = sourceContainer.arr.splice(sourceContainer.index, 1);
+      const colBlock = _getBlockById(columnsBlockId, next.blocks);
+      if (!colBlock || colBlock.type !== 'columns' || !colBlock.columns) {
+        sourceContainer.arr.splice(sourceContainer.index, 0, sourceBlock);
+        return prev;
+      }
+      const col = colBlock.columns.find(c => c.id === columnId);
+      if (!col) {
+        sourceContainer.arr.splice(sourceContainer.index, 0, sourceBlock);
+        return prev;
+      }
+      if (!col.blocks) col.blocks = [];
+      col.blocks.push(sourceBlock);
       return next;
     });
   }, []);
@@ -1255,9 +1347,11 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     hoveredCommentId, setHoveredCommentId,
     showPageCommentComposer, setShowPageCommentComposer,
     auditData: initialAuditData,
-    moveBlockToTop, moveBlockToBottom, moveBlockToPage, createBlockLevelComment, triggerBlockAi, acceptSuggestion,
+    moveBlockToTop, moveBlockToBottom, moveBlockToTab, moveBlockToColumn, moveBlockToPage, createBlockLevelComment, triggerBlockAi, acceptSuggestion,
     undoPopover, showUndoPopover, hideUndoPopover,
     aiRephrase, openAiRephrase, closeAiRephrase,
+    restrictedDeletion,
+    storeRedactedContent, getRedactedContent, clearRedactedContent, clearAllRedactedContent,
   };
   return <PageContext.Provider value={value}>{children}</PageContext.Provider>;
 }

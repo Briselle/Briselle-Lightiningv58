@@ -193,11 +193,27 @@ function useEditable(block, opts = {}) {
             ctx.changeBlockType(block.id, matchedType);
             ctx.hideSlashMenu();
             requestAnimationFrame(() => {
-              const el = document.querySelector(`[data-block-id="${block.id}"] [contenteditable]`);
-              if (el) {
-                el.textContent = '';
-                el.innerHTML = '';
-                el.focus();
+              if (matchedType !== 'tabs' && matchedType !== 'columns' && matchedType !== 'table') {
+                const el = document.querySelector(`[data-block-id="${block.id}"] [contenteditable]`);
+                if (el) {
+                  el.textContent = '';
+                  el.innerHTML = '';
+                  el.focus();
+                }
+              } else {
+                let el;
+                if (matchedType === 'tabs') {
+                  el = document.querySelector(`[data-block-id="${block.id}"] .tab-content [contenteditable]`);
+                } else if (matchedType === 'columns') {
+                  el = document.querySelector(`[data-block-id="${block.id}"] .nn-column [contenteditable]`);
+                } else if (matchedType === 'table') {
+                  el = document.querySelector(`[data-block-id="${block.id}"] .nn-tc[contenteditable]`);
+                } else {
+                  el = document.querySelector(`[data-block-id="${block.id}"] [contenteditable]`);
+                }
+                if (el) {
+                  el.focus();
+                }
               }
             });
             return;
@@ -240,6 +256,9 @@ function useEditable(block, opts = {}) {
           // Let the browser handle line break natively
           return;
         }
+
+        // Prevent browser native splitting/insertion for lists, paragraphs, etc.
+        e.preventDefault();
 
         const isListOrQuoteType = ['bulleted_list', 'numbered_list', 'todo', 'toggle'].includes(block.type);
         const currentText = ref.current ? ref.current.textContent || '' : '';
@@ -548,7 +567,7 @@ export const QuoteBlock = memo(function QuoteBlock({ block }) {
       e.preventDefault();
       e.stopPropagation();
       const rect = e.currentTarget.getBoundingClientRect();
-      showContextMenu(e.clientX, e.clientY, [], rect, 'block', block.id, 'color');
+      showContextMenu(e.clientX, e.clientY, [], rect, 'block', block.id, 'color-artifacts');
     }
   };
 
@@ -1091,9 +1110,10 @@ export const TableBlock = memo(function TableBlock({ block }) {
 });
 
 export const ColumnsBlock = memo(function ColumnsBlock({ block }) {
-  const { updateBlockProperty, insertColumn, deleteColumn, showContextMenu, addBlock } = usePageContext();
+  const { updateBlockProperty, insertColumn, deleteColumn, showContextMenu, addBlock, moveBlockToColumn } = usePageContext();
   const [BR, setBR] = useState(null);
   const [resizing, setResizing] = useState(null); // { colIdx, startX, startWidths }
+  const [colDragOverId, setColDragOverId] = useState(null);
   const wrapRef = useRef(null);
 
   useEffect(() => { import('./BlockRenderer').then(m => setBR(() => m.default)); }, []);
@@ -1150,13 +1170,47 @@ export const ColumnsBlock = memo(function ColumnsBlock({ block }) {
     showContextMenu(e.clientX, e.clientY, items, null, 'column', block.id);
   };
 
+  // ---- column block drop handlers ----
+  const handleColDragOver = useCallback((e, colId) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const hasBlockData = e.dataTransfer.types.includes('text/block-id');
+    if (hasBlockData) {
+      e.dataTransfer.dropEffect = 'move';
+      setColDragOverId(colId);
+    }
+  }, []);
+
+  const handleColDragLeave = useCallback((e) => {
+    if (!e.currentTarget.contains(e.relatedTarget)) {
+      setColDragOverId(null);
+    }
+  }, []);
+
+  const handleColDrop = useCallback((e, colId) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setColDragOverId(null);
+    const sourceId = e.dataTransfer.getData('text/block-id');
+    if (sourceId && moveBlockToColumn) {
+      moveBlockToColumn(sourceId, block.id, colId);
+    }
+  }, [block.id, moveBlockToColumn]);
+
   return (
     <div className="block-content">
       <div className="nn-columns-wrap" ref={wrapRef} style={{ display: 'flex', width: '100%', gap: 0 }}>
         {columns.map((col, idx) => (
           <div key={col.id} style={{ display: 'flex', flex: colWidths[idx] || 1, minWidth: 0 }}>
             {/* Column content */}
-            <div className="nn-column" data-col-id={col.id} style={{ flex: 1, minWidth: 0 }}>
+            <div
+              className={`nn-column${colDragOverId === col.id ? ' nn-column-drag-over' : ''}`}
+              data-col-id={col.id}
+              style={{ flex: 1, minWidth: 0 }}
+              onDragOver={(e) => handleColDragOver(e, col.id)}
+              onDragLeave={handleColDragLeave}
+              onDrop={(e) => handleColDrop(e, col.id)}
+            >
               {/* Column handle (6-dot menu) */}
               <div
                 className="nn-col-menu-btn"

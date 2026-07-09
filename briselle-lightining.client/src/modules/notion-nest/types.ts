@@ -6,6 +6,7 @@ export type NotionPagePayload = {
     coverUrl: string;
     fullWidth: boolean;
     smallText: boolean;
+    restrictedDeletion?: boolean;
     blocks: any[];
     comments?: any[];
     commentsAlwaysShow?: boolean;

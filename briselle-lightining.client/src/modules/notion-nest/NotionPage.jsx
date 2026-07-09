@@ -5,6 +5,7 @@ import { Sidebar, Topbar, PageHeader, CoverImage } from './layout';
 import BlockRenderer from './BlockRenderer';
 import { SlashMenu, ContextMenu, InlineToolbar, NotionPageTextComment, NotionPageTopComments } from './menus';
 import { POPULAR_FONTS } from './pages/NotionNestPage';
+import { deobfuscateText, getRedactedContent } from './utils';
 import './NotionPage.css';
 
 export default function NotionPage({
@@ -21,6 +22,7 @@ export default function NotionPage({
   commentsAlwaysOff = false,
   commentsAutoHideDelay = 30,
   commentsHoverMode = 'text',
+  restrictedDeletion = false,
   imperativeRef
 }) {
   return (
@@ -34,6 +36,7 @@ export default function NotionPage({
       initialAuditData={initialAuditData}
       onChange={onChange}
       imperativeRef={imperativeRef}
+      restrictedDeletion={restrictedDeletion}
     >
       <NotionPageInner
         showSidebarProp={showSidebar}
@@ -972,8 +975,15 @@ function NotionPageInner({
           if (specialText.classList.contains('nn-mask-text')) type = 'mask';
           if (specialText.classList.contains('nn-strike-text')) type = 'strike';
           
-          const originalEscaped = specialText.getAttribute('data-original') || '';
-          const originalText = unescapeHtml(originalEscaped);
+          let originalText = '';
+          if (type === 'redact') {
+            originalText = getRedactedContent(blockId) || '';
+          } else {
+            const originalEscaped = specialText.getAttribute('data-original') || '';
+            originalText = originalEscaped.startsWith('nnobf:')
+              ? deobfuscateText(originalEscaped)
+              : unescapeHtml(originalEscaped);
+          }
           
           const rect = specialText.getBoundingClientRect();
           const x = rect.left + rect.width / 2;
@@ -1104,16 +1114,16 @@ function DeleteConfirmModal({ config }) {
   return (
     <div className="confirm-modal-overlay" onMouseDown={(e) => e.stopPropagation()}>
       <div className="confirm-modal">
-        <h3>Delete associated comments?</h3>
+        <h3>{config.title || 'Delete associated comments?'}</h3>
         <p>{config.message}</p>
 
         <div className="confirm-modal-actions">
           <button className="confirm-btn-cancel" onClick={config.onCancel}>
-            Keep comments
+            {config.cancelText || 'Keep comments'}
           </button>
 
           <button className="confirm-btn-delete" onClick={config.onConfirm}>
-            Delete comments
+            {config.confirmText || 'Delete comments'}
           </button>
         </div>
       </div>

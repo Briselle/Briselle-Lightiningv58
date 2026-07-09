@@ -12,6 +12,7 @@ import {
     Orbit,
     Star,
     ChevronDown,
+    Trash2,
 } from 'lucide-react';
 import '../notion-nest.css';
 import NotionPage from '../NotionPage';
@@ -488,6 +489,8 @@ export default function NotionNestPage() {
     const auditSettingsRef = useRef<HTMLDivElement>(null);
     const [showFreezeSettings, setShowFreezeSettings] = useState(false);
     const freezeSettingsRef = useRef<HTMLDivElement>(null);
+    const [showDeleteSettings, setShowDeleteSettings] = useState(false);
+    const deleteSettingsRef = useRef<HTMLDivElement>(null);
     const [showFontSettings, setShowFontSettings] = useState(false);
     const fontSettingsRef = useRef<HTMLDivElement>(null);
     const [showForceFontModal, setShowForceFontModal] = useState(false);
@@ -505,6 +508,7 @@ export default function NotionNestPage() {
     const showAuditModifiedBy = page?.showAuditModifiedBy ?? true;
     const showAuditWordCount = page?.showAuditWordCount ?? true;
     const freezeTitle = page?.freezeTitle ?? false;
+    const restrictedDeletion = page?.restrictedDeletion ?? false;
     const fontFamily = page?.fontFamily ?? 'sans-serif';
     const fontFavorites = page?.fontFavorites ?? ['sans-serif', 'serif', 'mono'];
     const fontSize = page?.fontSize ?? 0;
@@ -552,6 +556,7 @@ export default function NotionNestPage() {
         showAuditModifiedBy?: boolean;
         showAuditWordCount?: boolean;
         freezeTitle?: boolean;
+        restrictedDeletion?: boolean;
         fontFamily?: string;
         fontFavorites?: string[];
         fontSize?: -2 | -1 | 0 | 1 | 2;
@@ -578,6 +583,7 @@ export default function NotionNestPage() {
             showAuditModifiedBy: patch.showAuditModifiedBy !== undefined ? patch.showAuditModifiedBy : showAuditModifiedBy,
             showAuditWordCount: patch.showAuditWordCount !== undefined ? patch.showAuditWordCount : showAuditWordCount,
             freezeTitle: patch.freezeTitle !== undefined ? patch.freezeTitle : freezeTitle,
+            restrictedDeletion: patch.restrictedDeletion !== undefined ? patch.restrictedDeletion : restrictedDeletion,
             fontFamily: patch.fontFamily !== undefined ? patch.fontFamily : fontFamily,
             fontFavorites: patch.fontFavorites !== undefined ? patch.fontFavorites : fontFavorites,
             fontSize: patch.fontSize !== undefined ? patch.fontSize : fontSize
@@ -621,6 +627,7 @@ export default function NotionNestPage() {
             showAuditModifiedBy: true,
             showAuditWordCount: true,
             freezeTitle: false,
+            restrictedDeletion: false,
         };
         setPage(next);
         scheduleSave(title, next);
@@ -636,6 +643,16 @@ export default function NotionNestPage() {
         document.addEventListener('mousedown', handler);
         return () => document.removeEventListener('mousedown', handler);
     }, [showCommentSettings]);
+    useEffect(() => {
+        if (!showDeleteSettings) return;
+        const handler = (e: MouseEvent) => {
+            if (deleteSettingsRef.current && !deleteSettingsRef.current.contains(e.target as Node)) {
+                setShowDeleteSettings(false);
+            }
+        };
+        document.addEventListener('mousedown', handler);
+        return () => document.removeEventListener('mousedown', handler);
+    }, [showDeleteSettings]);
     useEffect(() => {
         if (!showAuditSettings) return;
         const handler = (e: MouseEvent) => {
@@ -834,6 +851,7 @@ export default function NotionNestPage() {
             showAuditModifiedBy,
             showAuditWordCount,
             freezeTitle,
+            restrictedDeletion,
             fontFamily,
             fontFavorites,
             fontSize,
@@ -1131,6 +1149,32 @@ export default function NotionNestPage() {
                                 </div>
                             )}
                         </div>
+                        <div className="nn-comment-toggle-wrap" ref={deleteSettingsRef}>
+                            <button
+                                type="button"
+                                className={`notion-nest-toggle-btn ${restrictedDeletion ? 'active' : ''}`}
+                                onClick={() => setShowDeleteSettings(v => !v)}
+                                title="Restricted deletion settings"
+                            >
+                                <Trash2 className="w-4 h-4" />
+                            </button>
+                            {showDeleteSettings && (
+                                <div className="nn-comment-settings-dropdown">
+                                    <div className="nncs-label">Deletion Settings</div>
+                                    <div className="nncs-item-toggle">
+                                        <span>Restricted Deletion</span>
+                                        <label className="nn-toggle-switch">
+                                            <input
+                                                type="checkbox"
+                                                checked={restrictedDeletion}
+                                                onChange={() => updatePageSettings({ restrictedDeletion: !restrictedDeletion })}
+                                            />
+                                            <span className="nn-toggle-slider" />
+                                        </label>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                         <button
                             type="button"
                             className="notion-nest-toggle-btn nn-reset-all-btn"
@@ -1209,6 +1253,7 @@ export default function NotionNestPage() {
                         commentsAlwaysOff={commentsAlwaysOff}
                         commentsAutoHideDelay={autoHideDelay}
                         commentsHoverMode={commentsHoverMode}
+                        restrictedDeletion={restrictedDeletion}
                     />
                 </NotionEditorErrorBoundary>
             </div>
