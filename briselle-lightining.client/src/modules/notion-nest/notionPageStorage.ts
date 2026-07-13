@@ -170,3 +170,71 @@ export async function listNotionPages(dobjId: number): Promise<{ id: number; tit
 export function mergeObjectConfigIcon(config: unknown): Record<string, unknown> {
     return safeParseConfig(config);
 }
+
+/* ---- Version Checkpoints (Positional Undo) ---- */
+
+export async function savePageVersion(
+    ddataId: number,
+    saveNumber: number,
+    versionData: NotionPagePayload,
+): Promise<{ error: string | null }> {
+    const { error } = await supabase
+        .from('notion_page_versions')
+        .insert({
+            ddata_id: ddataId,
+            save_number: saveNumber,
+            version_data: versionData,
+        });
+    return { error: error?.message ?? null };
+}
+
+export async function loadPageVersions(
+    ddataId: number,
+): Promise<{ versions: { id: number; saveNumber: number; createdAt: string }[]; error: string | null }> {
+    const { data, error } = await supabase
+        .from('notion_page_versions')
+        .select('id,save_number,created_at')
+        .eq('ddata_id', ddataId)
+        .order('save_number', { ascending: true });
+    if (error) return { versions: [], error: error.message };
+    return {
+        versions: (data || []).map((row: any) => ({
+            id: row.id,
+            saveNumber: row.save_number,
+            createdAt: row.created_at,
+        })),
+        error: null,
+    };
+}
+
+export async function loadPageVersionData(
+    versionId: number,
+): Promise<{ data: NotionPagePayload | null; error: string | null }> {
+    const { data, error } = await supabase
+        .from('notion_page_versions')
+        .select('version_data')
+        .eq('id', versionId)
+        .single();
+    if (error) return { data: null, error: error.message };
+    return { data: (data?.version_data as NotionPagePayload) ?? null, error: null };
+}
+
+export async function deletePageVersion(
+    versionId: number,
+): Promise<{ error: string | null }> {
+    const { error } = await supabase
+        .from('notion_page_versions')
+        .delete()
+        .eq('id', versionId);
+    return { error: error?.message ?? null };
+}
+
+export async function deletePageVersionsByDdataId(
+    ddataId: number,
+): Promise<{ error: string | null }> {
+    const { error } = await supabase
+        .from('notion_page_versions')
+        .delete()
+        .eq('ddata_id', ddataId);
+    return { error: error?.message ?? null };
+}

@@ -1,12 +1,13 @@
 /* ============================================================
    NotionNest — blocks.jsx — All block components
    ============================================================ */
-import { useRef, useCallback, useEffect, useState, memo } from 'react';
+import { useRef, useCallback, useEffect, useState, useMemo, memo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { usePageContext } from './PageContext';
 import { NotionIconPicker, NotionCoverPicker, LucideIcon, SVG_ICONS, renderIconSvg, hasPageIcon, renderPageIcon } from './menus';
+import { Move } from 'lucide-react';
 import UploadZone from './components/UploadZone';
-import { getCaretPosition, setCaretToEnd, getCaretCoordinates, findBlockContainer, flatVisibleBlocks as flatVis, markdownShortcuts, slashMenuSections, isCaretOnFirstLine, isCaretOnLastLine } from './utils';
+import { getCaretPosition, setCaretToEnd, getCaretCoordinates, findBlockContainer, flatVisibleBlocks as flatVis, markdownShortcuts, slashMenuSections, isCaretOnFirstLine, isCaretOnLastLine, highlightCode } from './utils';
 import { useAuthStore } from '../../stores/authStore';
 import { listNotionPages, createNotionNestRecord, notionNestPagePath } from './notionPageStorage';
 
@@ -116,6 +117,58 @@ function useEditable(block, opts = {}) {
       }
       return;
     }
+    if (e.key === 'Enter' && !e.shiftKey && block.type === 'paragraph' && ref.current) {
+      const text = ref.current.textContent;
+      const enterPatterns = [
+        { pattern: /^\d+\.?$/, type: 'numbered_list' },
+        { pattern: /^-$/, type: 'bulleted_list' },
+        { pattern: /^\*$/, type: 'bulleted_list' },
+        { pattern: /^\[\]?$/, type: 'todo' },
+        { pattern: /^"$/, type: 'quote' },
+        { pattern: /^>$/, type: 'toggle' },
+        { pattern: /^h1$/, type: 'heading1' },
+        { pattern: /^h2$/, type: 'heading2' },
+        { pattern: /^h3$/, type: 'heading3' },
+        { pattern: /^h4$/, type: 'heading4' },
+        { pattern: /^h5$/, type: 'heading5' },
+        { pattern: /^h1t$/, type: 'toggle_heading1' },
+        { pattern: /^h2t$/, type: 'toggle_heading2' },
+        { pattern: /^h3t$/, type: 'toggle_heading3' },
+        { pattern: /^h4t$/, type: 'toggle_heading4' },
+        { pattern: /^h5t$/, type: 'toggle_heading5' },
+        { pattern: /^tl$/, type: 'toggle' },
+        { pattern: /^<>$/, type: 'code' },
+        { pattern: /^tbl$/, type: 'table' },
+        { pattern: /^cl$/, type: 'callout' },
+        { pattern: /^img$/, type: 'image' },
+        { pattern: /^vid$/, type: 'video' },
+        { pattern: /^fl$/, type: 'file' },
+        { pattern: /^au$/, type: 'audio' },
+        { pattern: /^wbm$/, type: 'bookmark' },
+        { pattern: /^tab$/, type: 'tabs' },
+        { pattern: /^tc$/, type: 'toc' },
+        { pattern: /^pg$/, type: 'sub_page' },
+        { pattern: /^txt$/, type: 'paragraph' },
+        { pattern: /^col2$/, type: 'columns2' },
+        { pattern: /^col3$/, type: 'columns3' },
+        { pattern: /^col4$/, type: 'columns4' },
+        { pattern: /^col5$/, type: 'columns5' },
+        { pattern: /^btn$/, type: 'button' },
+        { pattern: /^eq$/, type: 'equation' },
+        { pattern: /^le$/, type: 'link_preview' },
+      ];
+      for (const shortcut of enterPatterns) {
+        if (shortcut.pattern.test(text)) {
+          e.preventDefault();
+          ctx.changeBlockType(block.id, shortcut.type);
+          requestAnimationFrame(() => {
+            const el = document.querySelector(`[data-block-id="${block.id}"] [contenteditable]`);
+            if (el) { el.textContent = ''; el.innerHTML = ''; el.focus(); }
+          });
+          return;
+        }
+      }
+    }
     if ((e.key === 'Backspace' || e.key === 'Delete') && ref.current) {
       const selection = window.getSelection();
       if (selection && !selection.isCollapsed) {
@@ -155,8 +208,6 @@ function useEditable(block, opts = {}) {
       if (e.key === 'b') { e.preventDefault(); document.execCommand('bold'); return; }
       if (e.key === 'i') { e.preventDefault(); document.execCommand('italic'); return; }
       if (e.key === 'u') { e.preventDefault(); document.execCommand('underline'); return; }
-      if (e.key === 'z') { e.preventDefault(); document.execCommand('undo'); return; }
-      if (e.key === 'y') { e.preventDefault(); document.execCommand('redo'); return; }
       if (e.key === 'd') { e.preventDefault(); ctx.duplicateBlock(block.id); return; }
     }
     
@@ -215,7 +266,7 @@ function useEditable(block, opts = {}) {
                   el.focus();
                 }
               }
-            });
+});
             return;
           }
         }
@@ -641,25 +692,351 @@ export const DividerBlock = memo(function DividerBlock() {
 });
 
 export const CodeBlock = memo(function CodeBlock({ block }) {
-  const { ref, handleInput, handleKeyDown, handleFocus } = useEditable(block, { placeholder: 'Write code...', isCode: true });
-  const { updateBlockProperty } = usePageContext();
+  const { updateBlockProperty, duplicateBlock, deleteBlock, createBlockLevelComment } = usePageContext();
   const [copied, setCopied] = useState(false);
-  const langs = ['plain','javascript','typescript','python','html','css','java','c','cpp','go','rust','sql','json','bash','ruby','php'];
+  const [langOpen, setLangOpen] = useState(false);
+  const [langSearch, setLangSearch] = useState('');
+  const [moreOpen, setMoreOpen] = useState(false);
+  const [moreSearch, setMoreSearch] = useState('');
+  const [wrapCode, setWrapCode] = useState(true);
+  const [isEditing, setIsEditing] = useState(false);
+  const [caption, setCaption] = useState(block.caption || '');
+  const langRef = useRef(null);
+  const moreRef = useRef(null);
+  const searchRef = useRef(null);
+  const moreSearchRef = useRef(null);
+  const editorRef = useRef(null);
+  const contentRef = useRef(block.content || '');
+
+  const currentLang = (block.language || 'javascript').toLowerCase();
+  const codeContent = block.content || '';
+
+  const detectLanguage = useCallback((text) => {
+    const t = text.trim();
+    if (/(<!DOCTYPE|<html|<div|<span|<body|<head|<\/div>|<\/span>)/i.test(t)) return 'html';
+    if (/^\s*def\s+\w+|^\s*import\s+\w+|^\s*from\s+\w+\s+import|^\s*print\(|^\s*if\s+__name__/.test(t)) return 'python';
+    if (/^\s*\.[\w-]+\s*\{|^\s*#[\w-]+\s*\{|^\s*[\w-]+\s*:\s*[^;]+;|^\s*@media\s+|^\s*@import\s+/.test(t)) return 'css';
+    if (/(SELECT\s+|INSERT\s+INTO|UPDATE\s+\w+\s+SET|DELETE\s+FROM|CREATE\s+TABLE|ALTER\s+TABLE|DROP\s+TABLE)/i.test(t)) return 'sql';
+    if (/^\s*#include\s*[<"]|^\s*void\s+\w+\s*\(|^\s*int\s+main\s*\(/.test(t)) return 'c';
+    if (/^\s*#include\s*[<"]|^\s*using\s+namespace|^\s*std::|^\s*cout\s*<<|^\s*cin\s*>>/.test(t)) return 'cpp';
+    if (/(public\s+static\s+void\s+main|public\s+class\s+|private\s+|protected\s+|import\s+java\.)/.test(t)) return 'java';
+    if (/(^\s*func\s+|^\s*package\s+\w+|^\s*fmt\.|:=)/.test(t)) return 'go';
+    if (/(^\s*fn\s+|^\s*let\s+mut\s+|^\s*impl\s+|^\s*pub\s+|^\s*use\s+|^\s*mod\s+)/.test(t)) return 'rust';
+    if (/(<\?php|echo\s+|\$[a-zA-Z]|->)/.test(t)) return 'php';
+    if (/^\s*puts\s+|^\s*require\s+|^\s*def\s+\w+|^\s*class\s+\w+|^\s*end\s*$|^\s*module\s+/.test(t)) return 'ruby';
+    if (/(console\.log|document\.|window\.|addEventListener|getElementById|=>\s*\{|\.then\(|var\s+\w+|let\s+\w+|const\s+\w+|function\s+\w+|\.prototype\.)/i.test(t)) return 'javascript';
+    if (/\{\s*\n?\s*["']?\w+["']?\s*:/.test(t) && /[}\]]/.test(t)) return 'json';
+    return '';
+  }, []);
+
+  const saveContent = useCallback((text) => {
+    contentRef.current = text;
+    updateBlockProperty(block.id, 'content', text);
+  }, [block.id, updateBlockProperty]);
+
+  useEffect(() => {
+    if (isEditing && editorRef.current && editorRef.current.textContent !== codeContent) {
+      editorRef.current.textContent = codeContent;
+    }
+  }, [isEditing, codeContent]);
+
+  const handleCopy = useCallback(() => {
+    navigator.clipboard.writeText(codeContent.replace(/<[^>]*>/g, ''));
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
+  }, [codeContent]);
+
+  const handleLangSelect = useCallback((langValue) => {
+    updateBlockProperty(block.id, 'language', langValue);
+    setLangOpen(false);
+    setLangSearch('');
+  }, [block.id, updateBlockProperty]);
+
+  const handleFormatCode = useCallback(() => {
+    const text = codeContent.replace(/<[^>]*>/g, '');
+    const formatted = text.replace(/\t/g, '  ').replace(/\s+$/gm, '');
+    saveContent(formatted);
+  }, [codeContent, saveContent]);
+
+  const handleEditorInput = useCallback(() => {
+    if (editorRef.current) {
+      const text = editorRef.current.textContent || '';
+      saveContent(text);
+    }
+  }, [saveContent]);
+
+  const handleEditorKeyDown = useCallback((e) => {
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        range.deleteContents();
+        range.insertNode(document.createTextNode('  '));
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    }
+  }, []);
+
+  const handleEditorPaste = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.nativeEvent.stopImmediatePropagation();
+    const text = e.clipboardData.getData('text/plain');
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      range.insertNode(document.createTextNode(text));
+      range.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    requestAnimationFrame(() => {
+      if (editorRef.current) {
+        const content = editorRef.current.textContent || '';
+        saveContent(content);
+        if (!block.language) {
+          const detected = detectLanguage(content);
+          if (detected) {
+            updateBlockProperty(block.id, 'language', detected);
+          }
+        }
+      }
+    });
+  }, [block.id, block.language, saveContent, detectLanguage, updateBlockProperty]);
+
+  const handleFocus = useCallback(() => setIsEditing(true), []);
+
+  const handleBlur = useCallback(() => {
+    setIsEditing(false);
+    if (editorRef.current) {
+      const text = editorRef.current.textContent || '';
+      saveContent(text);
+    }
+  }, [saveContent]);
+
+  const handleCaptionChange = useCallback((e) => {
+    setCaption(e.target.value);
+    updateBlockProperty(block.id, 'caption', e.target.value);
+  }, [block.id, updateBlockProperty]);
+
+  const handleToggleCaption = useCallback(() => {
+    const newShowCaption = !block.showCaption;
+    updateBlockProperty(block.id, 'showCaption', newShowCaption);
+    if (!newShowCaption) {
+      setCaption('');
+      updateBlockProperty(block.id, 'caption', '');
+    }
+  }, [block.id, block.showCaption, updateBlockProperty]);
+
+  useEffect(() => {
+    if (langOpen && searchRef.current) searchRef.current.focus();
+    if (moreOpen && moreSearchRef.current) moreSearchRef.current.focus();
+  }, [langOpen, moreOpen]);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (langRef.current && !langRef.current.contains(e.target)) setLangOpen(false);
+      if (moreRef.current && !moreRef.current.contains(e.target)) setMoreOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const highlightedHtml = highlightCode(codeContent, currentLang);
+
+  const moreMenuItems = [
+    { label: 'Format code', icon: 'Code', action: handleFormatCode, isTopAction: true },
+    { label: 'Wrap code', icon: 'AlignLeft', action: () => setWrapCode(v => !v), check: wrapCode, isTopAction: true },
+    { label: 'Copy code', icon: 'Copy', action: handleCopy, isTopAction: true },
+    { label: block.showCaption ? 'Remove caption' : 'Add caption', icon: 'Type', action: handleToggleCaption, isTopAction: true },
+    { type: 'separator' },
+    { label: 'Copy link to block', icon: 'Link', action: () => {}, shortcut: 'Alt+\u2191+L' },
+    { label: 'Duplicate', icon: 'Copy', action: () => { duplicateBlock(block.id); setMoreOpen(false); }, shortcut: 'Ctrl+D' },
+    { label: 'Delete', icon: 'Trash2', action: () => { deleteBlock(block.id); setMoreOpen(false); }, danger: true, shortcut: 'Del' },
+    { type: 'separator' },
+    { label: 'Comments', icon: 'MessageSquare', action: () => { createBlockLevelComment(block.id, false); setMoreOpen(false); }, shortcut: 'Ctrl+\u2191+M' },
+  ];
+
+  const filteredMoreItems = moreMenuItems.filter(item => {
+    if (item.type === 'separator') return true;
+    if (!moreSearch) return true;
+    return item.label.toLowerCase().includes(moreSearch.toLowerCase());
+  });
+
   return (
     <div className="block-content">
-      <div className="block-code-header">
-        <select value={block.language || 'javascript'} onChange={e => updateBlockProperty(block.id, 'language', e.target.value)}>
-          {langs.map(l => <option key={l} value={l}>{l}</option>)}
-        </select>
-        <button className="code-copy-btn" onClick={() => { if (ref.current) { navigator.clipboard.writeText(ref.current.textContent); setCopied(true); setTimeout(() => setCopied(false), 1500); } }}>
-          {copied ? 'Copied!' : 'Copy'}
-        </button>
+      <div className="block-code">
+        <div className="block-code-header">
+          <div className="code-lang-selector" ref={langRef}>
+            <button className="code-lang-btn" onClick={() => setLangOpen(v => !v)}>
+              <span className="code-lang-label">{currentLang}</span>
+              <LucideIcon name="ChevronDown" style={{ width: 12, height: 12, opacity: 0.6 }} />
+            </button>
+            {langOpen && (
+              <div className="code-lang-dropdown">
+                <div className="code-lang-search-wrap">
+                  <input
+                    ref={searchRef}
+                    className="code-lang-search"
+                    placeholder="Search for a language..."
+                    value={langSearch}
+                    onChange={(e) => setLangSearch(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') { setLangOpen(false); setLangSearch(''); }
+                    }}
+                  />
+                </div>
+                <div className="code-lang-list">
+                  <CODE_LANG_LIST
+                    search={langSearch}
+                    current={currentLang}
+                    onSelect={handleLangSelect}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+          <div className="code-header-actions">
+            <button className="code-action-btn" onClick={handleCopy} title={copied ? 'Copied!' : 'Copy to clipboard'}>
+              <LucideIcon name={copied ? 'Check' : 'Copy'} style={{ width: 14, height: 14 }} />
+            </button>
+            <div className="code-more-wrap" ref={moreRef}>
+              <button className="code-action-btn" onClick={() => setMoreOpen(v => !v)} title="More options">
+                <LucideIcon name="MoreHorizontal" style={{ width: 14, height: 14 }} />
+              </button>
+              {moreOpen && (
+                <div className="code-more-dropdown">
+                  <div className="code-more-search-wrap">
+                    <input
+                      ref={moreSearchRef}
+                      className="code-more-search"
+                      placeholder="Search actions..."
+                      value={moreSearch}
+                      onChange={(e) => setMoreSearch(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') { setMoreOpen(false); setMoreSearch(''); }
+                      }}
+                    />
+                  </div>
+                  <div className="code-more-list">
+                    {filteredMoreItems.map((item, idx) => {
+                      if (item.type === 'separator') {
+                        return <div key={`sep-${idx}`} className="code-more-separator" />;
+                      }
+                      return (
+                        <button
+                          key={item.label}
+                          className={`code-more-item${item.danger ? ' danger' : ''}${item.disabled ? ' disabled' : ''}`}
+                          onClick={() => {
+                            if (!item.disabled) {
+                              item.action();
+                              if (!item.check && item.action !== handleCopy) setMoreOpen(false);
+                            }
+                          }}
+                          disabled={item.disabled}
+                        >
+                          <span className="code-more-icon">
+                            <LucideIcon name={item.icon} style={{ width: 14, height: 14 }} />
+                          </span>
+                          <span className="code-more-label">{item.label}</span>
+                          {item.shortcut && <span className="code-more-shortcut">{item.shortcut}</span>}
+                          {item.check !== undefined && <span className="code-more-check">{item.check ? '\u2713' : ''}</span>}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+        <div className="block-code-body">
+          {isEditing ? (
+            <pre
+              ref={editorRef}
+              className="block-code-content code-editing"
+              contentEditable
+              suppressContentEditableWarning
+              data-placeholder="Write code..."
+              onInput={handleEditorInput}
+              onKeyDown={handleEditorKeyDown}
+              onPaste={handleEditorPaste}
+              onFocus={handleFocus}
+              onBlur={handleBlur}
+              style={{ whiteSpace: wrapCode ? 'pre-wrap' : 'pre', overflowX: wrapCode ? 'hidden' : 'auto' }}
+            />
+          ) : (
+            <pre
+              ref={editorRef}
+              className="block-code-content code-display"
+              onClick={handleFocus}
+              style={{ whiteSpace: wrapCode ? 'pre-wrap' : 'pre', overflowX: wrapCode ? 'hidden' : 'auto', cursor: 'text' }}
+              dangerouslySetInnerHTML={{ __html: highlightedHtml || '<span class="hl-plain">Write code...</span>' }}
+            />
+          )}
+        </div>
+        {block.showCaption && (
+          <div className="code-caption">
+            <input
+              className="code-caption-input"
+              placeholder="Caption"
+              value={caption}
+              onChange={handleCaptionChange}
+            />
+          </div>
+        )}
       </div>
-      <pre ref={ref} className="block-code-content" contentEditable suppressContentEditableWarning
-        data-placeholder="Write code..." onInput={handleInput} onKeyDown={handleKeyDown} onFocus={handleFocus} />
     </div>
   );
 });
+
+function CODE_LANG_LIST({ search, current, onSelect }) {
+  const [langs, setLangs] = useState([]);
+
+  useEffect(() => {
+    import('./utils').then(m => setLangs(m.CODE_LANGUAGES || [])).catch(() => {});
+  }, []);
+
+  const filtered = langs.filter(l =>
+    l.label.toLowerCase().includes(search.toLowerCase()) ||
+    l.value.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const categories = {};
+  filtered.forEach(lang => {
+    const cat = lang.category || 'Other';
+    if (!categories[cat]) categories[cat] = [];
+    categories[cat].push(lang);
+  });
+
+  return (
+    <>
+      {Object.entries(categories).map(([category, items]) => (
+        <div key={category} className="code-lang-category">
+          <div className="code-lang-category-label">{category}</div>
+          {items.map(lang => (
+            <button
+              key={lang.value}
+              className={`code-lang-item${lang.value === current ? ' active' : ''}`}
+              onClick={() => onSelect(lang.value)}
+            >
+              <span className="code-lang-dot" style={{ background: lang.color }} />
+              <span className="code-lang-name">{lang.label}</span>
+              {lang.value === current && <span className="code-lang-check">{'\u2713'}</span>}
+            </button>
+          ))}
+        </div>
+      ))}
+      {filtered.length === 0 && <div className="code-lang-empty">No languages found</div>}
+    </>
+  );
+}
+
+
 
 function MediaBlockPicker({ blockId, blockType, onSelect }) {
   const { activeMediaPickerId, setActiveMediaPickerId } = usePageContext();
@@ -802,18 +1179,291 @@ export const ImageBlock = memo(function ImageBlock({ block }) {
 
 export const BookmarkBlock = memo(function BookmarkBlock({ block }) {
   const { updateBlockProperty } = usePageContext();
+  const [showModal, setShowModal] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [urlInput, setUrlInput] = useState(block.url || '');
+  const [isVisual, setIsVisual] = useState(true);
+  const inputRef = useRef(null);
+  const [currentSlide, setCurrentSlide] = useState(0);
+
+  const allImages = useMemo(() => block.image ? block.image.split('|').filter(Boolean) : [], [block.image]);
+
+  useEffect(() => {
+    setCurrentSlide(0);
+    if (allImages.length <= 1) return;
+    const timer = setInterval(() => setCurrentSlide(prev => (prev + 1) % allImages.length), 1000);
+    return () => clearInterval(timer);
+  }, [block.image]);
+
+  useEffect(() => {
+    if (!showModal) return;
+    const escHandler = (e) => { if (e.key === 'Escape') setShowModal(false); };
+    window.addEventListener('keydown', escHandler);
+    if (inputRef.current) { inputRef.current.focus(); inputRef.current.select(); }
+    return () => window.removeEventListener('keydown', escHandler);
+  }, [showModal]);
+
+  const openModal = useCallback(() => {
+    setUrlInput(block.url || '');
+    setIsVisual(block.isVisualBookmark !== false);
+    setShowModal(true);
+  }, [block.url, block.isVisualBookmark]);
+
+  const getUrlMetadata = useCallback(async (url, blockId) => {
+    const getMeta = (doc, selector, attr = 'content') => {
+      const el = doc.querySelector(selector);
+      return el ? el.getAttribute(attr) || '' : '';
+    };
+    const getFavicon = (doc, baseUrl) => {
+      const icon = doc.querySelector('link[rel="icon"], link[rel="shortcut icon"]');
+      if (icon) {
+        const href = icon.getAttribute('href');
+        if (href) {
+          if (href.startsWith('http')) return href;
+          try { return new URL(href, baseUrl).href; } catch { }
+        }
+      }
+      return '';
+    };
+
+    let mlApplied = false;
+    let mlImageRejected = false;
+
+    const applyData = (data, source) => {
+      if (!data || (!data.title && (!data.images || data.images.length === 0))) return;
+      const imageField = data.images && data.images.length > 0
+        ? (data.images.length === 1 ? data.images[0] : data.images.join('|'))
+        : null;
+      updateBlockProperty(blockId, 'bookmarkTitle', data.title || url);
+      updateBlockProperty(blockId, 'description', data.description || '');
+      if (imageField !== null) updateBlockProperty(blockId, 'image', imageField);
+      updateBlockProperty(blockId, 'favicon', data.favicon || '');
+      console.log(`[Bookmark] ${source} data applied`, { title: data.title, desc: data.description, image: imageField });
+    };
+
+    let sourcesApplied = 0;
+
+    const tryMicrolink = async () => {
+      const doFetch = async (force) => {
+        try {
+          const mlRes = await fetch(`https://api.microlink.io/?url=${encodeURIComponent(url)}${force ? '&force=true' : ''}`, { signal: AbortSignal.timeout(15000) });
+          if (mlRes.ok) {
+            const mlJson = await mlRes.json();
+            if (mlJson?.status === 'success' && mlJson?.data && mlJson.data.title) {
+              const d = mlJson.data;
+              const img = d.image;
+              const imgUrl = (img && typeof img === 'object' ? img.url : img) || '';
+              const logo = d.logo;
+              const logoUrl = (logo && typeof logo === 'object' ? logo.url : logo) || '';
+              let mlImageValid = true;
+              if (img && typeof img === 'object' && img.width != null && img.height != null) {
+                if (img.width <= 1 || img.height <= 1) mlImageValid = false;
+              } else if (imgUrl && /fls-eu\.amazon|pixel|1x1/i.test(imgUrl)) {
+                mlImageValid = false;
+              }
+              if (mlImageValid && imgUrl) {
+                sourcesApplied++;
+                mlApplied = true;
+                applyData({ title: d.title || '', description: d.description || '', images: [imgUrl], favicon: logoUrl || '' }, force ? 'microlink-force' : 'microlink');
+                return true;
+              }
+            }
+          }
+        } catch (e) { /* retry without force below */ }
+        return false;
+      };
+      if (await doFetch(true)) return true;
+      return await doFetch(false);
+    };
+
+    const tryMetadataParty = async () => {
+      try {
+        const mpRes = await fetch('https://api.metadata.party/extract', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url }),
+          signal: AbortSignal.timeout(10000),
+        });
+        if (mpRes.ok) {
+          const mpJson = await mpRes.json();
+          const mpImg = mpJson.images && mpJson.images.length > 0 ? mpJson.images[0] : '';
+          if ((mpJson.title || mpImg) && !mlApplied) {
+            sourcesApplied++;
+            mlApplied = true;
+            applyData({ title: mpJson.title || '', description: mpJson.description || '', images: mpImg ? [mpImg] : [], favicon: mpJson.favicon || '' }, 'metadata-party');
+            return true;
+          }
+        }
+      } catch (e) { console.warn('[Bookmark] metadata.party failed', e); }
+      return false;
+    };
+
+    const tryHtmlProxy = async () => {
+      try {
+        const res = await fetch(`https://corsproxy.io/?url=${encodeURIComponent(url)}`, { signal: AbortSignal.timeout(12000) });
+        if (res.ok) {
+          const html = await res.text();
+          const doc = new DOMParser().parseFromString(html, 'text/html');
+          if (doc) {
+            let image = getMeta(doc, 'meta[property="og:image"]') || getMeta(doc, 'meta[name="twitter:image"]') || '';
+            if (!image) { const el = doc.querySelector('link[rel="image_src"]'); if (el) image = el.getAttribute('href') || ''; }
+            if (!image) { const el = doc.querySelector('[data-old-hires]'); if (el) image = el.getAttribute('data-old-hires') || ''; }
+            const title = getMeta(doc, 'meta[property="og:title"]') || getMeta(doc, 'meta[name="twitter:title"]') || getMeta(doc, 'meta[name="title"]') || doc.title || '';
+            if ((title || image) && !mlApplied) {
+              sourcesApplied++;
+              applyData({ title, description: getMeta(doc, 'meta[property="og:description"]') || getMeta(doc, 'meta[name="description"]') || getMeta(doc, 'meta[name="twitter:description"]') || '', images: image ? [image] : [], favicon: getFavicon(doc, url) }, 'html-proxy');
+            }
+          }
+        }
+      } catch (e) { console.warn('[Bookmark] HTML proxy failed', e); }
+    };
+
+    await tryMicrolink();
+    if (!mlApplied) await tryMetadataParty();
+    if (!mlApplied) await tryHtmlProxy();
+
+    if (sourcesApplied === 0) {
+      console.warn('[Bookmark] all metadata sources failed for', url);
+    }
+
+    setLoading(false);
+    setShowModal(false);
+  }, [updateBlockProperty]);
+
+  const handleSubmit = useCallback(() => {
+    const trimmed = urlInput.trim();
+    if (!trimmed) return;
+    const url = trimmed.match(/^https?:\/\//) ? trimmed : `https://${trimmed}`;
+    updateBlockProperty(block.id, 'url', url);
+    updateBlockProperty(block.id, 'bookmarkTitle', url);
+    updateBlockProperty(block.id, 'isVisualBookmark', isVisual);
+    setShowModal(false);
+    if (isVisual) {
+      getUrlMetadata(url, block.id);
+    }
+  }, [urlInput, isVisual, getUrlMetadata, block.id, updateBlockProperty]);
+
+  const handleKeyDown = useCallback((e) => {
+    if (e.key === 'Enter') { e.preventDefault(); handleSubmit(); }
+    if (e.key === 'Escape') setShowModal(false);
+  }, [handleSubmit]);
+
+  const getHostname = (u) => { try { return new URL(u).hostname; } catch { return ''; } };
+  const getDisplayTitle = (u) => {
+    if (block.bookmarkTitle && block.bookmarkTitle !== u) return block.bookmarkTitle;
+    try {
+      const hostname = new URL(u).hostname;
+      return hostname.replace(/^www\./, '');
+    } catch { return u; }
+  };
+
   return (
     <div className="block-content">
       {block.url ? (
-        <a className="bookmark-card" href={block.url} target="_blank" rel="noopener noreferrer">
-          <div className="bookmark-info">
-            <div className="bookmark-title">{block.bookmarkTitle || block.url}</div>
-            <div className="bookmark-desc">{block.description || ''}</div>
-            <div className="bookmark-url">🔗 {block.url}</div>
+        block.isVisualBookmark === false ? (
+          <div className="bookmark-link-card-wrapper">
+            <div className="bm-card-actions bm-card-actions-link">
+              <div className="bm-toggle-icon" onClick={(e) => { e.stopPropagation(); updateBlockProperty(block.id, 'isVisualBookmark', true); }} title="Switch to visual view">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+              </div>
+              <div className="bm-edit-icon" onClick={(e) => { e.stopPropagation(); openModal(); }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+              </div>
+            </div>
+            <a className="bookmark-link-card" href={block.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+              <img className="bm-favicon" src={block.favicon || `https://www.google.com/s2/favicons?domain=${getHostname(block.url)}&sz=32`} alt="" onError={(e) => { e.target.style.display = 'none'; }} />
+              <span className="bm-link-title">{getDisplayTitle(block.url)}</span>
+              <span className="bm-link-url">{block.url}</span>
+            </a>
           </div>
-        </a>
+        ) : (
+          <a className="bookmark-visual-card" href={block.url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()}>
+            <div className="bm-card-actions">
+              <div className="bm-toggle-icon" onClick={(e) => { e.preventDefault(); e.stopPropagation(); updateBlockProperty(block.id, 'isVisualBookmark', false); }} title="Switch to link view">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/></svg>
+              </div>
+              <div className="bm-edit-icon" onClick={(e) => { e.preventDefault(); e.stopPropagation(); openModal(); }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg>
+              </div>
+            </div>
+            <div className="bm-info">
+              <div className="bm-title">{block.bookmarkTitle || block.url}</div>
+              <div className="bm-desc">{block.description || ''}</div>
+              <div className="bm-url-row">
+                <img className="bm-favicon" src={block.favicon || `https://www.google.com/s2/favicons?domain=${getHostname(block.url)}&sz=32`} alt="" onError={(e) => { e.target.style.display = 'none'; }} />
+                <div className="bm-url">{block.url}</div>
+              </div>
+            </div>
+            <div className="bm-image">
+              {allImages.length > 0 ? (
+                <div className="bm-image-inner bm-image-slider">
+                  <img src={allImages[currentSlide]} alt="" referrerPolicy="no-referrer" />
+                  {allImages.length > 1 && (
+                    <div className="bm-slider-dots">
+                      {allImages.map((_, i) => (
+                        <span key={i} className={`bm-dot ${i === currentSlide ? 'active' : ''}`} />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ) : (
+              <div className="bm-image-inner bm-image-fallback">
+                <img className="bm-fallback-favicon" src={block.favicon || `https://www.google.com/s2/favicons?domain=${getHostname(block.url)}&sz=32`} alt="" onError={(e) => { e.target.style.display = 'none'; }} />
+              </div>
+              )}
+            </div>
+          </a>
+        )
       ) : (
-        <div className="bookmark-placeholder" onClick={() => { const u = prompt('Enter bookmark URL:'); if (u) { updateBlockProperty(block.id, 'url', u); updateBlockProperty(block.id, 'bookmarkTitle', u); } }}>🔗 Click to add a bookmark URL</div>
+        <div style={{ width: '100%' }}>
+          <div className="bookmark-placeholder" onClick={openModal}>
+            <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
+            </span>
+            <span>Add a web bookmark</span>
+          </div>
+        </div>
+      )}
+
+      {showModal && (
+        <div className="bookmark-modal-overlay" onMouseDown={(e) => e.stopPropagation()}>
+          <div className="bookmark-modal">
+            <button className="bookmark-modal-close" onClick={() => setShowModal(false)} aria-label="Close">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+            </button>
+            <div className="bookmark-modal-input-wrap">
+              <input
+                ref={inputRef}
+                type="text"
+                className="bookmark-modal-input"
+                placeholder="Paste in https://..."
+                value={urlInput}
+                onChange={(e) => setUrlInput(e.target.value)}
+                onKeyDown={handleKeyDown}
+                disabled={loading}
+              />
+            </div>
+            <button
+              className="bookmark-modal-btn"
+              onClick={handleSubmit}
+              disabled={loading || !urlInput.trim()}
+            >
+              {loading ? 'Creating...' : 'Create bookmark'}
+            </button>
+            <div className="bookmark-modal-checkbox-wrap">
+              <label className="bookmark-modal-checkbox-label">
+                <input
+                  type="checkbox"
+                  className="bookmark-modal-checkbox"
+                  checked={isVisual}
+                  onChange={(e) => setIsVisual(e.target.checked)}
+                  disabled={loading}
+                />
+                Create a visual bookmark
+              </label>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
@@ -1110,25 +1760,24 @@ export const TableBlock = memo(function TableBlock({ block }) {
 });
 
 export const ColumnsBlock = memo(function ColumnsBlock({ block }) {
-  const { updateBlockProperty, insertColumn, deleteColumn, showContextMenu, addBlock, moveBlockToColumn } = usePageContext();
+  const { updateBlockProperty, insertColumn, deleteColumn, moveColumn, showContextMenu, moveBlockToColumn } = usePageContext();
   const [BR, setBR] = useState(null);
-  const [resizing, setResizing] = useState(null); // { colIdx, startX, startWidths }
-  const [colDragOverId, setColDragOverId] = useState(null);
+  const [resizing, setResizing] = useState(null);
+  const [colReorderId, setColReorderId] = useState(null);
+  const [activeDropPos, setActiveDropPos] = useState(null);
   const wrapRef = useRef(null);
 
   useEffect(() => { import('./BlockRenderer').then(m => setBR(() => m.default)); }, []);
 
   const columns = block.columns || [];
-  // colWidths: array of flex-grow values (default 1 per col)
   const rawWidths = block.colWidths || columns.map(() => 1);
   const colWidths = rawWidths.length === columns.length ? rawWidths : columns.map(() => 1);
 
-  // ---- drag resize divider ----
   const startResize = (e, idx) => {
     e.preventDefault();
     const startX = e.clientX;
     const startWidths = [...colWidths];
-    const total = startWidths.reduce((a,b)=>a+b,0);
+    const total = startWidths.reduce((a,b)=>a+b, 0);
     setResizing({ idx, startX, startWidths, total });
   };
 
@@ -1146,8 +1795,7 @@ export const ColumnsBlock = memo(function ColumnsBlock({ block }) {
       const rightMin = totalFlex * 0.1;
       newWidths[resizing.idx]     = Math.max(leftMin,  resizing.startWidths[resizing.idx]     + delta);
       newWidths[resizing.idx + 1] = Math.max(rightMin, resizing.startWidths[resizing.idx + 1] - delta);
-      // normalize so sum stays constant
-      const newTotal = newWidths.reduce((a,b)=>a+b,0);
+      const newTotal = newWidths.reduce((a,b)=>a+b, 0);
       const scale    = totalFlex / newTotal;
       updateBlockProperty(block.id, 'colWidths', newWidths.map(w => +(w * scale).toFixed(3)));
     };
@@ -1157,95 +1805,120 @@ export const ColumnsBlock = memo(function ColumnsBlock({ block }) {
     return () => { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp); };
   }, [resizing, block.id, updateBlockProperty]);
 
-  // ---- col context menu ----
-  const openColMenu = (e, col, idx) => {
+  const openColMenu = (e, col) => {
     e.preventDefault();
     e.stopPropagation();
     const items = [
-      { label: 'Insert column left',  action: () => insertColumn(block.id, col.id, 'left'),  disabled: columns.length >= 5 },
-      { label: 'Insert column right', action: () => insertColumn(block.id, col.id, 'right'), disabled: columns.length >= 5 },
-      { divider: true },
-      { label: 'Delete column', action: () => deleteColumn(block.id, col.id), danger: true, disabled: columns.length <= 1 },
+      { label: 'Delete column', action: () => deleteColumn(block.id, col.id), danger: true },
     ];
     showContextMenu(e.clientX, e.clientY, items, null, 'column', block.id);
   };
 
-  // ---- column block drop handlers ----
-  const handleColDragOver = useCallback((e, colId) => {
-    e.preventDefault();
-    e.stopPropagation();
-    const hasBlockData = e.dataTransfer.types.includes('text/block-id');
-    if (hasBlockData) {
+  const handleBlockDragOver = useCallback((e, colId) => {
+    if (e.dataTransfer.types.includes('text/block-id')) {
+      e.preventDefault();
+      e.stopPropagation();
       e.dataTransfer.dropEffect = 'move';
-      setColDragOverId(colId);
     }
   }, []);
 
-  const handleColDragLeave = useCallback((e) => {
-    if (!e.currentTarget.contains(e.relatedTarget)) {
-      setColDragOverId(null);
-    }
-  }, []);
-
-  const handleColDrop = useCallback((e, colId) => {
+  const handleBlockDrop = useCallback((e, colId) => {
     e.preventDefault();
     e.stopPropagation();
-    setColDragOverId(null);
     const sourceId = e.dataTransfer.getData('text/block-id');
-    if (sourceId && moveBlockToColumn) {
-      moveBlockToColumn(sourceId, block.id, colId);
-    }
+    if (!sourceId) return;
+    if (moveBlockToColumn) moveBlockToColumn(sourceId, block.id, colId);
   }, [block.id, moveBlockToColumn]);
+
+  const handleColDragStart = useCallback((e, colId) => {
+    e.dataTransfer.setData('text/col-id', colId);
+    e.dataTransfer.effectAllowed = 'move';
+    setColReorderId(colId);
+  }, []);
+
+  const handleColDragEnd = useCallback(() => {
+    setColReorderId(null);
+    setActiveDropPos(null);
+  }, []);
+
+  const handleDropZoneDragOver = useCallback((e, pos) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.dataTransfer.types.includes('text/col-id')) {
+      e.dataTransfer.dropEffect = 'move';
+      setActiveDropPos(pos);
+    }
+  }, []);
+
+  const handleDropZoneDragLeave = useCallback((e) => {
+    if (!e.currentTarget.contains(e.relatedTarget)) setActiveDropPos(null);
+  }, []);
+
+  const handleDropZoneDrop = useCallback((e, pos) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setActiveDropPos(null);
+    setColReorderId(null);
+    const sourceId = e.dataTransfer.getData('text/col-id');
+    if (sourceId && moveColumn) {
+      moveColumn(block.id, sourceId, pos);
+    }
+  }, [block.id, moveColumn]);
+
+  const items = [];
+  columns.forEach((col, idx) => {
+    if (idx === 0) {
+      items.push(
+        <div key="dz-0" className={`nn-col-drop-zone${activeDropPos === 0 ? ' nn-col-drop-active' : ''}`}
+          onDragOver={(e) => handleDropZoneDragOver(e, 0)}
+          onDragLeave={handleDropZoneDragLeave}
+          onDrop={(e) => handleDropZoneDrop(e, 0)}
+        >
+          <div className="nn-col-drop-line" />
+        </div>
+      );
+    }
+    items.push(
+      <div
+        key={col.id}
+        className={`nn-column${colReorderId === col.id ? ' nn-column-reorder' : ''}`}
+        data-col-id={col.id}
+        style={{ flex: colWidths[idx] || 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}
+        onContextMenu={(e) => openColMenu(e, col)}
+        onDragOver={(e) => handleBlockDragOver(e, col.id)}
+        onDrop={(e) => handleBlockDrop(e, col.id)}
+        onDragEnd={handleColDragEnd}
+      >
+        <div className="nn-col-toolbar">
+          {columns.length > 1 && <div className="nn-col-toolbar-btn nn-col-delete-btn" onClick={() => deleteColumn(block.id, col.id)} title="Delete column">−</div>}
+          {columns.length < 5 && <div className="nn-col-toolbar-btn nn-col-insert-btn" onClick={() => insertColumn(block.id, col.id, 'right')} title="Insert column right">+</div>}
+          <div className="nn-col-toolbar-btn nn-col-drag-btn" draggable onDragStart={(e) => handleColDragStart(e, col.id)} title="Drag to reorder"><Move size={14} /></div>
+        </div>
+        <div className="blocks-container">
+          {BR && col.blocks.map((b, i) => <BR key={b.id} block={b} blocksArray={col.blocks} blockIndex={i} />)}
+        </div>
+      </div>
+    );
+    items.push(
+      <div key={`dz-${idx + 1}`} className={`nn-col-drop-zone${activeDropPos === idx + 1 ? ' nn-col-drop-active' : ''}`}
+        onDragOver={(e) => handleDropZoneDragOver(e, idx + 1)}
+        onDragLeave={handleDropZoneDragLeave}
+        onDrop={(e) => handleDropZoneDrop(e, idx + 1)}
+      >
+        <div className="nn-col-drop-line" />
+      </div>
+    );
+    if (idx < columns.length - 1) {
+      items.push(
+        <div key={`div-${idx}`} className={`nn-col-divider${resizing?.idx === idx ? ' nn-col-divider-active' : ''}`} onMouseDown={e => startResize(e, idx)} title="Drag to resize" />
+      );
+    }
+  });
 
   return (
     <div className="block-content">
-      <div className="nn-columns-wrap" ref={wrapRef} style={{ display: 'flex', width: '100%', gap: 0 }}>
-        {columns.map((col, idx) => (
-          <div key={col.id} style={{ display: 'flex', flex: colWidths[idx] || 1, minWidth: 0 }}>
-            {/* Column content */}
-            <div
-              className={`nn-column${colDragOverId === col.id ? ' nn-column-drag-over' : ''}`}
-              data-col-id={col.id}
-              style={{ flex: 1, minWidth: 0 }}
-              onDragOver={(e) => handleColDragOver(e, col.id)}
-              onDragLeave={handleColDragLeave}
-              onDrop={(e) => handleColDrop(e, col.id)}
-            >
-              {/* Column handle (6-dot menu) */}
-              <div
-                className="nn-col-menu-btn"
-                onClick={e => openColMenu(e, col, idx)}
-                onContextMenu={e => openColMenu(e, col, idx)}
-                title="Column options"
-              >⠿</div>
-              <div className="blocks-container">
-                {BR && col.blocks.map((b, i) => (
-                  <BR key={b.id} block={b} blocksArray={col.blocks} blockIndex={i} />
-                ))}
-              </div>
-              {/* Add block inside column */}
-              {!BR && null}
-            </div>
-            {/* Drag divider between columns */}
-            {idx < columns.length - 1 && (
-              <div
-                className={`nn-col-divider${resizing?.idx === idx ? ' nn-col-divider-active' : ''}`}
-                onMouseDown={e => startResize(e, idx)}
-                title="Drag to resize"
-              />
-            )}
-          </div>
-        ))}
-        {/* Add column button (+) after last col, if < 5 */}
-        {columns.length < 5 && (
-          <div
-            className="nn-add-col-btn"
-            onClick={() => insertColumn(block.id, columns[columns.length - 1]?.id, 'right')}
-            title="Add column"
-          >
-            +
-          </div>
-        )}
+      <div className={`nn-columns-wrap${colReorderId ? ' is-reordering' : ''}`} ref={wrapRef}>
+        {items}
       </div>
     </div>
   );
@@ -1255,7 +1928,7 @@ export const ColumnsBlock = memo(function ColumnsBlock({ block }) {
 export const TocBlock = memo(function TocBlock() {
   const { pageState } = usePageContext();
   const headings = [];
-  const headingTypes = ['heading1','heading2','heading3','toggle_heading1','toggle_heading2','toggle_heading3'];
+  const headingTypes = ['heading1','heading2','heading3','heading4','heading5','toggle_heading1','toggle_heading2','toggle_heading3','toggle_heading4','toggle_heading5'];
   function collect(blocks) {
     for (const b of blocks) {
       if (headingTypes.includes(b.type)) {
@@ -1668,8 +2341,8 @@ export const SubPageBlock = memo(function SubPageBlock({ block }) {
               onChange={e => setCustomObjId(e.target.value)}
               style={{ width: '100px', padding: '2px 4px', border: '1px solid #dddbda', borderRadius: '3px' }}
             />
-            <button 
-              type="button" 
+            <button
+              type="button"
               style={{ padding: '4px 8px', background: '#f3f2f1', border: '1px solid #dddbda', borderRadius: '4px', cursor: 'pointer' }}
               onClick={handleLinkCustom}
             >
@@ -1678,6 +2351,184 @@ export const SubPageBlock = memo(function SubPageBlock({ block }) {
           </div>
         </div>
       </div>
+    </div>
+  );
+});
+
+const OG_TIMEOUT = 8000;
+
+async function fetchOGData(url) {
+  try {
+    const resp = await fetch(`https://api.microlink.io/?url=${encodeURIComponent(url)}&force=true`, { signal: AbortSignal.timeout(OG_TIMEOUT) });
+    if (!resp.ok) return null;
+    const data = await resp.json();
+    if (!data.data) return null;
+    return {
+      title: data.data.title || '',
+      description: data.data.description || '',
+      favicon: data.data.logo?.url || data.data.favicon?.url || '',
+    };
+  } catch { return null; }
+}
+
+export const LinkEmbedBlock = memo(function LinkEmbedBlock({ block }) {
+  const { updateBlockProperty } = usePageContext();
+  const [preview, setPreview] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const inputRef = useRef(null);
+
+  const url = block.content || '';
+
+  useEffect(() => {
+    if (url && !preview) {
+      setLoading(true);
+      fetchOGData(url).then(res => {
+        if (res) setPreview(res);
+        setLoading(false);
+      });
+    }
+  }, [url]);
+
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const val = inputRef.current?.textContent?.trim();
+      if (val) updateBlockProperty(block.id, 'content', val);
+    }
+  };
+
+  const handleBlur = () => {
+    const val = inputRef.current?.textContent?.trim();
+    if (val && val !== url) {
+      updateBlockProperty(block.id, 'content', val);
+      setPreview(null);
+    }
+  };
+
+  if (url && preview) {
+    return (
+      <div className="block-content">
+        <div className="link-embed-preview" onClick={() => window.open(url, '_blank', 'noopener')}>
+          {preview.favicon && <img className="link-embed-favicon" src={preview.favicon} alt="" onError={e => e.target.style.display = 'none'} />}
+          <div className="link-embed-info">
+            <span className="link-embed-title">{preview.title || url}</span>
+            <span className="link-embed-url">{new URL(url).hostname}</span>
+          </div>
+          <button className="link-embed-edit" onClick={(e) => { e.stopPropagation(); updateBlockProperty(block.id, 'content', ''); setPreview(null); }} title="Edit URL" />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="block-content">
+      <div className="link-embed-input">
+        <span className="link-embed-icon">🔗</span>
+        <div
+          ref={inputRef}
+          contentEditable
+          suppressContentEditableWarning
+          className="link-embed-editable"
+          data-placeholder="Paste a link..."
+          onKeyDown={handleKeyDown}
+          onBlur={handleBlur}
+          onInput={(e) => {
+            if (loading) return;
+            const val = e.currentTarget.textContent?.trim();
+            if (val && (val.startsWith('http://') || val.startsWith('https://'))) {
+              setLoading(true);
+              fetchOGData(val).then(res => {
+                if (res) {
+                  updateBlockProperty(block.id, 'content', val);
+                  setPreview(res);
+                }
+                setLoading(false);
+              });
+            }
+          }}
+        />
+        {loading && <span className="link-embed-loading">...</span>}
+      </div>
+    </div>
+  );
+});
+
+export const ButtonBlock = memo(function ButtonBlock({ block }) {
+  const { updateBlockProperty, showContextMenu } = usePageContext();
+  const [editingUrl, setEditingUrl] = useState(false);
+  const [urlInput, setUrlInput] = useState(block.buttonUrl || '');
+  const textRef = useRef(null);
+  const urlInputRef = useRef(null);
+
+  const buttonText = block.content || 'Button';
+  const buttonUrl = block.buttonUrl || '';
+  const buttonStyle = block.buttonStyle || 'primary';
+  const openInNewTab = block.openInNewTab !== false;
+
+  const handleTextInput = () => {
+    const val = textRef.current?.textContent?.trim();
+    if (val) updateBlockProperty(block.id, 'content', val);
+  };
+
+  const handleSaveUrl = () => {
+    const val = urlInput.trim();
+    if (val) {
+      updateBlockProperty(block.id, 'buttonUrl', val.startsWith('http') ? val : `https://${val}`);
+    }
+    setEditingUrl(false);
+  };
+
+  const handleClick = (e) => {
+    if (!buttonUrl) {
+      setEditingUrl(true);
+      return;
+    }
+    e.preventDefault();
+    window.open(buttonUrl, openInNewTab ? '_blank' : '_self', 'noopener');
+  };
+
+  const styleClass = `block-button-${buttonStyle}`;
+
+  return (
+    <div className="block-content block-button-wrapper">
+      {editingUrl ? (
+        <div className="block-button-url-edit">
+          <input
+            ref={urlInputRef}
+            type="text"
+            className="block-button-url-input"
+            value={urlInput}
+            onChange={e => setUrlInput(e.target.value)}
+            placeholder="https://..."
+            onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); handleSaveUrl(); } }}
+            autoFocus
+          />
+          <button className="block-button-url-save" onClick={handleSaveUrl}>Save</button>
+          <button className="block-button-url-cancel" onClick={() => setEditingUrl(false)}>Cancel</button>
+        </div>
+      ) : (
+        <button
+          className={`block-button ${styleClass}`}
+          onClick={handleClick}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            showContextMenu(e.clientX, e.clientY, [], null, 'block', block.id);
+          }}
+        >
+          <span
+            ref={textRef}
+            contentEditable
+            suppressContentEditableWarning
+            className="block-button-text"
+            onBlur={handleTextInput}
+            onKeyDown={(e) => { if (e.key === 'Enter') e.preventDefault(); }}
+            data-placeholder="Button text"
+          >
+            {buttonText}
+          </span>
+        </button>
+      )}
     </div>
   );
 });

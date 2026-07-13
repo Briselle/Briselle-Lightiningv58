@@ -13,6 +13,7 @@ import {
 import { supabase } from '../../utils/supabase';
 import { parseNotionPageFromValues } from './notionPageDefaults';
 import { NOTION_PAGE_STORAGE_KEY } from './types';
+import { UndoHistoryManager } from './undoHistory';
 const PageContext = createContext(null);
 
 function cleanBlockContentOrphans(htmlString, validCommentIdsSet) {
@@ -100,6 +101,8 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
   const pageRef = useRef(pageState);
   pageRef.current = pageState;
   const triggerUpdate = useCallback(() => setTick(n => n + 1), []);
+  const historyManagerRef = useRef(new UndoHistoryManager());
+  const isRestoringRef = useRef(false);
 
   useEffect(() => {
     const timer = setInterval(() => {
@@ -112,6 +115,48 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     const handleBeforeUnload = () => clearAllRedactedContent();
     window.addEventListener('beforeunload', handleBeforeUnload);
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, []);
+
+  // Initialize undo history with the initial page state
+  useEffect(() => {
+    historyManagerRef.current.pushSnapshot(pageState);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Listen for undo/redo/restore custom events from NotionNestPage toolbar
+  useEffect(() => {
+    const handleUndo = () => {
+      const snapshot = historyManagerRef.current.undo();
+      if (snapshot) {
+        isRestoringRef.current = true;
+        setPageState(snapshot);
+        isRestoringRef.current = false;
+      }
+    };
+    const handleRedo = () => {
+      const snapshot = historyManagerRef.current.redo();
+      if (snapshot) {
+        isRestoringRef.current = true;
+        setPageState(snapshot);
+        isRestoringRef.current = false;
+      }
+    };
+    const handleRestore = (e) => {
+      const snapshot = e.detail?.snapshot;
+      if (snapshot) {
+        historyManagerRef.current.pushSnapshot(snapshot);
+        isRestoringRef.current = true;
+        setPageState(snapshot);
+        isRestoringRef.current = false;
+      }
+    };
+    window.addEventListener('notion-nest-undo', handleUndo);
+    window.addEventListener('notion-nest-redo', handleRedo);
+    window.addEventListener('notion-nest-restore-checkpoint', handleRestore);
+    return () => {
+      window.removeEventListener('notion-nest-undo', handleUndo);
+      window.removeEventListener('notion-nest-redo', handleRedo);
+      window.removeEventListener('notion-nest-restore-checkpoint', handleRestore);
+    };
   }, []);
 
   const onChangeRef = useRef(onChange);
@@ -152,12 +197,49 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     });
   }, [comments]);
   /* ---- Immutable state update helper ---- */
-  const updateState = useCallback((fn) => {
+  // mutateState captures the PRE-mutation snapshot for undo, then applies the mutation.
+  // All user-initiated mutations MUST go through mutateState (not setPageState directly).
+  const mutateState = useCallback((fn) => {
     setPageState(prev => {
+      if (isRestoringRef.current) {
+        // Undo/redo restore — skip snapshot, just apply
+        const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
+        fn(next);
+        return next;
+      }
+      // Record pre-mutation state for undo
+      historyManagerRef.current.pushSnapshot(prev);
       const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
       fn(next);
       return next;
     });
+  }, []);
+  /* ---- Undo / Redo ---- */
+  const undo = useCallback(() => {
+    const snapshot = historyManagerRef.current.undo();
+    if (snapshot) {
+      isRestoringRef.current = true;
+      setPageState(snapshot);
+      isRestoringRef.current = false;
+    }
+  }, []);
+  const redo = useCallback(() => {
+    const snapshot = historyManagerRef.current.redo();
+    if (snapshot) {
+      isRestoringRef.current = true;
+      setPageState(snapshot);
+      isRestoringRef.current = false;
+    }
+  }, []);
+  const canUndo = useCallback(() => historyManagerRef.current.canUndo(), [tick]);
+  const canRedo = useCallback(() => historyManagerRef.current.canRedo(), [tick]);
+  const restoreFromCheckpoint = useCallback((snapshot) => {
+    if (snapshot) {
+      historyManagerRef.current.pushSnapshot(snapshot);
+      isRestoringRef.current = true;
+      setPageState(snapshot);
+      isRestoringRef.current = false;
+    }
   }, []);
   /* ---- Getters (work on current ref for immediate access) ---- */
   const getBlockById = useCallback((blockId) => {
@@ -175,10 +257,9 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     if (initialContent) {
       newBlock.content = initialContent;
     }
-    setPageState(prev => {
-      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
+    mutateState(prev => {
       if (afterBlockId) {
-        const afterBlock = _getBlockById(afterBlockId, next.blocks);
+        const afterBlock = _getBlockById(afterBlockId, prev.blocks);
         if (afterBlock && (afterBlock.type === 'toggle' || afterBlock.type.startsWith('toggle_heading')) && (afterBlock.open || forceChild)) {
           afterBlock.open = true;
           if (!afterBlock.children) {
@@ -186,20 +267,19 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
           }
           afterBlock.children.unshift(newBlock);
         } else {
-          const container = _findBlockContainer(afterBlockId, next.blocks);
+          const container = _findBlockContainer(afterBlockId, prev.blocks);
           if (container) {
             container.arr.splice(container.index + 1, 0, newBlock);
           } else {
-            next.blocks.push(newBlock);
+            prev.blocks.push(newBlock);
           }
         }
       } else {
-        next.blocks.push(newBlock);
+        prev.blocks.push(newBlock);
       }
-      return next;
     });
     return newBlock;
-  }, []);
+  }, [mutateState]);
 
   const insertBlocks = useCallback((afterBlockId, blocksToInsert) => {
     const reassignIds = (blocks) => {
@@ -220,15 +300,13 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     
     const freshBlocks = reassignIds(blocksToInsert);
     
-    setPageState(prev => {
-      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
-      const container = _findBlockContainer(afterBlockId, next.blocks);
+    mutateState(prev => {
+      const container = _findBlockContainer(afterBlockId, prev.blocks);
       if (container) {
         container.arr.splice(container.index + 1, 0, ...freshBlocks);
       } else {
-        next.blocks.push(...freshBlocks);
+        prev.blocks.push(...freshBlocks);
       }
-      return next;
     });
 
     const lastBlock = freshBlocks[freshBlocks.length - 1];
@@ -239,7 +317,7 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
         setCaretToEnd(el);
       }
     }, 50);
-  }, []);
+  }, [mutateState]);
   const deleteBlock = useCallback((blockId) => {
     const target = _getBlockById(blockId, pageRef.current.blocks);
     if (!target) return;
@@ -267,17 +345,15 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
           return next;
         });
       }
-      setPageState(prev => {
-        const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
-        const container = _findBlockContainer(blockId, next.blocks);
-        if (!container) return prev;
-        if (container.arr.length <= 1 && container.arr === next.blocks) return prev;
+      mutateState(prev => {
+        const container = _findBlockContainer(blockId, prev.blocks);
+        if (!container) return;
+        if (container.arr.length <= 1 && container.arr === prev.blocks) return;
         const targetNode = container.arr[container.index];
         if (targetNode && targetNode.children && targetNode.children.length > 0) {
           container.arr.splice(container.index + 1, 0, ...targetNode.children);
         }
         container.arr.splice(container.index, 1);
-        return next;
       });
       setDeleteConfirm(null);
     };
@@ -318,13 +394,11 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     const block = _getBlockById(blockId, pageRef.current.blocks);
     if (!block) return null;
     const cloned = deepCloneBlock(block);
-    setPageState(prev => {
-      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
-      const container = _findBlockContainer(blockId, next.blocks);
+    mutateState(prev => {
+      const container = _findBlockContainer(blockId, prev.blocks);
       if (container) {
         container.arr.splice(container.index + 1, 0, cloned);
       }
-      return next;
     });
 
     const targetId = cloned.id;
@@ -337,12 +411,11 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     }, 50);
 
     return cloned;
-  }, []);
+  }, [mutateState]);
   const changeBlockType = useCallback((blockId, newType) => {
-    setPageState(prev => {
-      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
-      const block = _getBlockById(blockId, next.blocks);
-      if (!block) return prev;
+    mutateState(prev => {
+      const block = _getBlockById(blockId, prev.blocks);
+      if (!block) return;
       const tmp = document.createElement('div');
       tmp.innerHTML = block.content || '';
       const textContent = tmp.textContent;
@@ -353,55 +426,56 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
       delete block.rows; delete block.columns; delete block.tabs; delete block.activeTabId;
       delete block.hasHeader; delete block.hasTotalRow; delete block.colBorders; delete block.rowBorders;
       delete block.striped; delete block.lockCols; delete block.lockTable; delete block.cellColors;
-      delete block.url; delete block.bookmarkTitle; delete block.description; delete block.caption;
+      delete block.url; delete block.bookmarkTitle; delete block.description; delete block.image; delete block.favicon; delete block.isVisualBookmark; delete block.caption;
       if (newType === 'todo') block.checked = false;
       if (newType === 'toggle') { block.open = false; block.children = [makeBlock('paragraph', '')]; }
       if (newType === 'callout') block.calloutIcon = '💡';
       if (newType === 'code') { block.language = 'javascript'; block.content = textContent; }
       if (newType === 'table') { block.rows = [['', '', ''], ['', '', ''], ['', '', '']]; block.content = ''; }
-      if (newType === 'columns') { block.content = ''; block.columns = [{ id: generateId(), blocks: [makeBlock('paragraph', textContent)] }, { id: generateId(), blocks: [makeBlock('paragraph', '')] }]; }
+      if (newType === 'columns' || newType === 'columns2' || newType === 'columns3' || newType === 'columns4' || newType === 'columns5') {
+        const count = newType === 'columns5' ? 5 : newType === 'columns4' ? 4 : newType === 'columns3' ? 3 : 2;
+        block.type = 'columns';
+        block.content = '';
+        block.columns = Array.from({ length: count }, (_, i) => ({ id: generateId(), blocks: [makeBlock('paragraph', i === 0 ? textContent : '')] }));
+      }
       if (newType === 'tabs') { block.content = ''; block.tabs = [{ id: generateId(), name: 'Tab 1', blocks: [makeBlock('paragraph', textContent)] }, { id: generateId(), name: 'Tab 2', blocks: [makeBlock('paragraph', '')] }]; block.activeTabId = block.tabs[0].id; }
       if (newType === 'divider' || newType === 'toc') block.content = '';
       if (newType === 'image') { block.url = ''; block.caption = ''; block.content = ''; }
-      if (newType === 'bookmark') { block.url = ''; block.bookmarkTitle = ''; block.description = ''; block.content = ''; }
-      return next;
+      if (newType === 'bookmark') { block.url = ''; block.bookmarkTitle = ''; block.description = ''; block.image = ''; block.favicon = ''; block.isVisualBookmark = true; block.content = ''; }
     });
-  }, []);
+  }, [mutateState]);
   const moveBlock = useCallback((sourceId, targetIdOrDirection, position) => {
-    setPageState(prev => {
-      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
-
+    mutateState(prev => {
       // Handle legacy behavior: swapping with immediate neighbor when direction is 'up' or 'down'
       if (targetIdOrDirection === 'up' || targetIdOrDirection === 'down') {
-        const container = _findBlockContainer(sourceId, next.blocks);
-        if (!container) return prev;
+        const container = _findBlockContainer(sourceId, prev.blocks);
+        if (!container) return;
         const { arr, index } = container;
         const newIndex = targetIdOrDirection === 'up' ? index - 1 : index + 1;
-        if (newIndex < 0 || newIndex >= arr.length) return prev;
+        if (newIndex < 0 || newIndex >= arr.length) return;
         [arr[index], arr[newIndex]] = [arr[newIndex], arr[index]];
-        return next;
+        return;
       }
 
       // Tree-agnostic drop movement: move sourceId next to targetId
-      const sourceContainer = _findBlockContainer(sourceId, next.blocks);
-      if (!sourceContainer) return prev;
+      const sourceContainer = _findBlockContainer(sourceId, prev.blocks);
+      if (!sourceContainer) return;
 
       // Remove source block from its current container
       const [sourceBlock] = sourceContainer.arr.splice(sourceContainer.index, 1);
 
       // Find target container in the modified tree
-      const targetContainer = _findBlockContainer(targetIdOrDirection, next.blocks);
+      const targetContainer = _findBlockContainer(targetIdOrDirection, prev.blocks);
       if (!targetContainer) {
-        return prev;
+        sourceContainer.arr.splice(sourceContainer.index, 0, sourceBlock);
+        return;
       }
 
       const { arr: targetArr, index: targetIndex } = targetContainer;
       const insertIndex = position === 'before' ? targetIndex : targetIndex + 1;
       targetArr.splice(insertIndex, 0, sourceBlock);
-
-      return next;
     });
-  }, []);
+  }, [mutateState]);
   const updateBlockContent = useCallback((blockId, content) => {
     const blockComments = commentsRef.current.filter(c => c.blockId === blockId && !c.isDraft);
     if (blockComments.length > 0) {
@@ -420,17 +494,14 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
               persistComments(next);
               return next;
             });
-            setPageState(prev => {
-              const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
-              const block = _getBlockById(blockId, next.blocks);
+            mutateState(prev => {
+              const block = _getBlockById(blockId, prev.blocks);
               if (block) block.content = content;
-              return next;
             });
             setDeleteConfirm(null);
           },
           onCancel: () => {
             // Restore previous block layout in page content
-            setPageState(prev => ({ ...prev }));
             const el = document.querySelector(`[data-block-id="${blockId}"] [contenteditable]`);
             if (el) {
               const block = _getBlockById(blockId, pageRef.current.blocks);
@@ -445,17 +516,14 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
         return;
       }
     }
-    setPageState(prev => {
-      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
-      const block = _getBlockById(blockId, next.blocks);
+    mutateState(prev => {
+      const block = _getBlockById(blockId, prev.blocks);
       if (block) block.content = content;
-      return next;
     });
-  }, []);
+  }, [mutateState]);
   const updateBlockProperty = useCallback((blockId, prop, value) => {
-    setPageState(prev => {
-      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
-      const block = _getBlockById(blockId, next.blocks);
+    mutateState(prev => {
+      const block = _getBlockById(blockId, prev.blocks);
       if (block) {
         if (value === undefined) {
           delete block[prop];
@@ -463,14 +531,12 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
           block[prop] = value;
         }
       }
-      return next;
     });
-  }, []);
+  }, [mutateState]);
   /* ---- Column mutations (for ColumnsBlock) ---- */
   const insertColumn = useCallback((blockId, afterColumnId, direction = 'right') => {
-    setPageState(prev => {
-      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
-      const block = _getBlockById(blockId, next.blocks);
+    mutateState(prev => {
+      const block = _getBlockById(blockId, prev.blocks);
       if (block && block.columns) {
         const newCol = { id: generateId(), blocks: [makeBlock('paragraph', '')] };
         const idx = block.columns.findIndex(c => c.id === afterColumnId);
@@ -480,19 +546,40 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
           block.columns.splice(direction === 'right' ? idx + 1 : idx, 0, newCol);
         }
       }
-      return next;
     });
-  }, []);
+  }, [mutateState]);
   const deleteColumn = useCallback((blockId, columnId) => {
-    setPageState(prev => {
-      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
-      const block = _getBlockById(blockId, next.blocks);
+    mutateState(prev => {
+      const block = _getBlockById(blockId, prev.blocks);
       if (block && block.columns && block.columns.length > 1) {
+        const idx = block.columns.findIndex(c => c.id === columnId);
+        if (idx === -1) return;
         block.columns = block.columns.filter(c => c.id !== columnId);
+        if (block.colWidths && block.colWidths.length > 1) {
+          const removed = block.colWidths[idx];
+          const total = block.colWidths.reduce((a, b) => a + b, 0) - removed;
+          const remaining = block.colWidths.filter((_, i) => i !== idx);
+          const scale = total > 0 ? (total + removed) / total : 1;
+          block.colWidths = remaining.map(w => +(w * scale).toFixed(3));
+        }
       }
-      return next;
     });
-  }, []);
+  }, [mutateState]);
+  const reorderColumnToPosition = useCallback((blockId, sourceColId, targetPos) => {
+    mutateState(prev => {
+      const block = _getBlockById(blockId, prev.blocks);
+      if (!block || !block.columns) return;
+      const srcIdx = block.columns.findIndex(c => c.id === sourceColId);
+      if (srcIdx === -1 || targetPos === srcIdx) return;
+      const [col] = block.columns.splice(srcIdx, 1);
+      const insertAt = Math.min(targetPos, block.columns.length);
+      block.columns.splice(insertAt, 0, col);
+      if (block.colWidths) {
+        const [w] = block.colWidths.splice(srcIdx, 1);
+        block.colWidths.splice(insertAt, 0, w);
+      }
+    });
+  }, [mutateState]);
   const clearAllBlockFonts = useCallback(() => {
     const stripFonts = (blocks) => {
       if (!Array.isArray(blocks)) return blocks;
@@ -506,13 +593,15 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
         return nb;
       });
     };
-    setPageState(prev => ({ ...prev, blocks: stripFonts(prev.blocks) }));
-  }, []);
+    mutateState(prev => {
+      prev.blocks = stripFonts(prev.blocks);
+    });
+  }, [mutateState]);
   useEffect(() => {
     if (imperativeRef) imperativeRef.current = { clearAllBlockFonts };
   }, [imperativeRef, clearAllBlockFonts]);
   const updatePage = useCallback((updates) => {
-    setPageState(prev => {
+    mutateState(prev => {
       let nextIcon = prev.icon;
       if (updates.title !== undefined && prev.icon && prev.icon.startsWith('initials:')) {
         const parts = prev.icon.slice(9).split(':');
@@ -522,9 +611,9 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
         const newText = calculateInitials(updates.title, mode, customText);
         nextIcon = `initials:${newText}:${color}:${mode}`;
       }
-      return { ...prev, ...updates, icon: updates.icon !== undefined ? updates.icon : nextIcon };
+      Object.assign(prev, updates, { icon: updates.icon !== undefined ? updates.icon : nextIcon });
     });
-  }, []);
+  }, [mutateState]);
   /* ---- Menu actions ---- */
   const showSlashMenu = useCallback((blockId, position, filter = '') => {
     setSlashMenu({ open: true, blockId, position, filter });
@@ -543,85 +632,75 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
   }, []);
 
   const moveBlockToTop = useCallback((blockId) => {
-    setPageState(prev => {
-      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
-      const container = _findBlockContainer(blockId, next.blocks);
-      if (!container) return prev;
+    mutateState(prev => {
+      const container = _findBlockContainer(blockId, prev.blocks);
+      if (!container) return;
       const { arr, index } = container;
       const [block] = arr.splice(index, 1);
       arr.unshift(block);
-      return next;
     });
-  }, []);
+  }, [mutateState]);
 
   const moveBlockToBottom = useCallback((blockId) => {
-    setPageState(prev => {
-      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
-      const container = _findBlockContainer(blockId, next.blocks);
-      if (!container) return prev;
+    mutateState(prev => {
+      const container = _findBlockContainer(blockId, prev.blocks);
+      if (!container) return;
       const { arr, index } = container;
       const [block] = arr.splice(index, 1);
       arr.push(block);
-      return next;
     });
-  }, []);
+  }, [mutateState]);
 
   const moveBlockToTab = useCallback((sourceId, tabBlockId, tabId) => {
-    setPageState(prev => {
-      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
-      const sourceContainer = _findBlockContainer(sourceId, next.blocks);
-      if (!sourceContainer) return prev;
+    mutateState(prev => {
+      const sourceContainer = _findBlockContainer(sourceId, prev.blocks);
+      if (!sourceContainer) return;
       const [sourceBlock] = sourceContainer.arr.splice(sourceContainer.index, 1);
-      const tabBlock = _getBlockById(tabBlockId, next.blocks);
+      const tabBlock = _getBlockById(tabBlockId, prev.blocks);
       if (!tabBlock || tabBlock.type !== 'tabs' || !tabBlock.tabs) {
         sourceContainer.arr.splice(sourceContainer.index, 0, sourceBlock);
-        return prev;
+        return;
       }
       const tab = tabBlock.tabs.find(t => t.id === tabId);
       if (!tab) {
         sourceContainer.arr.splice(sourceContainer.index, 0, sourceBlock);
-        return prev;
+        return;
       }
       if (!tab.blocks) tab.blocks = [];
       tab.blocks.push(sourceBlock);
-      return next;
     });
-  }, []);
+  }, [mutateState]);
 
   const moveBlockToColumn = useCallback((sourceId, columnsBlockId, columnId) => {
-    setPageState(prev => {
-      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
-      const sourceContainer = _findBlockContainer(sourceId, next.blocks);
-      if (!sourceContainer) return prev;
+    mutateState(prev => {
+      const sourceContainer = _findBlockContainer(sourceId, prev.blocks);
+      if (!sourceContainer) return;
       const [sourceBlock] = sourceContainer.arr.splice(sourceContainer.index, 1);
-      const colBlock = _getBlockById(columnsBlockId, next.blocks);
+      const colBlock = _getBlockById(columnsBlockId, prev.blocks);
       if (!colBlock || colBlock.type !== 'columns' || !colBlock.columns) {
         sourceContainer.arr.splice(sourceContainer.index, 0, sourceBlock);
-        return prev;
+        return;
       }
       const col = colBlock.columns.find(c => c.id === columnId);
       if (!col) {
         sourceContainer.arr.splice(sourceContainer.index, 0, sourceBlock);
-        return prev;
+        return;
       }
       if (!col.blocks) col.blocks = [];
       col.blocks.push(sourceBlock);
-      return next;
     });
-  }, []);
+  }, [mutateState]);
 
   const moveBlockToPage = useCallback(async (blockId, targetDdataId) => {
     const block = _getBlockById(blockId, pageRef.current.blocks);
     if (!block) return;
 
     // Delete from current page
-    setPageState(prev => {
-      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
-      const container = _findBlockContainer(blockId, next.blocks);
+    mutateState(prev => {
+      const container = _findBlockContainer(blockId, prev.blocks);
       if (container) {
         container.arr.splice(container.index, 1);
       }
-      return next;
     });
 
     // Append to target page
@@ -644,7 +723,7 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
         .update({ ddata_values: nextValues })
         .eq('ddata_id', targetDdataId);
     }
-  }, []);
+  }, [mutateState]);
 
   const acceptSuggestion = useCallback((commentId) => {
     setComments(prev => {
@@ -767,9 +846,8 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     setComments(prev => {
       const c = prev.find(item => item.id === commentId);
       if (c) {
-        setPageState(pagePrev => {
-          const nextBlocks = JSON.parse(JSON.stringify(pagePrev.blocks));
-          const block = _getBlockById(c.blockId, nextBlocks);
+        mutateState(pagePrev => {
+          const block = _getBlockById(c.blockId, pagePrev.blocks);
           if (block && block.content) {
             const parser = new DOMParser();
             const doc = parser.parseFromString(block.content, 'text/html');
@@ -779,7 +857,6 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
             }
             block.content = doc.body.innerHTML;
           }
-          return { ...pagePrev, blocks: nextBlocks };
         });
       }
       const next = prev.map(c => c.id === commentId ? {
@@ -798,14 +875,13 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
       persistComments(next);
       return next;
     });
-  }, []);
+  }, [mutateState]);
   const cancelDraftComment = useCallback((commentId) => {
     setComments(prev => {
       const c = prev.find(item => item.id === commentId);
       if (c) {
-        setPageState(pagePrev => {
-          const nextBlocks = JSON.parse(JSON.stringify(pagePrev.blocks));
-          const block = _getBlockById(c.blockId, nextBlocks);
+        mutateState(pagePrev => {
+          const block = _getBlockById(c.blockId, pagePrev.blocks);
           if (block && block.content) {
             const parser = new DOMParser();
             const doc = parser.parseFromString(block.content, 'text/html');
@@ -819,14 +895,13 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
             }
             block.content = doc.body.innerHTML;
           }
-          return { ...pagePrev, blocks: nextBlocks };
         });
       }
       const next = prev.filter(c => c.id !== commentId);
       persistComments(next);
       return next;
     });
-  }, []);
+  }, [mutateState]);
   const addReply = useCallback((commentId, text, attachments = []) => {
     setComments(prev => {
       const next = prev.map(c => c.id === commentId ? {
@@ -872,11 +947,9 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
         const block = parent.closest('.block');
         const bId = block?.getAttribute('data-block-id');
         if (ce && bId) {
-          setPageState(prev => {
-            const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
-            const blockObj = _getBlockById(bId, next.blocks);
+          mutateState(prev => {
+            const blockObj = _getBlockById(bId, prev.blocks);
             if (blockObj) blockObj.content = ce.innerHTML;
-            return next;
           });
         }
       }
@@ -884,9 +957,8 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     setComments(prev => {
       const next = prev.filter(c => c.id !== commentId);
       const validSet = new Set(next.map(c => c.id));
-      setPageState(pagePrev => {
+      mutateState(pagePrev => {
         let modified = false;
-        const deepCopy = JSON.parse(JSON.stringify(pagePrev.blocks));
         const cleanBlocks = (list) => {
           list.forEach(b => {
             if (b.content && typeof b.content === 'string' && b.content.includes(commentId)) {
@@ -901,8 +973,7 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
             if (b.columns) b.columns.forEach(c => cleanBlocks(c.blocks));
           });
         };
-        cleanBlocks(deepCopy);
-        return modified ? { ...pagePrev, blocks: deepCopy } : pagePrev;
+        cleanBlocks(pagePrev.blocks);
       });
       persistComments(next);
       return next;
@@ -910,7 +981,7 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     if (activeCommentId === commentId) {
       setActiveCommentId(null);
     }
-  }, [activeCommentId]);
+  }, [activeCommentId, mutateState]);
   const toggleUnreadComment = useCallback((commentId) => {
     setComments(prev => {
       const next = prev.map(c => {
@@ -1044,10 +1115,9 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
   }, []);
 
   const indentBlock = useCallback((blockId, caretOffset = 0) => {
-    setPageState(prev => {
-      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
-      const container = _findBlockContainer(blockId, next.blocks);
-      if (!container || container.index === 0) return prev; // Cannot indent first child
+    mutateState(prev => {
+      const container = _findBlockContainer(blockId, prev.blocks);
+      if (!container || container.index === 0) return; // Cannot indent first child
       
       const block = container.arr[container.index];
       const prevSibling = container.arr[container.index - 1];
@@ -1063,8 +1133,6 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
       if (prevSibling.type === 'toggle' || prevSibling.type.startsWith('toggle_heading')) {
         prevSibling.open = true;
       }
-      
-      return next;
     });
     
     // Restore focus after React DOM updates
@@ -1110,12 +1178,10 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
       }
     };
     requestAnimationFrame(focusTarget);
-  }, []);
+  }, [mutateState]);
 
   const outdentBlock = useCallback((blockId, caretOffset = 0) => {
-    setPageState(prev => {
-      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
-      
+    mutateState(prev => {
       let foundParent = null;
       let foundContainer = null;
       
@@ -1142,21 +1208,19 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
         return false;
       };
       
-      search(next.blocks);
-      if (!foundParent || !foundContainer) return prev; // Cannot outdent if no parent
+      search(prev.blocks);
+      if (!foundParent || !foundContainer) return; // Cannot outdent if no parent
       
       const block = foundContainer.arr[foundContainer.index];
       foundContainer.arr.splice(foundContainer.index, 1);
       
       // Insert after parent in parent's container
-      const parentContainer = _findBlockContainer(foundParent.id, next.blocks);
+      const parentContainer = _findBlockContainer(foundParent.id, prev.blocks);
       if (parentContainer) {
         parentContainer.arr.splice(parentContainer.index + 1, 0, block);
       } else {
-        next.blocks.push(block);
+        prev.blocks.push(block);
       }
-      
-      return next;
     });
     
     // Restore focus after React DOM updates
@@ -1202,7 +1266,7 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
       }
     };
     requestAnimationFrame(focusTarget);
-  }, []);
+  }, [mutateState]);
 
   const deleteAndMergeBlocks = useCallback((id1, id2) => {
     const all = _flatVisibleBlocks(pageRef.current.blocks);
@@ -1244,11 +1308,9 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     const mergedContent = contentBefore + contentAfter;
     
     // Update state
-    setPageState(prev => {
-      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
-      
+    mutateState(prev => {
       // Update first block
-      const targetStart = _getBlockById(startBlock.id, next.blocks);
+      const targetStart = _getBlockById(startBlock.id, prev.blocks);
       if (targetStart) {
         targetStart.content = mergedContent;
       }
@@ -1256,7 +1318,7 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
       // Delete end block and intermediate blocks
       for (let i = idx1 + 1; i <= idx2; i++) {
         const blockToDelete = all[i];
-        const container = _findBlockContainer(blockToDelete.id, next.blocks);
+        const container = _findBlockContainer(blockToDelete.id, prev.blocks);
         if (container) {
           const target = container.arr[container.index];
           if (target && target.children && target.children.length > 0) {
@@ -1265,7 +1327,6 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
           container.arr.splice(container.index, 1);
         }
       }
-      return next;
     });
     
     // Place cursor at merge point
@@ -1310,27 +1371,25 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
         sel.addRange(r);
       }
     });
-  }, []);
+  }, [mutateState]);
 
   const deleteMultipleBlocks = useCallback((blockIds) => {
-    setPageState(prev => {
-      const next = { ...prev, blocks: JSON.parse(JSON.stringify(prev.blocks)) };
+    mutateState(prev => {
       blockIds.forEach(id => {
-        const container = _findBlockContainer(id, next.blocks);
+        const container = _findBlockContainer(id, prev.blocks);
         if (container) {
           container.arr.splice(container.index, 1);
         }
       });
-      return next;
     });
-  }, []);
+  }, [mutateState]);
 
   const value = {
-    pageState, setPageState: updateState, updatePage,
+    pageState, setPageState: mutateState, updatePage,
     addBlock, deleteBlock, duplicateBlock, changeBlockType, moveBlock,
     indentBlock, outdentBlock, deleteAndMergeBlocks, deleteMultipleBlocks, insertBlocks,
     updateBlockContent, updateBlockProperty, clearAllBlockFonts,
-    insertColumn, deleteColumn,
+    insertColumn, deleteColumn, moveColumn: reorderColumnToPosition,
     getBlockById, findBlockContainer, flatVisibleBlocks,
     triggerUpdate, tick,
     slashMenu, showSlashMenu, hideSlashMenu, updateSlashFilter,
@@ -1352,6 +1411,7 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     aiRephrase, openAiRephrase, closeAiRephrase,
     restrictedDeletion,
     storeRedactedContent, getRedactedContent, clearRedactedContent, clearAllRedactedContent,
+    undo, redo, canUndo, canRedo, restoreFromCheckpoint, historyManager: historyManagerRef,
   };
   return <PageContext.Provider value={value}>{children}</PageContext.Provider>;
 }

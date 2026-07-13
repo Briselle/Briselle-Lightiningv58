@@ -21,6 +21,5 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true
   },
-  "include": ["src"],
-  "exclude": ["src/modules/notion-nest/backup_ignore"]
+  "include": ["src"]
 }

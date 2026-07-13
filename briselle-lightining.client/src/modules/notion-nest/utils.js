@@ -253,7 +253,7 @@ export function getCaretCoordinates() {
 // ---- New block with type defaults ----
 export function createNewBlock(type, content) {
   const b = makeBlock(type, content || '');
-  if (type === 'toggle' || type === 'toggle_heading1' || type === 'toggle_heading2' || type === 'toggle_heading3') { b.open = false; b.children = [makeBlock('paragraph', '')]; }
+  if (type === 'toggle' || type === 'toggle_heading1' || type === 'toggle_heading2' || type === 'toggle_heading3' || type === 'toggle_heading4' || type === 'toggle_heading5') { b.open = false; b.children = [makeBlock('paragraph', '')]; }
   if (type === 'todo') { b.checked = false; }
   if (type === 'callout') { b.calloutIcon = '💡'; }
   if (type === 'code') { b.language = 'javascript'; }
@@ -274,7 +274,7 @@ export function createNewBlock(type, content) {
   if (type === 'audio') { b.url = ''; }
   if (type === 'file') { b.url = ''; b.fileName = ''; }
   if (type === 'equation') { b.expression = ''; }
-  if (type === 'bookmark') { b.url = ''; b.bookmarkTitle = ''; b.description = ''; }
+  if (type === 'bookmark') { b.url = ''; b.bookmarkTitle = ''; b.description = ''; b.image = ''; b.favicon = ''; b.isVisualBookmark = true; }
   if (type === 'sub_page') { b.pageTitle = 'Untitled'; }
   return b;
 }
@@ -313,45 +313,51 @@ export const slashMenuSections = [
   {
     label: 'Basic Blocks',
     items: [
-      { icon: 'FileText', name: 'Text', desc: 'Plain text block', type: 'paragraph', keywords: ['text', 'p', 'paragraph', 'plain'] },
-      { icon: 'File', name: 'Page', desc: 'Embed a sub-page', type: 'sub_page', keywords: ['page', 'subpage', 'doc', 'embed'] },
-      { icon: 'CheckSquare', name: 'To-do List', desc: 'Track tasks with checkboxes', type: 'todo', keywords: ['todo', 'task', 'list', 'check', 'checkbox'] },
-      { icon: 'Heading1', name: 'Heading 1', desc: 'Large section heading', type: 'heading1', keywords: ['h1', 'heading1', 'title', 'large'] },
-      { icon: 'Heading2', name: 'Heading 2', desc: 'Medium section heading', type: 'heading2', keywords: ['h2', 'heading2', 'subtitle', 'medium'] },
-      { icon: 'Heading3', name: 'Heading 3', desc: 'Small section heading', type: 'heading3', keywords: ['h3', 'heading3', 'small'] },
-      { icon: 'List', name: 'Bulleted List', desc: 'Simple bulleted list', type: 'bulleted_list', keywords: ['bullet', 'list', 'bulleted'] },
-      { icon: 'ListOrdered', name: 'Numbered List', desc: 'Numbered list', type: 'numbered_list', keywords: ['number', 'ordered', 'list', 'numbered'] },
-      { icon: 'ChevronRight', name: 'Toggle List', desc: 'Collapsible toggle block', type: 'toggle', keywords: ['toggle', 'list', 'collapsible', 'expand'] },
-      { icon: 'Quote', name: 'Quote', desc: 'Capture a quote', type: 'quote', keywords: ['quote', 'blockquotes', 'citation'] },
-      { icon: 'Minus', name: 'Divider', desc: 'Horizontal divider line', type: 'divider', keywords: ['divider', 'line', 'hr', 'split'] },
-      { icon: 'Lightbulb', name: 'Callout', desc: 'Callout box with icon', type: 'callout', keywords: ['callout', 'box', 'tip', 'info', 'alert'] },
+      { icon: 'FileText', name: 'Text', desc: 'Plain text block', type: 'paragraph', keywords: ['text', 'p', 'paragraph', 'plain'], shortcut: 'txt' },
+      { icon: 'File', name: 'Page', desc: 'Embed a sub-page', type: 'sub_page', keywords: ['page', 'subpage', 'doc', 'embed'], shortcut: 'pg' },
+      { icon: 'CheckSquare', name: 'To-do List', desc: 'Track tasks with checkboxes', type: 'todo', keywords: ['todo', 'task', 'list', 'check', 'checkbox'], shortcut: '[]' },
+      { icon: 'Heading1', name: 'Heading 1', desc: 'Large section heading', type: 'heading1', keywords: ['h1', 'heading1', 'title', 'large'], shortcut: '# / h1' },
+      { icon: 'Heading2', name: 'Heading 2', desc: 'Medium section heading', type: 'heading2', keywords: ['h2', 'heading2', 'subtitle', 'medium'], shortcut: '## / h2' },
+      { icon: 'Heading3', name: 'Heading 3', desc: 'Small section heading', type: 'heading3', keywords: ['h3', 'heading3', 'small'], shortcut: '### / h3' },
+      { icon: 'Heading1', name: 'Heading 4', desc: 'Extra small section heading', type: 'heading4', keywords: ['h4', 'heading4', 'tiny'], shortcut: '#### / h4' },
+      { icon: 'Heading1', name: 'Heading 5', desc: 'Mini section heading', type: 'heading5', keywords: ['h5', 'heading5', 'mini'], shortcut: '##### / h5' },
+      { icon: 'List', name: 'Bulleted List', desc: 'Simple bulleted list', type: 'bulleted_list', keywords: ['bullet', 'list', 'bulleted'], shortcut: '-' },
+      { icon: 'ListOrdered', name: 'Numbered List', desc: 'Numbered list', type: 'numbered_list', keywords: ['number', 'ordered', 'list', 'numbered'], shortcut: '1.' },
+      { icon: 'ChevronRight', name: 'Toggle List', desc: 'Collapsible toggle block', type: 'toggle', keywords: ['toggle', 'list', 'collapsible', 'expand'], shortcut: '> / tl' },
+      { icon: 'Quote', name: 'Quote', desc: 'Capture a quote', type: 'quote', keywords: ['quote', 'blockquotes', 'citation'], shortcut: '"' },
+      { icon: 'Minus', name: 'Divider', desc: 'Horizontal divider line', type: 'divider', keywords: ['divider', 'line', 'hr', 'split'], shortcut: '---' },
+      { icon: 'Lightbulb', name: 'Callout', desc: 'Callout box with icon', type: 'callout', keywords: ['callout', 'box', 'tip', 'info', 'alert'], shortcut: 'cl' },
     ],
   },
   {
     label: 'Media',
     items: [
-      { icon: 'Image', name: 'Image', desc: 'Upload or embed an image', type: 'image', keywords: ['image', 'photo', 'picture', 'file'] },
-      { icon: 'Video', name: 'Video', desc: 'Embed a video', type: 'video', keywords: ['video', 'youtube', 'vimeo', 'movie'] },
-      { icon: 'Music', name: 'Audio', desc: 'Embed audio', type: 'audio', keywords: ['audio', 'music', 'sound', 'mp3'] },
-      { icon: 'Paperclip', name: 'File', desc: 'Upload or link a file', type: 'file', keywords: ['file', 'attachment', 'upload', 'pdf'] },
-      { icon: 'Code', name: 'Code', desc: 'Code block with syntax highlighting', type: 'code', keywords: ['code', 'pre', 'script', 'javascript', 'html'] },
-      { icon: 'Bookmark', name: 'Web Bookmark', desc: 'Save a link as visual bookmark', type: 'bookmark', keywords: ['bookmark', 'link', 'web', 'url'] },
+      { icon: 'Image', name: 'Image', desc: 'Upload or embed an image', type: 'image', keywords: ['image', 'photo', 'picture', 'file'], shortcut: 'img' },
+      { icon: 'Video', name: 'Video', desc: 'Embed a video', type: 'video', keywords: ['video', 'youtube', 'vimeo', 'movie'], shortcut: 'vid' },
+      { icon: 'Music', name: 'Audio', desc: 'Embed audio', type: 'audio', keywords: ['audio', 'music', 'sound', 'mp3'], shortcut: 'au' },
+      { icon: 'Paperclip', name: 'File', desc: 'Upload or link a file', type: 'file', keywords: ['file', 'attachment', 'upload', 'pdf'], shortcut: 'fl' },
+      { icon: 'Code', name: 'Code', desc: 'Code block with syntax highlighting', type: 'code', keywords: ['code', 'pre', 'script', 'javascript', 'html'], shortcut: '<>' },
+      { icon: 'Bookmark', name: 'Web Bookmark', desc: 'Save a link as visual bookmark', type: 'bookmark', keywords: ['bookmark', 'link', 'web', 'url'], shortcut: 'wbm' },
+      { icon: 'Link', name: 'Link Embed', desc: 'Inline link preview', type: 'link_preview', keywords: ['link', 'url', 'preview', 'inline', 'embed'], shortcut: 'le' },
     ],
   },
   {
     label: 'Advanced',
     items: [
-      { icon: 'Table', name: 'Table', desc: 'Simple table', type: 'table', keywords: ['table', 'grid', 'matrix', 'data'] },
-      { icon: 'Columns', name: '2 Columns', desc: 'Two-column layout', type: 'columns2', keywords: ['columns', 'columns2', '2col', '2 columns', 'layout', 'grid', 'split'] },
-      { icon: 'Columns', name: '3 Columns', desc: 'Three-column layout', type: 'columns3', keywords: ['columns3', '3col', '3 columns', 'layout', 'grid'] },
-      { icon: 'Columns', name: '4 Columns', desc: 'Four-column layout', type: 'columns4', keywords: ['columns4', '4col', '4 columns', 'layout', 'grid'] },
-      { icon: 'Columns', name: '5 Columns', desc: 'Five-column layout', type: 'columns5', keywords: ['columns5', '5col', '5 columns', 'layout', 'grid'] },
-      { icon: 'BookOpen', name: 'Table of Contents', desc: 'Auto-generated from headings', type: 'toc', keywords: ['toc', 'table of contents', 'index', 'headings'] },
-      { icon: 'Layers', name: 'Tabs', desc: 'Tabbed content block', type: 'tabs', keywords: ['tabs', 'layout', 'pages', 'cards'] },
-      { icon: 'Sigma', name: 'Equation', desc: 'LaTeX math equation', type: 'equation', keywords: ['equation', 'math', 'latex', 'sigma'] },
-      { icon: 'Heading1', name: 'Toggle Heading 1', desc: 'Collapsible large heading', type: 'toggle_heading1', keywords: ['toggle heading1', 'h1', 'heading1', 'toggle', 'h1t'] },
-      { icon: 'Heading2', name: 'Toggle Heading 2', desc: 'Collapsible medium heading', type: 'toggle_heading2', keywords: ['toggle heading2', 'h2', 'heading2', 'toggle', 'h2t'] },
-      { icon: 'Heading3', name: 'Toggle Heading 3', desc: 'Collapsible small heading', type: 'toggle_heading3', keywords: ['toggle heading3', 'h3', 'heading3', 'toggle', 'h3t'] },
+      { icon: 'Table', name: 'Table', desc: 'Simple table', type: 'table', keywords: ['table', 'grid', 'matrix', 'data'], shortcut: 'tbl' },
+      { icon: 'Columns', name: '2 Columns', desc: 'Two-column layout', type: 'columns2', keywords: ['columns', 'columns2', '2col', '2 columns', 'layout', 'grid', 'split'], shortcut: 'col2' },
+      { icon: 'Columns', name: '3 Columns', desc: 'Three-column layout', type: 'columns3', keywords: ['columns3', '3col', '3 columns', 'layout', 'grid'], shortcut: 'col3' },
+      { icon: 'Columns', name: '4 Columns', desc: 'Four-column layout', type: 'columns4', keywords: ['columns4', '4col', '4 columns', 'layout', 'grid'], shortcut: 'col4' },
+      { icon: 'Columns', name: '5 Columns', desc: 'Five-column layout', type: 'columns5', keywords: ['columns5', '5col', '5 columns', 'layout', 'grid'], shortcut: 'col5' },
+      { icon: 'BookOpen', name: 'Table of Contents', desc: 'Auto-generated from headings', type: 'toc', keywords: ['toc', 'table of contents', 'index', 'headings'], shortcut: 'tc' },
+      { icon: 'Layers', name: 'Tabs', desc: 'Tabbed content block', type: 'tabs', keywords: ['tabs', 'layout', 'pages', 'cards'], shortcut: 'tab' },
+      { icon: 'Sigma', name: 'Equation', desc: 'LaTeX math equation', type: 'equation', keywords: ['equation', 'math', 'latex', 'sigma'], shortcut: 'eq' },
+      { icon: 'Heading1', name: 'Toggle Heading 1', desc: 'Collapsible large heading', type: 'toggle_heading1', keywords: ['toggle heading1', 'h1', 'heading1', 'toggle', 'h1t'], shortcut: '#> / h1t' },
+      { icon: 'Heading2', name: 'Toggle Heading 2', desc: 'Collapsible medium heading', type: 'toggle_heading2', keywords: ['toggle heading2', 'h2', 'heading2', 'toggle', 'h2t'], shortcut: '##> / h2t' },
+      { icon: 'Heading3', name: 'Toggle Heading 3', desc: 'Collapsible small heading', type: 'toggle_heading3', keywords: ['toggle heading3', 'h3', 'heading3', 'toggle', 'h3t'], shortcut: '###> / h3t' },
+      { icon: 'Heading1', name: 'Toggle Heading 4', desc: 'Collapsible extra small heading', type: 'toggle_heading4', keywords: ['toggle heading4', 'h4', 'heading4', 'toggle', 'h4t'], shortcut: '####> / h4t' },
+      { icon: 'Heading1', name: 'Toggle Heading 5', desc: 'Collapsible mini heading', type: 'toggle_heading5', keywords: ['toggle heading5', 'h5', 'heading5', 'toggle', 'h5t'], shortcut: '#####> / h5t' },
+      { icon: 'MousePointerClick', name: 'Button', desc: 'Clickable button with link', type: 'button', keywords: ['button', 'link', 'action', 'cta'], shortcut: 'btn' },
     ],
   },
 ];
@@ -375,15 +381,157 @@ export const markdownShortcuts = [
   { pattern: /^# $/, type: 'heading1' },
   { pattern: /^## $/, type: 'heading2' },
   { pattern: /^### $/, type: 'heading3' },
+  { pattern: /^#### $/, type: 'heading4' },
+  { pattern: /^##### $/, type: 'heading5' },
   { pattern: /^- $/, type: 'bulleted_list' },
   { pattern: /^\* $/, type: 'bulleted_list' },
   { pattern: /^\d+\. $/, type: 'numbered_list' },
   { pattern: /^\[\] $/, type: 'todo' },
-  { pattern: /^> $/, type: 'quote' },
+  { pattern: /^> $/, type: 'toggle' },
+  { pattern: /^#> $/, type: 'toggle_heading1' },
+  { pattern: /^##> $/, type: 'toggle_heading2' },
+  { pattern: /^###> $/, type: 'toggle_heading3' },
+  { pattern: /^####> $/, type: 'toggle_heading4' },
+  { pattern: /^#####> $/, type: 'toggle_heading5' },
+  { pattern: /^" $/, type: 'quote' },
   { pattern: /^--- ?$/, type: 'divider' },
   { pattern: /^```$/, type: 'code' },
   { pattern: /^\|\| $/, type: 'toggle' },
+  { pattern: /^h1 $/, type: 'heading1' },
+  { pattern: /^h2 $/, type: 'heading2' },
+  { pattern: /^h3 $/, type: 'heading3' },
+  { pattern: /^h4 $/, type: 'heading4' },
+  { pattern: /^h5 $/, type: 'heading5' },
+  { pattern: /^h1t $/, type: 'toggle_heading1' },
+  { pattern: /^h2t $/, type: 'toggle_heading2' },
+  { pattern: /^h3t $/, type: 'toggle_heading3' },
+  { pattern: /^h4t $/, type: 'toggle_heading4' },
+  { pattern: /^h5t $/, type: 'toggle_heading5' },
+  { pattern: /^tl $/, type: 'toggle' },
+  { pattern: /^<> $/, type: 'code' },
+  { pattern: /^tbl $/, type: 'table' },
+  { pattern: /^cl $/, type: 'callout' },
+  { pattern: /^img $/, type: 'image' },
+  { pattern: /^vid $/, type: 'video' },
+  { pattern: /^fl $/, type: 'file' },
+  { pattern: /^au $/, type: 'audio' },
+  { pattern: /^wbm $/, type: 'bookmark' },
+  { pattern: /^tab $/, type: 'tabs' },
+  { pattern: /^tc $/, type: 'toc' },
+  { pattern: /^pg $/, type: 'sub_page' },
+  { pattern: /^txt $/, type: 'paragraph' },
+  { pattern: /^col2 $/, type: 'columns2' },
+  { pattern: /^col3 $/, type: 'columns3' },
+  { pattern: /^col4 $/, type: 'columns4' },
+  { pattern: /^col5 $/, type: 'columns5' },
+  { pattern: /^btn $/, type: 'button' },
+  { pattern: /^eq $/, type: 'equation' },
+  { pattern: /^le $/, type: 'link_preview' },
 ];
+
+// ---- Recent blocks tracking ----
+const RECENT_KEY = 'nn_recent';
+export function getRecentBlocks() {
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    if (!raw) return [];
+    const data = JSON.parse(raw);
+    return Object.entries(data)
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 5)
+      .map(([type]) => type);
+  } catch { return []; }
+}
+export function trackBlockUsage(type) {
+  if (!type) return;
+  try {
+    const raw = localStorage.getItem(RECENT_KEY);
+    const data = raw ? JSON.parse(raw) : {};
+    if (data[type]) { data[type].count += 1; data[type].lastUsed = Date.now(); }
+    else { data[type] = { count: 1, lastUsed: Date.now() }; }
+    localStorage.setItem(RECENT_KEY, JSON.stringify(data));
+  } catch { /* ignore */ }
+}
+
+// ---- Code block languages ----
+export const CODE_LANGUAGES = [
+  { value: 'plain', label: 'Plain Text', color: '#6b7280', category: 'Basic' },
+  { value: 'javascript', label: 'JavaScript', color: '#f7df1e', category: 'Basic' },
+  { value: 'typescript', label: 'TypeScript', color: '#3178c6', category: 'Basic' },
+  { value: 'python', label: 'Python', color: '#3776ab', category: 'Basic' },
+  { value: 'java', label: 'Java', color: '#ed8b00', category: 'Basic' },
+  { value: 'c', label: 'C', color: '#555555', category: 'Basic' },
+  { value: 'cpp', label: 'C++', color: '#00599c', category: 'Basic' },
+  { value: 'csharp', label: 'C#', color: '#239120', category: 'Basic' },
+  { value: 'go', label: 'Go', color: '#00add8', category: 'Basic' },
+  { value: 'rust', label: 'Rust', color: '#dea584', category: 'Basic' },
+  { value: 'ruby', label: 'Ruby', color: '#cc342d', category: 'Basic' },
+  { value: 'php', label: 'PHP', color: '#777bb4', category: 'Basic' },
+  { value: 'swift', label: 'Swift', color: '#f05138', category: 'Basic' },
+  { value: 'kotlin', label: 'Kotlin', color: '#7f52ff', category: 'Basic' },
+  { value: 'scala', label: 'Scala', color: '#dc322f', category: 'Basic' },
+  { value: 'r', label: 'R', color: '#276dc3', category: 'Basic' },
+  { value: 'dart', label: 'Dart', color: '#0175c2', category: 'Basic' },
+  { value: 'lua', label: 'Lua', color: '#000080', category: 'Basic' },
+  { value: 'perl', label: 'Perl', color: '#39457e', category: 'Basic' },
+  { value: 'html', label: 'HTML', color: '#e34c26', category: 'Web' },
+  { value: 'css', label: 'CSS', color: '#1572b6', category: 'Web' },
+  { value: 'scss', label: 'SCSS', color: '#c6538c', category: 'Web' },
+  { value: 'less', label: 'Less', color: '#1d365d', category: 'Web' },
+  { value: 'sass', label: 'Sass', color: '#cc6699', category: 'Web' },
+  { value: 'xml', label: 'XML', color: '#0060ac', category: 'Web' },
+  { value: 'svg', label: 'SVG', color: '#ffb13b', category: 'Web' },
+  { value: 'jsx', label: 'JSX', color: '#61dafb', category: 'Web' },
+  { value: 'tsx', label: 'TSX', color: '#3178c6', category: 'Web' },
+  { value: 'vue', label: 'Vue', color: '#42b883', category: 'Web' },
+  { value: 'svelte', label: 'Svelte', color: '#ff3e00', category: 'Web' },
+  { value: 'json', label: 'JSON', color: '#292929', category: 'Data' },
+  { value: 'yaml', label: 'YAML', color: '#cb171e', category: 'Data' },
+  { value: 'toml', label: 'TOML', color: '#9c4221', category: 'Data' },
+  { value: 'sql', label: 'SQL', color: '#e38c00', category: 'Data' },
+  { value: 'graphql', label: 'GraphQL', color: '#e10098', category: 'Data' },
+  { value: 'markdown', label: 'Markdown', color: '#083fa1', category: 'Data' },
+  { value: 'csv', label: 'CSV', color: '#292929', category: 'Data' },
+  { value: 'bash', label: 'Bash', color: '#4eaa25', category: 'Shell' },
+  { value: 'powershell', label: 'PowerShell', color: '#012456', category: 'Shell' },
+  { value: 'zsh', label: 'Zsh', color: '#ea4a8a', category: 'Shell' },
+  { value: 'fish', label: 'Fish', color: '#405d95', category: 'Shell' },
+  { value: 'dockerfile', label: 'Dockerfile', color: '#2496ed', category: 'DevOps' },
+  { value: 'makefile', label: 'Makefile', color: '#427819', category: 'DevOps' },
+  { value: 'cmake', label: 'CMake', color: '#064f8c', category: 'DevOps' },
+  { value: 'nginx', label: 'Nginx', color: '#009639', category: 'DevOps' },
+  { value: 'apache', label: 'Apache', color: '#d22128', category: 'DevOps' },
+  { value: 'terraform', label: 'Terraform', color: '#844fba', category: 'DevOps' },
+  { value: 'hcl', label: 'HCL', color: '#844fba', category: 'DevOps' },
+  { value: 'protobuf', label: 'Protocol Buffers', color: '#4a82c7', category: 'DevOps' },
+  { value: 'elixir', label: 'Elixir', color: '#6e4a7e', category: 'Functional' },
+  { value: 'erlang', label: 'Erlang', color: '#a90533', category: 'Functional' },
+  { value: 'haskell', label: 'Haskell', color: '#5e5086', category: 'Functional' },
+  { value: 'clojure', label: 'Clojure', color: '#5881d8', category: 'Functional' },
+  { value: 'lisp', label: 'Lisp', color: '#3fb68b', category: 'Functional' },
+  { value: 'scheme', label: 'Scheme', color: '#1e4aec', category: 'Functional' },
+  { value: 'ocaml', label: 'OCaml', color: '#3be133', category: 'Functional' },
+  { value: 'fsharp', label: 'F#', color: '#b845fc', category: 'Functional' },
+  { value: 'rust', label: 'Rust', color: '#dea584', category: 'Functional' },
+  { value: 'matlab', label: 'MATLAB', color: '#e16737', category: 'Other' },
+  { value: 'groovy', label: 'Groovy', color: '#4298b8', category: 'Other' },
+  { value: 'assembly', label: 'Assembly', color: '#6e4c13', category: 'Other' },
+  { value: 'zig', label: 'Zig', color: '#ec915c', category: 'Other' },
+  { value: 'nim', label: 'Nim', color: '#ffc207', category: 'Other' },
+  { value: 'v', label: 'V', color: '#4f87c4', category: 'Other' },
+  { value: 'julia', label: 'Julia', color: '#a270ca', category: 'Other' },
+  { value: 'objective-c', label: 'Objective-C', color: '#438eff', category: 'Other' },
+  { value: 'coffeescript', label: 'CoffeeScript', color: '#244776', category: 'Other' },
+  { value: 'dart', label: 'Dart', color: '#0175c2', category: 'Other' },
+  { value: 'elm', label: 'Elm', color: '#60b5cc', category: 'Other' },
+  { value: 'purescript', label: 'PureScript', color: '#14274c', category: 'Other' },
+  { value: 'reasonml', label: 'ReasonML', color: '#e54845', category: 'Other' },
+  { value: 'dhall', label: 'Dhall', color: '#dfafff', category: 'Other' },
+  { value: 'bnf', label: 'BNF', color: '#a9a9a9', category: 'Other' },
+  { value: 'diff', label: 'Diff', color: '#41b883', category: 'Other' },
+];
+
+export const CODE_LANGUAGE_CATEGORIES = [...new Set(CODE_LANGUAGES.map(l => l.category))];
 
 export function calculateInitials(title, type, customVal = '') {
   if (type === 'custom') {
@@ -584,5 +732,204 @@ export function clearRedactedContent(blockId) {
 
 export function clearAllRedactedContent() {
   redactedContentMap.clear();
+}
+
+/* ---- Syntax Highlighting Engine ---- */
+
+function escapeHtml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+const JS_KEYWORDS = new Set(['const','let','var','function','return','if','else','for','while','do','switch','case','break','continue','new','this','class','extends','super','import','export','default','from','async','await','try','catch','finally','throw','typeof','instanceof','in','of','void','delete','yield','static','get','set','true','false','null','undefined','NaN','Infinity']);
+const PY_KEYWORDS = new Set(['def','class','if','elif','else','for','while','return','import','from','as','try','except','finally','raise','with','yield','lambda','pass','break','continue','and','or','not','is','in','True','False','None','self','print','del','global','nonlocal','assert','async','await']);
+const CSS_PROPS = new Set(['background','background-color','background-image','background-size','background-position','background-repeat','background-origin','background-clip','border','border-color','border-style','border-width','border-radius','border-top','border-bottom','border-left','border-right','color','display','flex','flex-direction','flex-wrap','justify-content','align-items','align-self','gap','grid','grid-template','grid-column','grid-row','width','height','min-width','min-height','max-width','max-height','margin','padding','position','top','left','right','bottom','z-index','font','font-family','font-size','font-weight','font-style','line-height','text-align','text-decoration','text-transform','letter-spacing','word-spacing','white-space','overflow','overflow-x','overflow-y','cursor','opacity','visibility','box-shadow','text-shadow','transition','transform','animation','content','outline','resize','user-select','box-sizing','clear','float','vertical-align','list-style','caption-side','border-collapse','border-spacing','table-layout','empty-cells','quotes','counter-reset','counter-increment','clip','clip-path','filter','object-fit','object-position','order','flex-grow','flex-shrink','flex-basis','justify-self','place-items','place-content','place-self','scroll-margin','scroll-padding','scroll-snap','scroll-behavior','overscroll-behavior','touch-action','will-change','backdrop-filter','mix-blend-mode','isolation','accent-color','appearance','caret-color','image-rendering','pointer-events','shape-margin','shape-outside','shape-image-threshold']);
+const CSS_UNITS = /^(px|em|rem|%|vh|vw|vmin|vmax|ch|ex|cm|mm|in|pt|pc|s|ms|deg|rad|grad|turn|fr)$/;
+
+function highlightJS(code) {
+  const tokens = [];
+  let i = 0;
+  while (i < code.length) {
+    if (code[i] === '/' && code[i+1] === '/') {
+      let end = code.indexOf('\n', i); if (end === -1) end = code.length;
+      tokens.push({ type: 'comment', value: code.slice(i, end) }); i = end;
+    } else if (code[i] === '/' && code[i+1] === '*') {
+      let end = code.indexOf('*/', i+2); if (end === -1) end = code.length; else end += 2;
+      tokens.push({ type: 'comment', value: code.slice(i, end) }); i = end;
+    } else if (code[i] === '"' || code[i] === "'" || code[i] === '`') {
+      const q = code[i]; let j = i + 1;
+      while (j < code.length && code[j] !== q) { if (code[j] === '\\') j++; j++; }
+      j = Math.min(j + 1, code.length);
+      tokens.push({ type: 'string', value: code.slice(i, j) }); i = j;
+    } else if (/[0-9]/.test(code[i])) {
+      let j = i; while (j < code.length && /[0-9.xXa-fA-F_]/.test(code[j])) j++;
+      tokens.push({ type: 'number', value: code.slice(i, j) }); i = j;
+    } else if (/[a-zA-Z_$]/.test(code[i])) {
+      let j = i; while (j < code.length && /[a-zA-Z0-9_$]/.test(code[j])) j++;
+      const word = code.slice(i, j);
+      if (JS_KEYWORDS.has(word)) tokens.push({ type: 'keyword', value: word });
+      else if (j < code.length && code[j] === '(') tokens.push({ type: 'function', value: word });
+      else tokens.push({ type: 'plain', value: word });
+      i = j;
+    } else {
+      tokens.push({ type: 'plain', value: code[i] }); i++;
+    }
+  }
+  return tokens;
+}
+
+function highlightPython(code) {
+  const tokens = [];
+  let i = 0;
+  while (i < code.length) {
+    if (code[i] === '#') {
+      let end = code.indexOf('\n', i); if (end === -1) end = code.length;
+      tokens.push({ type: 'comment', value: code.slice(i, end) }); i = end;
+    } else if (code.slice(i, i+3) === '"""' || code.slice(i, i+3) === "'''") {
+      const q = code.slice(i, i+3); let end = code.indexOf(q, i+3); if (end === -1) end = code.length; else end += 3;
+      tokens.push({ type: 'string', value: code.slice(i, end) }); i = end;
+    } else if (code[i] === '"' || code[i] === "'") {
+      const q = code[i]; let j = i + 1;
+      while (j < code.length && code[j] !== q) { if (code[j] === '\\') j++; j++; }
+      j = Math.min(j + 1, code.length);
+      tokens.push({ type: 'string', value: code.slice(i, j) }); i = j;
+    } else if (/[0-9]/.test(code[i])) {
+      let j = i; while (j < code.length && /[0-9._xXeE]/.test(code[j])) j++;
+      tokens.push({ type: 'number', value: code.slice(i, j) }); i = j;
+    } else if (/[a-zA-Z_]/.test(code[i])) {
+      let j = i; while (j < code.length && /[a-zA-Z0-9_]/.test(code[j])) j++;
+      const word = code.slice(i, j);
+      if (PY_KEYWORDS.has(word)) tokens.push({ type: 'keyword', value: word });
+      else if (j < code.length && code[j] === '(') tokens.push({ type: 'function', value: word });
+      else tokens.push({ type: 'plain', value: word });
+      i = j;
+    } else {
+      tokens.push({ type: 'plain', value: code[i] }); i++;
+    }
+  }
+  return tokens;
+}
+
+function highlightCSS(code) {
+  const tokens = [];
+  let i = 0;
+  while (i < code.length) {
+    if (code[i] === '/' && code[i+1] === '*') {
+      let end = code.indexOf('*/', i+2); if (end === -1) end = code.length; else end += 2;
+      tokens.push({ type: 'comment', value: code.slice(i, end) }); i = end;
+    } else if (code[i] === '"' || code[i] === "'") {
+      const q = code[i]; let j = i + 1;
+      while (j < code.length && code[j] !== q) { if (code[j] === '\\') j++; j++; }
+      j = Math.min(j + 1, code.length);
+      tokens.push({ type: 'string', value: code.slice(i, j) }); i = j;
+    } else if (code[i] === '#') {
+      let j = i + 1; while (j < code.length && /[0-9a-fA-F]/.test(code[j])) j++;
+      if (j > i + 1) tokens.push({ type: 'number', value: code.slice(i, j) }); i = j;
+    } else if (/[0-9]/.test(code[i])) {
+      let j = i; while (j < code.length && /[0-9.%a-zA-Z]/.test(code[j])) j++;
+      tokens.push({ type: 'number', value: code.slice(i, j) }); i = j;
+    } else if (code[i] === '.' && /[a-zA-Z_-]/.test(code[i+1] || '')) {
+      let j = i + 1; while (j < code.length && /[a-zA-Z0-9_-]/.test(code[j])) j++;
+      tokens.push({ type: 'selector', value: code.slice(i, j) }); i = j;
+    } else if (code[i] === '@') {
+      let j = i + 1; while (j < code.length && /[a-zA-Z-]/.test(code[j])) j++;
+      tokens.push({ type: 'keyword', value: code.slice(i, j) }); i = j;
+    } else if (/[a-zA-Z_-]/.test(code[i])) {
+      let j = i; while (j < code.length && /[a-zA-Z0-9_-]/.test(code[j])) j++;
+      const word = code.slice(i, j);
+      if (j < code.length && code[j] === ':') tokens.push({ type: 'property', value: word });
+      else if (CSS_PROPS.has(word)) tokens.push({ type: 'property', value: word });
+      else tokens.push({ type: 'plain', value: word });
+      i = j;
+    } else {
+      tokens.push({ type: 'plain', value: code[i] }); i++;
+    }
+  }
+  return tokens;
+}
+
+function highlightHTML(code) {
+  const tokens = [];
+  let i = 0;
+  while (i < code.length) {
+    if (code.slice(i, i+6) === '&lt;!--') {
+      let end = code.indexOf('--&gt;', i+6); if (end === -1) end = code.length; else end += 6;
+      tokens.push({ type: 'comment', value: code.slice(i, end) }); i = end;
+    } else if (code.slice(i, i+4) === '<!--') {
+      let end = code.indexOf('-->', i+4); if (end === -1) end = code.length; else end += 3;
+      tokens.push({ type: 'comment', value: code.slice(i, end) }); i = end;
+    } else if (code[i] === '<') {
+      let j = i + 1; while (j < code.length && code[j] !== '>') j++;
+      j = Math.min(j + 1, code.length);
+      tokens.push({ type: 'tag', value: code.slice(i, j) }); i = j;
+    } else if (code[i] === '"' || code[i] === "'") {
+      const q = code[i]; let j = i + 1;
+      while (j < code.length && code[j] !== q) j++;
+      j = Math.min(j + 1, code.length);
+      tokens.push({ type: 'string', value: code.slice(i, j) }); i = j;
+    } else {
+      tokens.push({ type: 'plain', value: code[i] }); i++;
+    }
+  }
+  return tokens;
+}
+
+function highlightGeneric(code) {
+  const tokens = [];
+  let i = 0;
+  while (i < code.length) {
+    if (code[i] === '/' && code[i+1] === '/') {
+      let end = code.indexOf('\n', i); if (end === -1) end = code.length;
+      tokens.push({ type: 'comment', value: code.slice(i, end) }); i = end;
+    } else if (code[i] === '"' || code[i] === "'") {
+      const q = code[i]; let j = i + 1;
+      while (j < code.length && code[j] !== q) { if (code[j] === '\\') j++; j++; }
+      j = Math.min(j + 1, code.length);
+      tokens.push({ type: 'string', value: code.slice(i, j) }); i = j;
+    } else if (/[0-9]/.test(code[i])) {
+      let j = i; while (j < code.length && /[0-9.]/.test(code[j])) j++;
+      tokens.push({ type: 'number', value: code.slice(i, j) }); i = j;
+    } else {
+      tokens.push({ type: 'plain', value: code[i] }); i++;
+    }
+  }
+  return tokens;
+}
+
+function tokensToHtml(tokens) {
+  return tokens.map(t => {
+    const escaped = escapeHtml(t.value);
+    switch (t.type) {
+      case 'keyword': return `<span class="hl-keyword">${escaped}</span>`;
+      case 'string': return `<span class="hl-string">${escaped}</span>`;
+      case 'number': return `<span class="hl-number">${escaped}</span>`;
+      case 'comment': return `<span class="hl-comment">${escaped}</span>`;
+      case 'function': return `<span class="hl-function">${escaped}</span>`;
+      case 'property': return `<span class="hl-property">${escaped}</span>`;
+      case 'selector': return `<span class="hl-selector">${escaped}</span>`;
+      case 'tag': return `<span class="hl-tag">${escaped}</span>`;
+      default: return escaped;
+    }
+  }).join('');
+}
+
+export function highlightCode(code, language) {
+  if (!code) return '';
+  const lang = (language || 'plain').toLowerCase();
+  let tokens;
+  switch (lang) {
+    case 'javascript': case 'js': case 'jsx': case 'typescript': case 'ts': case 'tsx':
+      tokens = highlightJS(code); break;
+    case 'python': case 'py':
+      tokens = highlightPython(code); break;
+    case 'css': case 'scss': case 'less': case 'sass':
+      tokens = highlightCSS(code); break;
+    case 'html': case 'xml': case 'svg':
+      tokens = highlightHTML(code); break;
+    case 'json':
+      tokens = highlightJS(code); break;
+    default:
+      tokens = highlightGeneric(code); break;
+  }
+  return tokensToHtml(tokens);
 }
 

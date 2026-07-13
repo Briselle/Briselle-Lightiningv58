@@ -2317,6 +2317,16 @@
   font-size: var(--nn-h3-size-local, var(--nn-h3-size, 20px)) !important;
 }
 
+.notion-app-container .block-heading4 [contenteditable],
+.notion-app-container .block-toggle-heading4 [contenteditable] {
+  font-size: var(--nn-h4-size-local, var(--nn-h4-size, 16px)) !important;
+}
+
+.notion-app-container .block-heading5 [contenteditable],
+.notion-app-container .block-toggle-heading5 [contenteditable] {
+  font-size: var(--nn-h5-size-local, var(--nn-h5-size, 14px)) !important;
+}
+
 /* Font Popover UI Dropdown */
 .nn-font-dropdown {
   width: 380px !important;
@@ -2859,6 +2869,16 @@
   top: 4px !important;
 }
 
+.block-heading4 > .block-controls,
+.block-toggle-heading4 > .block-controls {
+  top: 2px !important;
+}
+
+.block-heading5 > .block-controls,
+.block-toggle-heading5 > .block-controls {
+  top: 2px !important;
+}
+
 .block-callout > .block-controls {
   top: 12px !important;
 }
@@ -3150,4 +3170,227 @@
 
 .ca-msg-reactions-popover .notion-icon-picker {
   z-index: 10100 !important;
+}
+
+/* =============================================
+   Undo/Redo Toolbar Buttons
+   ============================================= */
+.notion-nest-undo-cluster {
+  display: flex;
+  gap: 2px;
+  margin-right: 8px;
+}
+
+.notion-nest-undo-cluster .notion-nest-toggle-btn {
+  position: relative;
+}
+
+.notion-nest-undo-cluster .notion-nest-toggle-btn:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+.notion-nest-undo-cluster .notion-nest-toggle-btn:not(:disabled):hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+.notion-nest-undo-cluster .notion-nest-toggle-btn:not(:disabled):active {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+/* Long-press visual feedback */
+@keyframes nn-long-press-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+.notion-nest-undo-cluster .notion-nest-toggle-btn:not(:disabled)::after {
+  content: '';
+  position: absolute;
+  bottom: 2px;
+  left: 4px;
+  right: 4px;
+  height: 2px;
+  background: #2563eb;
+  border-radius: 1px;
+  transform: scaleX(0);
+  transform-origin: left;
+}
+
+.notion-nest-undo-cluster .notion-nest-toggle-btn:not(:disabled):active::after {
+  animation: nn-long-press-fill 7s linear forwards;
+}
+
+/* =============================================
+   Version History Modal
+   ============================================= */
+.nn-version-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: fadeIn 0.15s ease;
+}
+
+.nn-version-modal {
+  background: white;
+  border-radius: 12px;
+  max-width: 560px;
+  width: 100%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+  border: 1px solid #e5e7eb;
+}
+
+.nn-version-modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid #e5e7eb;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.nn-version-modal-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+  margin: 0;
+}
+
+.nn-version-modal-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: none;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.nn-version-modal-close:hover {
+  background: #f3f4f6;
+  color: #111827;
+}
+
+.nn-version-modal-body {
+  overflow-y: auto;
+  flex: 1;
+  padding: 8px 0;
+}
+
+.nn-version-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+  cursor: default;
+  transition: background 0.15s;
+}
+
+.nn-version-row:hover {
+  background: #f9fafb;
+}
+
+.nn-version-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.nn-version-row .version-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: #111827;
+}
+
+.nn-version-row .version-time {
+  font-size: 12px;
+  color: #6b7280;
+}
+
+.nn-version-row .version-restore {
+  font-size: 12px;
+  color: #2563eb;
+  font-weight: 500;
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: background 0.15s;
+}
+
+.nn-version-row .version-restore:hover:not(:disabled) {
+  background: #eff6ff;
+  text-decoration: underline;
+}
+
+.nn-version-row .version-restore:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.nn-version-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: #9ca3af;
+  font-size: 13px;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .nn-version-modal {
+    background: #1f2937;
+    border-color: #374151;
+  }
+
+  .nn-version-modal-header {
+    border-color: #374151;
+  }
+
+  .nn-version-modal-title {
+    color: #f9fafb;
+  }
+
+  .nn-version-modal-close {
+    color: #9ca3af;
+  }
+
+  .nn-version-modal-close:hover {
+    background: #374151;
+    color: #f9fafb;
+  }
+
+  .nn-version-row:hover {
+    background: #374151;
+  }
+
+  .nn-version-row .version-label {
+    color: #f9fafb;
+  }
+
+  .nn-version-row .version-time {
+    color: #9ca3af;
+  }
+
+  .nn-version-row .version-restore {
+    color: #60a5fa;
+  }
+
+  .nn-version-row .version-restore:hover:not(:disabled) {
+    background: rgba(96, 165, 250, 0.1);
+  }
+
+  .nn-version-empty {
+    color: #6b7280;
+  }
 }

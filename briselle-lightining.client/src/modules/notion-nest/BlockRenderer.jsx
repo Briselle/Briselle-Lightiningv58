@@ -4,7 +4,7 @@
    ============================================================ */
 import { useCallback, useRef, memo } from 'react';
 import { usePageContext } from './PageContext';
-import { TextBlock, ListBlock, TodoBlock, ToggleBlock, QuoteBlock, CalloutBlock, DividerBlock, CodeBlock, ImageBlock, BookmarkBlock, TableBlock, ColumnsBlock, TocBlock, VideoBlock, AudioBlock, FileBlock, EquationBlock, ToggleHeadingBlock, SubPageBlock } from './blocks';
+import { TextBlock, ListBlock, TodoBlock, ToggleBlock, QuoteBlock, CalloutBlock, DividerBlock, CodeBlock, ImageBlock, BookmarkBlock, TableBlock, ColumnsBlock, TocBlock, VideoBlock, AudioBlock, FileBlock, EquationBlock, ToggleHeadingBlock, SubPageBlock, LinkEmbedBlock, ButtonBlock } from './blocks';
 import TabBlock from './TabBlock';
 import { slashMenuSections } from './utils';
 import { POPULAR_FONTS } from './pages/NotionNestPage';
@@ -14,6 +14,8 @@ const BLOCK_MAP = {
   heading1: TextBlock,
   heading2: TextBlock,
   heading3: TextBlock,
+  heading4: TextBlock,
+  heading5: TextBlock,
   bulleted_list: ListBlock,
   numbered_list: ListBlock,
   todo: TodoBlock,
@@ -29,13 +31,21 @@ const BLOCK_MAP = {
   bookmark: BookmarkBlock,
   table: TableBlock,
   columns: ColumnsBlock,
+  columns2: ColumnsBlock,
+  columns3: ColumnsBlock,
+  columns4: ColumnsBlock,
+  columns5: ColumnsBlock,
   toc: TocBlock,
   tabs: TabBlock,
   equation: EquationBlock,
   toggle_heading1: ToggleHeadingBlock,
   toggle_heading2: ToggleHeadingBlock,
   toggle_heading3: ToggleHeadingBlock,
+  toggle_heading4: ToggleHeadingBlock,
+  toggle_heading5: ToggleHeadingBlock,
   sub_page: SubPageBlock,
+  link_preview: LinkEmbedBlock,
+  button: ButtonBlock,
 };
 
 const BlockRenderer = memo(function BlockRenderer({ block, blocksArray, blockIndex }) {

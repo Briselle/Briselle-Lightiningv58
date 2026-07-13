@@ -10,7 +10,7 @@ import {
   MessageSquare, Minus, ChevronDown, ChevronUp, Sparkles, Plus
 } from 'lucide-react';
 import { usePageContext } from './PageContext';
-import { slashMenuSections, calculateInitials, obfuscateText, deobfuscateText, obfuscateTextSecure, deobfuscateTextSecure } from './utils';
+import { slashMenuSections, calculateInitials, obfuscateText, deobfuscateText, obfuscateTextSecure, deobfuscateTextSecure, getRecentBlocks, trackBlockUsage } from './utils';
 import UploadZone from './components/UploadZone';
 import { FontSettingsPanel, POPULAR_FONTS } from './pages/NotionNestPage';
 import { listNotionPages } from './notionPageStorage';
@@ -340,7 +340,13 @@ export const SlashMenu = memo(function SlashMenu() {
   const { slashMenu, hideSlashMenu, changeBlockType, updateBlockContent } = usePageContext();
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [coords, setCoords] = useState({ left: 0, top: 0 });
+  const [recentTypes, setRecentTypes] = useState([]);
+  const [hoveredItem, setHoveredItem] = useState(null);
   const menuRef = useRef(null);
+
+  useEffect(() => {
+    if (slashMenu.open) setRecentTypes(getRecentBlocks());
+  }, [slashMenu.open]);
 
   const getVisibleItems = useCallback(() => {
     const items = [];
@@ -362,7 +368,7 @@ export const SlashMenu = memo(function SlashMenu() {
       changeBlockType(slashMenu.blockId, type);
       const targetId = slashMenu.blockId;
       requestAnimationFrame(() => {
-        if (type !== 'tabs' && type !== 'columns' && type !== 'table') {
+        if (type !== 'tabs' && type !== 'columns' && type !== 'columns2' && type !== 'columns3' && type !== 'columns4' && type !== 'columns5' && type !== 'table') {
           const el = document.querySelector(`[data-block-id="${targetId}"] [contenteditable]`);
           if (el) {
             el.textContent = '';
@@ -373,7 +379,7 @@ export const SlashMenu = memo(function SlashMenu() {
           let el;
           if (type === 'tabs') {
             el = document.querySelector(`[data-block-id="${targetId}"] .tab-content [contenteditable]`);
-          } else if (type === 'columns') {
+          } else if (type === 'columns' || type === 'columns2' || type === 'columns3' || type === 'columns4' || type === 'columns5') {
             el = document.querySelector(`[data-block-id="${targetId}"] .nn-column [contenteditable]`);
           } else if (type === 'table') {
             el = document.querySelector(`[data-block-id="${targetId}"] .nn-tc[contenteditable]`);
@@ -386,6 +392,7 @@ export const SlashMenu = memo(function SlashMenu() {
         }
       });
     }
+    trackBlockUsage(type);
     hideSlashMenu();
   }, [slashMenu.blockId, updateBlockContent, changeBlockType, hideSlashMenu]);
 
@@ -483,8 +490,45 @@ export const SlashMenu = memo(function SlashMenu() {
   const style = { left: coords.left, top: coords.top };
   let itemIndex = 0;
 
+  const allItems = [];
+  slashMenuSections.forEach(s => s.items.forEach(i => allItems.push(i)));
+
+  const recentItems = !slashMenu.filter ? recentTypes.map(t => allItems.find(i => i.type === t)).filter(Boolean) : [];
+
+  function getItemContent(item, idx) {
+    const isSelected = idx === selectedIndex;
+    return (
+      <div
+        key={item.type}
+        className={`slash-menu-item${isSelected ? ' selected' : ''}`}
+        onClick={() => selectItem(item.type)}
+        onMouseEnter={() => { setSelectedIndex(idx); setHoveredItem(item); }}
+        onMouseLeave={() => { if (hoveredItem?.type === item.type) setHoveredItem(null); }}
+      >
+        <span className="slash-menu-item-icon">
+          {renderIconSvg(item.icon, 18, isSelected ? '#0176d2' : '#706e6b')}
+        </span>
+        <div className="slash-menu-item-info">
+          <span className="slash-menu-item-name">{item.name}</span>
+          <span className="slash-menu-item-description">{item.desc}</span>
+        </div>
+        {item.shortcut && <span className="slash-menu-item-shortcut">{item.shortcut}</span>}
+      </div>
+    );
+  }
+
   return (
     <div className="slash-menu" ref={menuRef} style={style}>
+      {recentItems.length > 0 && (
+        <div key="recent">
+          <div className="slash-menu-header">Recent</div>
+          {recentItems.map(item => {
+            const idx = itemIndex++;
+            return getItemContent(item, idx);
+          })}
+          <div className="slash-menu-divider" />
+        </div>
+      )}
       {slashMenuSections.map(section => {
         const q = slashMenu.filter.toLowerCase();
         const sectionItems = section.items.filter(item => {
@@ -499,31 +543,57 @@ export const SlashMenu = memo(function SlashMenu() {
             <div className="slash-menu-header">{section.label}</div>
             {sectionItems.map(item => {
               const idx = itemIndex++;
-              const isSelected = idx === selectedIndex;
-              return (
-                <div
-                  key={item.type}
-                  className={`slash-menu-item${isSelected ? ' selected' : ''}`}
-                  onClick={() => selectItem(item.type)}
-                  onMouseEnter={() => setSelectedIndex(idx)}
-                >
-                  <span className="slash-menu-item-icon">
-                    {renderIconSvg(item.icon, 18, isSelected ? '#0176d2' : '#706e6b')}
-                  </span>
-                  <div className="slash-menu-item-info">
-                    <span className="slash-menu-item-name">{item.name}</span>
-                    <span className="slash-menu-item-description">{item.desc}</span>
-                  </div>
-                </div>
-              );
+              return getItemContent(item, idx);
             })}
           </div>
         );
       })}
-      {visibleItems.length === 0 && <div className="slash-menu-empty">No results</div>}
+      {recentItems.length === 0 && visibleItems.length === 0 && <div className="slash-menu-empty">No results</div>}
+      {hoveredItem && <PreviewPanel item={hoveredItem} />}
     </div>
   );
 });
+
+function PreviewPanel({ item }) {
+  const previewClass = `preview-${item.type}`;
+  return (
+    <div className="slash-menu-preview">
+      <div className={`preview-block ${previewClass}`}>
+        <PreviewContent type={item.type} name={item.name} />
+      </div>
+      <div className="preview-label">{item.name}</div>
+      <div className="preview-desc">{item.desc}</div>
+    </div>
+  );
+}
+
+function PreviewContent({ type, name }) {
+  switch (type) {
+    case 'heading1': return <div className="preview-text preview-h1">Heading 1</div>;
+    case 'heading2': return <div className="preview-text preview-h2">Heading 2</div>;
+    case 'heading3': return <div className="preview-text preview-h3">Heading 3</div>;
+    case 'heading4': return <div className="preview-text preview-h4">Heading 4</div>;
+    case 'heading5': return <div className="preview-text preview-h5">Heading 5</div>;
+    case 'bulleted_list': return <><div className="preview-text preview-bullet">• Bulleted list item</div><div className="preview-text preview-bullet">• Second item</div></>;
+    case 'numbered_list': return <><div className="preview-text preview-numbered">1. Numbered item</div><div className="preview-text preview-numbered">2. Second item</div></>;
+    case 'todo': return <><div className="preview-text preview-todo"><span className="preview-checkbox" /> Todo item</div><div className="preview-text preview-todo"><span className="preview-checkbox preview-checked">✓</span> Done item</div></>;
+    case 'toggle': return <><div className="preview-text preview-toggle"><span className="preview-arrow">▶</span> Toggle item</div><div className="preview-text preview-toggle-child">Nested content</div></>;
+    case 'quote': return <div className="preview-text preview-quote">“Quote text”</div>;
+    case 'callout': return <div className="preview-text preview-callout"><span className="preview-emoji">💡</span> Callout text</div>;
+    case 'code': return <pre className="preview-code-block"><code>const x = 1;</code></pre>;
+    case 'divider': return <div className="preview-divider" />;
+    case 'image': return <div className="preview-image-placeholder">🖼️ Image</div>;
+    case 'bookmark': return <div className="preview-bookmark"><div className="preview-bm-title">Link Title</div><div className="preview-bm-url">example.com</div></div>;
+    case 'toggle_heading1': return <div className="preview-text preview-toggle-h1"><span className="preview-arrow">▶</span> Toggle H1</div>;
+    case 'toggle_heading2': return <div className="preview-text preview-toggle-h2"><span className="preview-arrow">▶</span> Toggle H2</div>;
+    case 'toggle_heading3': return <div className="preview-text preview-toggle-h3"><span className="preview-arrow">▶</span> Toggle H3</div>;
+    case 'toggle_heading4': return <div className="preview-text preview-toggle-h4"><span className="preview-arrow">▶</span> Toggle H4</div>;
+    case 'toggle_heading5': return <div className="preview-text preview-toggle-h5"><span className="preview-arrow">▶</span> Toggle H5</div>;
+    case 'link_preview': return <div className="preview-link-embed"><span className="preview-link-icon">🔗</span><div><div className="preview-text">Link Title</div><div className="preview-bm-url">example.com</div></div></div>;
+    case 'button': return <div className="preview-button-demo">Button</div>;
+    default: return <div className="preview-text">{name}</div>;
+  }
+}
 /* ==================================================================
    CONTEXT MENU — fixed: submenu items don't auto-close
    ================================================================== */
@@ -793,6 +863,8 @@ export function BlockContextMenu({ menuRef }) {
       case 'heading1': return 'Heading1';
       case 'heading2': return 'Heading2';
       case 'heading3': return 'Heading3';
+      case 'heading4': return 'Heading1';
+      case 'heading5': return 'Heading1';
       case 'bulleted_list': return 'List';
       case 'numbered_list': return 'ListOrdered';
       case 'todo': return 'CheckSquare';
@@ -809,9 +881,13 @@ export function BlockContextMenu({ menuRef }) {
       case 'video': return 'Video';
       case 'file': return 'File';
       case 'bookmark': return 'Bookmark';
+      case 'link_preview': return 'Link';
+      case 'button': return 'MousePointerClick';
       case 'toggle_heading1': return 'Heading1';
       case 'toggle_heading2': return 'Heading2';
       case 'toggle_heading3': return 'Heading3';
+      case 'toggle_heading4': return 'Heading1';
+      case 'toggle_heading5': return 'Heading1';
       case 'sub_page': return 'FileText';
       default: return 'Type';
     }
@@ -822,6 +898,8 @@ export function BlockContextMenu({ menuRef }) {
     { value: 'heading1', label: 'Heading 1', desc: 'Large heading' },
     { value: 'heading2', label: 'Heading 2', desc: 'Medium heading' },
     { value: 'heading3', label: 'Heading 3', desc: 'Small heading' },
+    { value: 'heading4', label: 'Heading 4', desc: 'Extra small heading' },
+    { value: 'heading5', label: 'Heading 5', desc: 'Mini heading' },
     { value: 'bulleted_list', label: 'Bulleted list', desc: 'Simple bulleted list' },
     { value: 'numbered_list', label: 'Numbered list', desc: 'Sequential list' },
     { value: 'todo', label: 'To-do list', desc: 'Checkbox item' },
@@ -838,9 +916,13 @@ export function BlockContextMenu({ menuRef }) {
     { value: 'video', label: 'Video', desc: 'Video content embedding' },
     { value: 'file', label: 'File', desc: 'Downloadable document' },
     { value: 'bookmark', label: 'Web bookmark', desc: 'Interactive link preview' },
+    { value: 'link_preview', label: 'Link Embed', desc: 'Inline link preview' },
+    { value: 'button', label: 'Button', desc: 'Clickable button with link' },
     { value: 'toggle_heading1', label: 'Toggle Heading 1', desc: 'Collapsible H1' },
     { value: 'toggle_heading2', label: 'Toggle Heading 2', desc: 'Collapsible H2' },
     { value: 'toggle_heading3', label: 'Toggle Heading 3', desc: 'Collapsible H3' },
+    { value: 'toggle_heading4', label: 'Toggle Heading 4', desc: 'Collapsible H4' },
+    { value: 'toggle_heading5', label: 'Toggle Heading 5', desc: 'Collapsible H5' },
     { value: 'sub_page', label: 'Sub-page', desc: 'Link to a new nested page' },
   ];
 

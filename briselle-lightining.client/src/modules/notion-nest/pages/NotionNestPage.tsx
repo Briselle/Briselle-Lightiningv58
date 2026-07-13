@@ -13,10 +13,15 @@ import {
     Star,
     ChevronDown,
     Trash2,
+    Undo2,
+    Redo2,
+    X,
+    AlertTriangle,
+    Info,
 } from 'lucide-react';
 import '../notion-nest.css';
 import NotionPage from '../NotionPage';
-import { loadNotionRecordContext, saveNotionPage } from '../notionPageStorage';
+import { loadNotionRecordContext, saveNotionPage, loadPageVersions, loadPageVersionData, savePageVersion } from '../notionPageStorage';
 import { NOTION_PAGE_STORAGE_KEY, type NotionPagePayload, type NotionRecordContext } from '../types';
 const SAVE_DEBOUNCE_MS = 900;
 class NotionEditorErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
@@ -482,6 +487,8 @@ export default function NotionNestPage() {
     const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle');
     const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const dirtyRef = useRef(false);
+    const saveCountRef = useRef(0);
+    const CHECKPOINT_INTERVAL = 50;
     // Comments visibility settings (persisted in page state/payload)
     const [showCommentSettings, setShowCommentSettings] = useState(false);
     const commentSettingsRef = useRef<HTMLDivElement>(null);
@@ -496,6 +503,23 @@ export default function NotionNestPage() {
     const [showForceFontModal, setShowForceFontModal] = useState(false);
     const pageCtxRef = useRef<{ clearAllBlockFonts: () => void } | null>(null);
 
+    // Undo/Redo state (triggered by PageContext history manager)
+    const [, forceUpdate] = useState(0);
+    const tickRef = useRef(0);
+    const triggerHistoryUpdate = useCallback(() => {
+        tickRef.current++;
+        forceUpdate(n => n + 1);
+    }, []);
+
+    // Version History Modal state
+    const [showVersionHistory, setShowVersionHistory] = useState(false);
+    const [versionList, setVersionList] = useState<{ id: number; saveNumber: number; createdAt: string }[]>([]);
+    const [loadingVersions, setLoadingVersions] = useState(false);
+    const [restoringVersion, setRestoringVersion] = useState<number | null>(null);
+
+    // Long-press undo state
+    const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const LONG_PRESS_MS = 7000;
 
     const commentsAlwaysShow = page?.commentsAlwaysShow ?? false;
     const commentsAlwaysOff = page?.commentsAlwaysOff ?? false;
@@ -684,6 +708,87 @@ export default function NotionNestPage() {
         return () => document.removeEventListener('mousedown', handler);
     }, [showFontSettings]);
 
+    // Keyboard shortcuts for undo/redo
+    useEffect(() => {
+        const handler = (e: KeyboardEvent) => {
+            const isMod = e.metaKey || e.ctrlKey;
+            if (isMod && e.key === 'z' && !e.shiftKey) {
+                e.preventDefault();
+                // Access PageContext undo via pageCtxRef — we'll call it via a custom event
+                window.dispatchEvent(new CustomEvent('notion-nest-undo'));
+                triggerHistoryUpdate();
+            }
+            if (isMod && e.key === 'z' && e.shiftKey) {
+                e.preventDefault();
+                window.dispatchEvent(new CustomEvent('notion-nest-redo'));
+                triggerHistoryUpdate();
+            }
+            if (isMod && e.key === 'y') {
+                e.preventDefault();
+                window.dispatchEvent(new CustomEvent('notion-nest-redo'));
+                triggerHistoryUpdate();
+            }
+        };
+        window.addEventListener('keydown', handler);
+        return () => window.removeEventListener('keydown', handler);
+    }, [triggerHistoryUpdate]);
+
+    // Long-press undo handlers
+    const handleUndoPointerDown = useCallback(() => {
+        longPressTimerRef.current = setTimeout(() => {
+            longPressTimerRef.current = null;
+            setShowVersionHistory(true);
+        }, LONG_PRESS_MS);
+    }, []);
+
+    const handleUndoPointerUp = useCallback(() => {
+        if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+            window.dispatchEvent(new CustomEvent('notion-nest-undo'));
+            triggerHistoryUpdate();
+        }
+    }, [triggerHistoryUpdate]);
+
+    const handleUndoPointerLeave = useCallback(() => {
+        if (longPressTimerRef.current) {
+            clearTimeout(longPressTimerRef.current);
+            longPressTimerRef.current = null;
+        }
+    }, []);
+
+    // Load version history when modal opens
+    useEffect(() => {
+        if (!showVersionHistory || !ctx) return;
+        let cancelled = false;
+        const load = async () => {
+            setLoadingVersions(true);
+            const { versions, error } = await loadPageVersions(ctx.ddataId);
+            if (!cancelled) {
+                setVersionList(versions);
+                setLoadingVersions(false);
+            }
+        };
+        void load();
+        return () => { cancelled = true; };
+    }, [showVersionHistory, ctx]);
+
+    // Restore from a version checkpoint
+    const handleRestoreVersion = useCallback(async (versionId: number, saveNumber: number) => {
+        if (!ctx) return;
+        setRestoringVersion(versionId);
+        const { data, error } = await loadPageVersionData(versionId);
+        if (error || !data) {
+            setRestoringVersion(null);
+            return;
+        }
+        // Restore via custom event -> PageContext
+        window.dispatchEvent(new CustomEvent('notion-nest-restore-checkpoint', { detail: { snapshot: data } }));
+        setRestoringVersion(null);
+        setShowVersionHistory(false);
+        triggerHistoryUpdate();
+    }, [ctx, triggerHistoryUpdate]);
+
     useEffect(() => {
         let cancelled = false;
         const run = async () => {
@@ -810,6 +915,12 @@ export default function NotionNestPage() {
             dirtyRef.current = false;
             setSaveState('saved');
             window.setTimeout(() => setSaveState('idle'), 2000);
+
+            // Track save count for positional checkpoints
+            saveCountRef.current++;
+            if (saveCountRef.current > 0 && saveCountRef.current % CHECKPOINT_INTERVAL === 0) {
+                void savePageVersion(ctx.ddataId, saveCountRef.current, nextPage);
+            }
         },
         [ctx],
     );
@@ -1184,6 +1295,29 @@ export default function NotionNestPage() {
                             <Orbit className="w-4 h-4" />
                         </button>
                     </div>
+                    <div className="notion-nest-undo-cluster">
+                        <button
+                            type="button"
+                            className="notion-nest-toggle-btn"
+                            onPointerDown={handleUndoPointerDown}
+                            onPointerUp={handleUndoPointerUp}
+                            onPointerLeave={handleUndoPointerLeave}
+                            title="Undo (Ctrl+Z) — Hold for version history"
+                        >
+                            <Undo2 className="w-4 h-4" />
+                        </button>
+                        <button
+                            type="button"
+                            className="notion-nest-toggle-btn"
+                            onClick={() => {
+                                window.dispatchEvent(new CustomEvent('notion-nest-redo'));
+                                triggerHistoryUpdate();
+                            }}
+                            title="Redo (Ctrl+Shift+Z)"
+                        >
+                            <Redo2 className="w-4 h-4" />
+                        </button>
+                    </div>
                     <button
                         type="button"
                         className="notion-nest-btn-save"
@@ -1257,6 +1391,59 @@ export default function NotionNestPage() {
                     />
                 </NotionEditorErrorBoundary>
             </div>
+
+            {/* Version History Modal */}
+            {showVersionHistory && (
+                <div className="nn-version-modal-overlay" onMouseDown={(e) => e.stopPropagation()}>
+                    <div className="nn-version-modal">
+                        <div className="nn-version-modal-header">
+                            <h2 className="nn-version-modal-title">Version History</h2>
+                            <button
+                                type="button"
+                                className="nn-version-modal-close"
+                                onClick={() => setShowVersionHistory(false)}
+                            >
+                                <X className="w-4 h-4" />
+                            </button>
+                        </div>
+                        <div className="nn-version-modal-body">
+                            {loadingVersions ? (
+                                <div className="nn-version-empty">
+                                    <Loader2 className="w-4 h-4 animate-spin inline mr-2" />
+                                    Loading versions…
+                                </div>
+                            ) : versionList.length === 0 ? (
+                                <div className="nn-version-empty">
+                                    No saved versions yet. Versions are created every 50 saves.
+                                </div>
+                            ) : (
+                                versionList.map((v) => (
+                                    <div key={v.id} className="nn-version-row">
+                                        <div className="nn-version-info">
+                                            <span className="version-label">Save #{v.saveNumber}</span>
+                                            <span className="version-time">
+                                                {new Date(v.createdAt).toLocaleString()}
+                                            </span>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            className="version-restore"
+                                            disabled={restoringVersion === v.id}
+                                            onClick={() => handleRestoreVersion(v.id, v.saveNumber)}
+                                        >
+                                            {restoringVersion === v.id ? (
+                                                <Loader2 className="w-3 h-3 animate-spin inline" />
+                                            ) : (
+                                                'Restore'
+                                            )}
+                                        </button>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
