@@ -101,14 +101,15 @@ export function buildDefaultBlocks() {
 
 // ---- Fix tab defaults (set activeTabId) ----
 export function fixTabDefaults(blocks) {
+  if (!blocks) return;
   for (const b of blocks) {
     if (b.type === 'tabs' && b.tabs && b.tabs.length) {
-      if (!b.activeTabId) b.activeTabId = b.tabs[0].id;
-      for (const t of b.tabs) fixTabDefaults(t.blocks);
+      if (!b.activeTabId) b.activeTabId = b.tabs[0]?.id;
+      for (const t of b.tabs) if (t?.blocks) fixTabDefaults(t.blocks);
     }
     if (b.children) fixTabDefaults(b.children);
     if (b.type === 'columns' && b.columns) {
-      for (const c of b.columns) fixTabDefaults(c.blocks);
+      for (const c of b.columns) if (c?.blocks) fixTabDefaults(c.blocks);
     }
   }
 }
@@ -276,6 +277,22 @@ export function createNewBlock(type, content) {
   if (type === 'equation') { b.expression = ''; }
   if (type === 'bookmark') { b.url = ''; b.bookmarkTitle = ''; b.description = ''; b.image = ''; b.favicon = ''; b.isVisualBookmark = true; }
   if (type === 'sub_page') { b.pageTitle = 'Untitled'; }
+  if (type === 'button') { b.buttonIcon = ''; b.buttonStyle = 'primary'; b.actions = []; }
+  if (type === 'meeting_notes') {
+    b.title = 'Meeting';
+    b.date = new Date().toISOString().split('T')[0];
+    b.participants = [];
+    b.transcription = '';
+    b.isRecording = false;
+    b.mode = 'auto';
+    b.includeSummary = true;
+    b.includeBullets = true;
+    b.includeActionItems = true;
+    b.includeFollowUp = true;
+    b.summary = '';
+    b.bulletPoints = [];
+    b.aiInsights = [];
+  }
   return b;
 }
 
@@ -358,6 +375,7 @@ export const slashMenuSections = [
       { icon: 'Heading1', name: 'Toggle Heading 4', desc: 'Collapsible extra small heading', type: 'toggle_heading4', keywords: ['toggle heading4', 'h4', 'heading4', 'toggle', 'h4t'], shortcut: '####> / h4t' },
       { icon: 'Heading1', name: 'Toggle Heading 5', desc: 'Collapsible mini heading', type: 'toggle_heading5', keywords: ['toggle heading5', 'h5', 'heading5', 'toggle', 'h5t'], shortcut: '#####> / h5t' },
       { icon: 'MousePointerClick', name: 'Button', desc: 'Clickable button with link', type: 'button', keywords: ['button', 'link', 'action', 'cta'], shortcut: 'btn' },
+      { icon: 'Mic', name: 'ZIVA AI Meeting Notes', desc: 'AI meeting notes with recording & transcription', type: 'meeting_notes', keywords: ['meeting', 'notes', 'transcription', 'recording', 'ai', 'minutes', 'voice', 'ziva'], shortcut: 'mt' },
     ],
   },
 ];
@@ -425,6 +443,7 @@ export const markdownShortcuts = [
   { pattern: /^col4 $/, type: 'columns4' },
   { pattern: /^col5 $/, type: 'columns5' },
   { pattern: /^btn $/, type: 'button' },
+  { pattern: /^mt $/, type: 'meeting_notes' },
   { pattern: /^eq $/, type: 'equation' },
   { pattern: /^le $/, type: 'link_preview' },
 ];

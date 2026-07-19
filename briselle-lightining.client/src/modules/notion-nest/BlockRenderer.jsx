@@ -4,7 +4,7 @@
    ============================================================ */
 import { useCallback, useRef, memo } from 'react';
 import { usePageContext } from './PageContext';
-import { TextBlock, ListBlock, TodoBlock, ToggleBlock, QuoteBlock, CalloutBlock, DividerBlock, CodeBlock, ImageBlock, BookmarkBlock, TableBlock, ColumnsBlock, TocBlock, VideoBlock, AudioBlock, FileBlock, EquationBlock, ToggleHeadingBlock, SubPageBlock, LinkEmbedBlock, ButtonBlock } from './blocks';
+import { TextBlock, ListBlock, TodoBlock, ToggleBlock, QuoteBlock, CalloutBlock, DividerBlock, CodeBlock, ImageBlock, BookmarkBlock, TableBlock, ColumnsBlock, TocBlock, VideoBlock, AudioBlock, FileBlock, EquationBlock, ToggleHeadingBlock, SubPageBlock, LinkEmbedBlock, ButtonBlock, MeetingNotesBlock } from './blocks';
 import TabBlock from './TabBlock';
 import { slashMenuSections } from './utils';
 import { POPULAR_FONTS } from './pages/NotionNestPage';
@@ -46,6 +46,7 @@ const BLOCK_MAP = {
   sub_page: SubPageBlock,
   link_preview: LinkEmbedBlock,
   button: ButtonBlock,
+  meeting_notes: MeetingNotesBlock,
 };
 
 const BlockRenderer = memo(function BlockRenderer({ block, blocksArray, blockIndex }) {

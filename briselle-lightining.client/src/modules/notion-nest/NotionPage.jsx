@@ -598,6 +598,7 @@ function NotionPageInner({
     const handlePaste = (e) => {
       const activeEl = document.activeElement;
       if (!activeEl || !activeEl.closest('.block')) return;
+      if (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT') return;
 
       const activeBlockId = activeEl.closest('.block').getAttribute('data-block-id');
       if (!activeBlockId) return;

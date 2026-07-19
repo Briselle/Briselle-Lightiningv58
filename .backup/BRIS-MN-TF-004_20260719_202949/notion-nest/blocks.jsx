@@ -2549,64 +2549,7 @@ export const MeetingNotesBlock = memo(function MeetingNotesBlock({ block }) {
   const summary = block.summary || '';
   const bulletPoints = block.bulletPoints || [];
   const transcription = block.transcription || '';
-
-  /* ── Refs to avoid stale closures in recognition callbacks ── */
-  const transcriptionRef = useRef(block.transcription || '');
-  const transcriptLinesRef = useRef(block.transcriptLines || []);
-  const contentRef = useRef(block.content || '');
-  const modeRef = useRef(mode);
-  const recordingRef = useRef(false);
-  const speakerRef = useRef('');
-  var startRecRef = useRef(null);
-  var stopRecRef = useRef(null);
-
-  const [displayTranscriptLines, setDisplayTranscriptLines] = useState(block.transcriptLines || []);
-
-  useEffect(() => {
-    setDisplayTranscriptLines(block.transcriptLines || []);
-    transcriptLinesRef.current = block.transcriptLines || [];
-  }, [block.transcriptLines]);
-
-  // Keep refs in sync with props
-  useEffect(() => {
-    transcriptionRef.current = block.transcription || '';
-    transcriptLinesRef.current = block.transcriptLines || [];
-    contentRef.current = block.content || '';
-    modeRef.current = mode;
-    recordingRef.current = recording;
-    speakerRef.current = currentSpeaker;
-  }, [block.transcription, block.transcriptLines, block.content, mode, recording, currentSpeaker]);
-
-  // Created At: 2026-07-20 | Last Modified: 2026-07-20 | Previous Version Back URL: file:///c:/BriselleServer/Briselle-Lightiningv58/briselle-lightining.client/src/modules/notion-nest/blocks.jsx#L2552
-  const transcriptLines = useMemo(() => {
-    if (displayTranscriptLines && displayTranscriptLines.length > 0) {
-      return displayTranscriptLines;
-    }
-    if (!transcription) return [];
-    
-    // Parse transcription lines like: "[00:05] Speaker: Hello"
-    const lines = transcription.split('\n').filter(l => l.trim().length > 0);
-    return lines.map((line, idx) => {
-      const match = line.match(/^\[([^\]]+)\]\s*(.*)$/);
-      let content = line;
-      let timestamp = `[${date} 00:00:00 UTC]`;
-      if (match) {
-        const timePart = match[1];
-        timestamp = `[${date} ${timePart.length === 5 ? '00:' + timePart : timePart} UTC]`;
-        content = match[2];
-      }
-      // Ensure content has speaker prefix for consistent rendering
-      if (content && !content.includes(': ')) {
-        content = `Unknown: ${content}`;
-      }
-      return {
-        id: `parsed_${idx}`,
-        timestamp: timestamp,
-        source: 'Auto Transcribing',
-        content: content
-      };
-    });
-  }, [displayTranscriptLines, transcription, date]);
+  const transcriptLines = block.transcriptLines || [];
   const aiInsights = block.aiInsights || [];
   const notesContent = block.content || '';
   const finalNotes = block.finalNotes || '';
@@ -2616,6 +2559,8 @@ export const MeetingNotesBlock = memo(function MeetingNotesBlock({ block }) {
   const selectedOutputDevice = block.selectedOutputDevice || 'default';
   const selectedLanguage = block.selectedLanguage || 'English (US)';
   const selectedInstruction = block.selectedInstruction || 'Auto';
+
+  const saveProp = useCallback((key, val) => updateBlockProperty(block.id, key, val), [block.id, updateBlockProperty]);
 
   const formatTime = (s) => {
     if (isNaN(s) || s === null || s === undefined) return '00:00';
@@ -2646,7 +2591,22 @@ export const MeetingNotesBlock = memo(function MeetingNotesBlock({ block }) {
     return '[' + yyyy + '-' + mm + '-' + dd + ' ' + hh + ':' + mi + ':' + ss + ' ' + tzStr + ']';
   };
 
-  const saveProp = useCallback((key, val) => updateBlockProperty(block.id, key, val), [block.id, updateBlockProperty]);
+  /* ── Refs to avoid stale closures in recognition callbacks ── */
+  const transcriptionRef = useRef(block.transcription || '');
+  const transcriptLinesRef = useRef(block.transcriptLines || []);
+  const contentRef = useRef(block.content || '');
+  const modeRef = useRef(mode);
+  const recordingRef = useRef(false);
+  const speakerRef = useRef('');
+  var startRecRef = useRef(null);
+  var stopRecRef = useRef(null);
+
+  transcriptionRef.current = block.transcription || '';
+  transcriptLinesRef.current = block.transcriptLines || [];
+  contentRef.current = block.content || '';
+  modeRef.current = mode;
+  recordingRef.current = recording;
+  speakerRef.current = currentSpeaker;
 
   /* ── Speech Recognition + MediaRecorder ── */
   const startRecording = useCallback(() => {
@@ -2786,11 +2746,11 @@ export const MeetingNotesBlock = memo(function MeetingNotesBlock({ block }) {
             transcriptionRef.current = newTrans.trim();
             saveProp('transcription', newTrans.trim());
 
-            // Created At: 2026-07-20 | Last Modified: 2026-07-20 | Previous Version Back URL: file:///c:/BriselleServer/Briselle-Lightiningv58/briselle-lightining.client/src/modules/notion-nest/blocks.jsx#L2774
-            var newTimestamp = formatFullTimestamp();
+            const tzOffset = (new Date()).getTimezoneOffset() * 60000;
+            const localISOTime = (new Date(Date.now() - tzOffset)).toISOString().slice(0, 19).replace('T', ' ');
             const newLineObj = {
               id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
-              timestamp: newTimestamp,
+              timestamp: localISOTime,
               source: 'Auto Transcribing',
               content: `${speaker}: ${lineContent}`
             };
@@ -2826,18 +2786,18 @@ export const MeetingNotesBlock = memo(function MeetingNotesBlock({ block }) {
       source: 'Manual Transcribing',
       content: ''
     };
-    const newLines = [...(transcriptLinesRef.current || []), newLineObj];
+    const newLines = [...(block.transcriptLines || []), newLineObj];
     saveProp('transcriptLines', newLines);
     setEditingLineId(newId);
-  }, [saveProp]);
+  }, [block.transcriptLines, saveProp]);
 
   const updateManualLine = useCallback((id, newContent) => {
-    const lines = transcriptLinesRef.current || [];
+    const lines = block.transcriptLines || [];
     const newLines = lines.map(line =>
       line.id === id ? { ...line, content: newContent } : line
     );
     saveProp('transcriptLines', newLines);
-  }, [saveProp]);
+  }, [block.transcriptLines, saveProp]);
 
   const handleAudioUpload = useCallback((file) => {
     const reader = new FileReader();
@@ -3820,14 +3780,9 @@ ${text}`;
                   {/* Start transcribing or Pause/Stop */}
                   {!recording ? (
                     <div
-                      className="nnr-icon-btn nnr-start-record-btn"
+                      className={`nnr-icon-btn nnr-start-record-btn${mode === 'manual' ? ' nnr-start-pill-disabled' : ''}`}
                       title="Start transcribing"
-                      onClick={() => {
-                        if (mode === 'manual') {
-                          saveProp('mode', 'auto');
-                        }
-                        startRecording();
-                      }}
+                      onClick={mode === 'manual' ? null : startRecording}
                     >
                       <AudioLines size={16} />
                     </div>
@@ -3847,14 +3802,14 @@ ${text}`;
               {/* Transcript content area (below the controls row) — always rendered */}
               <div className="nnr-transcript-content">
                 {/* Idle placeholder: shown only when no content exists */}
-                {!recording && displayTranscriptLines.length === 0 && !displayTranscription && !notesContent && (
+                {!recording && transcriptLines.length === 0 && !displayTranscription && !notesContent && (
                   <div className="nnr-transcript-text nnr-transcript-empty">
                     <span className="nnr-idle-text">Click <AudioLines size={14} style={{ color: '#2383e2', display: 'inline-block', verticalAlign: 'middle', margin: '0 4px' }} /> to begin</span>
                   </div>
                 )}
-                {displayTranscriptLines && displayTranscriptLines.length > 0 ? (
+                {transcriptLines && transcriptLines.length > 0 ? (
                   <div className="nnr-transcript-text">
-                    {displayTranscriptLines.map(function (line, idx) {
+                    {transcriptLines.map(function (line, idx) {
                       var isManualSource = line.source && (line.source.indexOf('Manual') !== -1);
                       var canEdit = mode === 'manual' && isManualSource;
                       var lineNum = String(idx + 1).padStart(3, '0');

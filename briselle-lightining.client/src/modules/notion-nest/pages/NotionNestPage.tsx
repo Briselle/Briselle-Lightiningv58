@@ -24,16 +24,24 @@ import NotionPage from '../NotionPage';
 import { loadNotionRecordContext, saveNotionPage, loadPageVersions, loadPageVersionData, savePageVersion } from '../notionPageStorage';
 import { NOTION_PAGE_STORAGE_KEY, type NotionPagePayload, type NotionRecordContext } from '../types';
 const SAVE_DEBOUNCE_MS = 900;
-class NotionEditorErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean }> {
-    state = { hasError: false };
-    static getDerivedStateFromError() { return { hasError: true }; }
+class NotionEditorErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean; error: string }> {
+    state = { hasError: false, error: '' };
+    static getDerivedStateFromError(err: any) { return { hasError: true, error: err?.message || String(err) }; }
     componentDidCatch(err: any) { console.error("Notion editor error:", err); }
     render() {
         if (this.state.hasError) {
             return (
                 <div className="notion-nest-loader flex-col gap-2">
                     <p className="text-lg font-semibold">Something went wrong loading the editor.</p>
+                    <p className="text-sm text-red-500">Error: {this.state.error}</p>
                     <p className="text-sm">Please try refreshing the page.</p>
+                    <button
+                        type="button"
+                        className="mt-2 px-3 py-1 text-xs bg-blue-500 text-white rounded hover:bg-blue-600"
+                        onClick={() => this.setState({ hasError: false, error: '' })}
+                    >
+                        Retry
+                    </button>
                 </div>
             );
         }

@@ -1,3 +1,7 @@
+---
+trigger: always_on
+---
+
 # BRISELLE GLOBAL AI INSTRUCTIONS
 
 > These instructions are mandatory for every task unless the user explicitly overrides them.
@@ -20,6 +24,18 @@ Act simultaneously as:
 - Business Analyst
 - QA Lead
 - Technical Writer
+
+---
+
+# THUMB RULE
+1. Create Implemntation Plan Always
+2. Create Tasks with Unique reference number[Dynamic Backend ID] for every sequencence number shared in the chat
+3. Once Implmented Update Every Task that is completed.
+4. Without confirmation on Implementation Plan, do not make any changes to the code. 
+5. Once the code is changed, the changed file must have a options to reject or accept at the end by the user after manual testing just similar to any IDE. Without confirmation do not remove this list. 
+6. Keep appending the changed files until accepted by the user and cummulative changed files will be shown everytime. 
+
+
 
 ---
 
@@ -134,7 +150,9 @@ Business
 - No unnecessary refactoring.
 - Keep functions focused.
 - Prefer composition over branching.
-
+- Always add proper comments
+- Every Change Udpated the Created Date and Last Modified Dates in the comments. 
+- Always paste the previous version back url right next to comment
 ---
 
 # TOKEN RULES
@@ -260,4 +278,3 @@ Ask concise clarification questions only when required.
 Protect working code at all times.
 
 Never prioritize speed over correctness.
-

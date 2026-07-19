@@ -283,16 +283,17 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
 
   const insertBlocks = useCallback((afterBlockId, blocksToInsert) => {
     const reassignIds = (blocks) => {
+      if (!Array.isArray(blocks)) return [];
       return blocks.map(b => {
         const nb = { ...b, id: generateId() };
         if (b.children) {
           nb.children = reassignIds(b.children);
         }
         if (b.tabs) {
-          nb.tabs = b.tabs.map(t => ({ ...t, id: generateId(), blocks: reassignIds(t.blocks) }));
+          nb.tabs = b.tabs.map(t => ({ ...t, id: generateId(), blocks: reassignIds(Array.isArray(t.blocks) ? t.blocks : []) }));
         }
         if (b.columns) {
-          nb.columns = b.columns.map(c => ({ ...c, id: generateId(), blocks: reassignIds(c.blocks) }));
+          nb.columns = b.columns.map(c => ({ ...c, id: generateId(), blocks: reassignIds(Array.isArray(c.blocks) ? c.blocks : []) }));
         }
         return nb;
       });
@@ -361,8 +362,22 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     const isTextType = ['paragraph', 'heading1', 'heading2', 'heading3', 'heading4', 'heading5'].includes(target.type);
     const hasContent = target.content && target.content.trim() !== '';
 
+    // Check if it's a columns block with real content
+    const getColContentCount = (col) => {
+      if (!col || !col.blocks) return 0;
+      return col.blocks.filter(b => {
+        if (b.content && b.content.trim().length > 0) return true;
+        if (['image','video','file','bookmark','audio','code','equation','callout','quote','embed','pdf','map','divider'].includes(b.type)) return true;
+        if (b.children && b.children.some(c => c.content && c.content.trim().length > 0)) return true;
+        return false;
+      }).length;
+    };
+    const isColumnsWithContent = target.type === 'columns' && target.columns && target.columns.some(c => getColContentCount(c) > 0);
+
     // If restrictedDeletion is on, we need confirmation unless it's a text block with no content
     const needsConfirmation = restrictedDeletion && (!isTextType || hasContent);
+
+    const totalContentInColumns = target.type === 'columns' && target.columns ? target.columns.reduce((sum, c) => sum + getColContentCount(c), 0) : 0;
 
     if (blockComments.length > 0) {
       setDeleteConfirm({
@@ -372,6 +387,17 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
         message: 'This block contains active comments. Deleting it will also delete those comments.',
         cancelText: 'Cancel',
         confirmText: 'Delete block',
+        onConfirm: actualDelete,
+        onCancel: () => setDeleteConfirm(null)
+      });
+    } else if (isColumnsWithContent) {
+      setDeleteConfirm({
+        type: 'block',
+        blockId,
+        title: 'Delete columns block?',
+        message: `This columns block contains ${totalContentInColumns} block${totalContentInColumns > 1 ? 's' : ''} with content and will be permanently deleted.`,
+        cancelText: 'Cancel',
+        confirmText: 'Delete',
         onConfirm: actualDelete,
         onCancel: () => setDeleteConfirm(null)
       });

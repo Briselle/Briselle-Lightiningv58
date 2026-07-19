@@ -9006,6 +9006,19 @@ kbd {
 }
 
 /* ── Interim text inline in transcript (during recording) ── */
+.nnr-transcript-interim-wrap {
+  padding: 4px 12px;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+
+/* ── Interim text (during recording) ── */
+.nnr-interim {
+  font-size: 13px;
+  color: #9b9b9b;
+  line-height: 1.6;
+}
 .nnr-interim-cursor {
   animation: nnr-blink 1s step-end infinite;
   color: #2383e2;
@@ -9050,45 +9063,6 @@ kbd {
   background: #fff;
   color: #1a1a1a;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
-}
-
-/* Created At: 2026-07-20 | Last Modified: 2026-07-20 | Previous Version Back URL: file:///c:/BriselleServer/Briselle-Lightiningv58/briselle-lightining.client/src/modules/notion-nest/NotionPage.css#L9054 */
-.nnr-add-manual-compact {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  padding: 2px 6px;
-  cursor: pointer;
-  border-radius: 10px;
-  margin-left: 4px;
-  color: #2383e2;
-  transition: all 0.2s ease-in-out;
-  background: transparent;
-  max-width: 22px;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.nnr-add-manual-compact:hover {
-  max-width: 180px;
-  background: rgba(35, 131, 226, 0.1);
-  padding: 2px 8px;
-  gap: 4px;
-}
-
-.nnr-add-manual-label {
-  font-size: 10px;
-  font-weight: 500;
-  color: #2383e2;
-  opacity: 0;
-  max-width: 0;
-  overflow: hidden;
-  transition: all 0.2s ease-in-out;
-}
-
-.nnr-add-manual-compact:hover .nnr-add-manual-label {
-  opacity: 1;
-  max-width: 150px;
 }
 
 /* ── Mode indicator at top of notes ── */
@@ -9731,15 +9705,12 @@ kbd {
   line-height: 1.5;
 }
 .nnr-line-number {
-  display: inline;
   color: #666;
   font-weight: 600;
   user-select: none;
   margin-right: 4px;
-  white-space: nowrap;
 }
 .nnr-line-meta {
-  display: inline;
   color: #888;
   white-space: nowrap;
   user-select: none;
