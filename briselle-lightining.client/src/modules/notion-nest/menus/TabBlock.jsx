@@ -3,8 +3,8 @@
    ★ Full Notion tab block with Settings, Shapes, Icons
    ============================================================ */
 import { useState, useCallback, useRef, useEffect, memo, useMemo } from 'react';
-import { usePageContext } from './PageContext';
-import { generateId, makeBlock } from './utils';
+import { usePageContext } from '../core/PageContext';
+import { generateId, makeBlock } from '../core/utils';
 import { NotionIconPicker, SVG_ICONS, renderIconSvg, hasPageIcon, renderPageIcon } from './menus';
 import { Pencil, Smile, Link as LinkIcon, Trash2 } from 'lucide-react';
 
@@ -218,7 +218,7 @@ const TabBlock = memo(function TabBlock({ block }) {
   const barRef = useRef(null);
   const settingsBtnRef = useRef(null);
 
-  useEffect(() => { import('./BlockRenderer').then(m => setBR(() => m.default)); }, []);
+  useEffect(() => { import('../core/BlockRenderer').then(m => setBR(() => m.default)); }, []);
 
   useEffect(() => {
     setTabRenderKey(k => k + 1);

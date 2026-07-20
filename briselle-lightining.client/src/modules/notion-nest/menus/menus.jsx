@@ -9,13 +9,13 @@ import {
   Paperclip, AtSign, Send, Clock, User, UserPlus, FileText, RotateCcw, Upload,
   MessageSquare, Minus, ChevronDown, ChevronUp, Sparkles, Plus
 } from 'lucide-react';
-import { usePageContext } from './PageContext';
-import { slashMenuSections, calculateInitials, obfuscateText, deobfuscateText, obfuscateTextSecure, deobfuscateTextSecure, getRecentBlocks, trackBlockUsage } from './utils';
-import UploadZone from './components/UploadZone';
-import { FontSettingsPanel, POPULAR_FONTS } from './pages/NotionNestPage';
-import { listNotionPages } from './notionPageStorage';
-import { resolveUserDisplayName, formatAuditDateTime } from './layout';
-import { useAuthStore } from '../../stores/authStore';
+import { usePageContext } from '../core/PageContext';
+import { slashMenuSections, calculateInitials, obfuscateText, deobfuscateText, obfuscateTextSecure, deobfuscateTextSecure, getRecentBlocks, trackBlockUsage } from '../core/utils';
+import UploadZone from '../components/UploadZone';
+import { FontSettingsPanel, POPULAR_FONTS } from '../pages/NotionNestPage';
+import { listNotionPages } from '../core/notionNestPageStorage';
+import { resolveUserDisplayName, formatAuditDateTime } from '../layout/layout';
+import { useAuthStore } from '../../../stores/authStore';
 
 export const textColors = [
   { name: 'Default', value: undefined, color: '#37352f' },

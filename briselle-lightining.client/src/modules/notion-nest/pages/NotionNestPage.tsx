@@ -19,10 +19,10 @@ import {
     AlertTriangle,
     Info,
 } from 'lucide-react';
-import '../notion-nest.css';
-import NotionPage from '../NotionPage';
-import { loadNotionRecordContext, saveNotionPage, loadPageVersions, loadPageVersionData, savePageVersion } from '../notionPageStorage';
-import { NOTION_PAGE_STORAGE_KEY, type NotionPagePayload, type NotionRecordContext } from '../types';
+import '../styles/notion-nest.css';
+import NotionPage from '../core/NotionNestPage';
+import { loadNotionRecordContext, saveNotionPage, loadPageVersions, loadPageVersionData, savePageVersion } from '../core/notionNestPageStorage';
+import { NOTION_PAGE_STORAGE_KEY, type NotionPagePayload, type NotionRecordContext } from '../core/types';
 const SAVE_DEBOUNCE_MS = 900;
 class NotionEditorErrorBoundary extends Component<{ children: React.ReactNode }, { hasError: boolean; error: string }> {
     state = { hasError: false, error: '' };

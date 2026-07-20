@@ -1,14 +1,14 @@
-/* Corrected NotionPage.jsx (best-effort reconstruction) */
+/* NotionNestPage.jsx — Editor shell component */
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { PageProvider, usePageContext } from './PageContext';
-import { Sidebar, Topbar, PageHeader, CoverImage } from './layout';
+import { Sidebar, Topbar, PageHeader, CoverImage } from '../layout/layout';
 import BlockRenderer from './BlockRenderer';
-import { SlashMenu, ContextMenu, InlineToolbar, NotionPageTextComment, NotionPageTopComments } from './menus';
-import { POPULAR_FONTS } from './pages/NotionNestPage';
+import { SlashMenu, ContextMenu, InlineToolbar, NotionPageTextComment, NotionPageTopComments } from '../menus/menus';
+import { POPULAR_FONTS } from '../pages/NotionNestPage';
 import { deobfuscateText, getRedactedContent } from './utils';
-import './NotionPage.css';
+import '../styles/NotionNestPage.css';
 
-export default function NotionPage({
+export default function NotionNestPage({
   initialBlocks,
   initialTitle,
   initialIcon,

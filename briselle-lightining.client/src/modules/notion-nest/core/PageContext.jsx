@@ -10,8 +10,8 @@ import {
   calculateInitials, setCaretToEnd,
   storeRedactedContent, getRedactedContent, clearRedactedContent, clearAllRedactedContent,
 } from './utils';
-import { supabase } from '../../utils/supabase';
-import { parseNotionPageFromValues } from './notionPageDefaults';
+import { supabase } from '../../../utils/supabase';
+import { parseNotionPageFromValues } from './notionNestPageDefaults';
 import { NOTION_PAGE_STORAGE_KEY } from './types';
 import { UndoHistoryManager } from './undoHistory';
 const PageContext = createContext(null);

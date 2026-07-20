@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
-import { notionNestPagePath } from '../../modules/notion-nest/notionPageStorage';
+import { notionNestPagePath } from '../../modules/notion-nest';
 import { parsePlatformObjectType, isNotionNestObjectType } from '../../modules/objects/shared/objectTypes';
 import { supabase } from '../../utils/supabase';
 

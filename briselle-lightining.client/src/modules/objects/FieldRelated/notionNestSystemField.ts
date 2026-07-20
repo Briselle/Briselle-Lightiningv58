@@ -1,7 +1,7 @@
 /**
  * NotionNest page field — persisted in `dobj_configuration.fields` and `ddata_values.__notion_page`.
  */
-import { NOTION_PAGE_STORAGE_KEY, type NotionPagePayload } from '../../notion-nest/types';
+import { NOTION_PAGE_STORAGE_KEY, type NotionPagePayload } from '../../notion-nest/core/types';
 import { isNotionNestObjectType, type PlatformObjectType } from '../shared/objectTypes';
 
 export const NOTION_NEST_PAGE_FIELD_API = NOTION_PAGE_STORAGE_KEY;

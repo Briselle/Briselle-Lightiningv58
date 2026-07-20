@@ -4,10 +4,10 @@
    ============================================================ */
 import { useCallback, useRef, memo } from 'react';
 import { usePageContext } from './PageContext';
-import { TextBlock, ListBlock, TodoBlock, ToggleBlock, QuoteBlock, CalloutBlock, DividerBlock, CodeBlock, ImageBlock, BookmarkBlock, TableBlock, ColumnsBlock, TocBlock, VideoBlock, AudioBlock, FileBlock, EquationBlock, ToggleHeadingBlock, SubPageBlock, LinkEmbedBlock, ButtonBlock, MeetingNotesBlock } from './blocks';
-import TabBlock from './TabBlock';
+import { TextBlock, ListBlock, TodoBlock, ToggleBlock, QuoteBlock, CalloutBlock, DividerBlock, CodeBlock, ImageBlock, BookmarkBlock, TableBlock, ColumnsBlock, TocBlock, VideoBlock, AudioBlock, FileBlock, EquationBlock, ToggleHeadingBlock, SubPageBlock, LinkEmbedBlock, ButtonBlock, MeetingNotesBlock } from '../blocks/index';
+import TabBlock from '../menus/TabBlock';
 import { slashMenuSections } from './utils';
-import { POPULAR_FONTS } from './pages/NotionNestPage';
+import { POPULAR_FONTS } from '../pages/NotionNestPage';
 
 const BLOCK_MAP = {
   paragraph: TextBlock,

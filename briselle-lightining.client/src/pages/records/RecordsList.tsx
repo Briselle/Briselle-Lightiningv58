@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
     createNotionNestRecord,
     notionNestPagePath,
-} from '../../modules/notion-nest/notionPageStorage';
+} from '../../modules/notion-nest';
 import { applyNotionNestFieldPolicy } from '../../modules/objects/FieldRelated/notionNestSystemField';
 import {
     isNotionNestObjectType,

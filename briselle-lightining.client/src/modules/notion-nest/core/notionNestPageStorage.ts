@@ -1,6 +1,6 @@
-import { supabase } from '../../utils/supabase';
+import { supabase } from '../../../utils/supabase';
 import { NOTION_PAGE_STORAGE_KEY, type NotionPagePayload, type NotionRecordContext } from './types';
-import { createDefaultNotionPage, parseNotionPageFromValues } from './notionPageDefaults';
+import { createDefaultNotionPage, parseNotionPageFromValues } from './notionNestPageDefaults';
 
 const FIXED_ENTITY_ID = 1000000000;
 

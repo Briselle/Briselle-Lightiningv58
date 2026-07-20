@@ -1,9 +1,9 @@
 import { useState, useCallback, useRef, useEffect, memo } from 'react';
 import { Image, MessageSquare, Smile } from 'lucide-react';
 import { useParams } from 'react-router-dom';
-import { useAuthStore } from '../../stores/authStore';
-import { usePageContext } from './PageContext';
-import { NotionIconPicker, NotionCoverPicker, SVG_ICONS, renderIconSvg, hasPageIcon, renderPageIcon } from './menus';
+import { useAuthStore } from '../../../stores/authStore';
+import { usePageContext } from '../core/PageContext';
+import { NotionIconPicker, NotionCoverPicker, SVG_ICONS, renderIconSvg, hasPageIcon, renderPageIcon } from '../menus/menus';
 
 // Helper functions for Page Audit Metadata
 export function resolveUserDisplayName(userId, currentUser) {
