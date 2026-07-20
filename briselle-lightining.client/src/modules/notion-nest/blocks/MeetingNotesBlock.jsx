@@ -5,7 +5,7 @@
    ============================================================ */
 import { useRef, useCallback, useEffect, useState, useMemo, memo } from 'react';
 import { usePageContext } from '../core/PageContext';
-import { Plus, ExternalLink, AlertTriangle, FileText, Bell, Database, Edit3, Variable, Settings, Trash2, GripVertical, ChevronDown, X, Check, Mic, Calendar, Users, Lightbulb, Copy, Volume2, MoreHorizontal, List, Clock, UserPlus, MessageSquare, Download, Share2, Play, Pause, Sliders, Upload, Globe, BookOpen, Link, ArrowRight, Video, MessageCircle, HelpCircle, Info, Speaker, Megaphone, MegaphoneOff, AudioLines } from 'lucide-react';
+import { Plus, ExternalLink, AlertTriangle, FileText, Bell, Database, Edit3, Variable, Settings, Trash2, GripVertical, ChevronDown, X, Check, Mic, Calendar, Users, Lightbulb, Copy, Volume2, MoreHorizontal, List, Clock, UserPlus, MessageSquare, Download, Share2, Play, Pause, Sliders, Upload, Globe, BookOpen, Link, ArrowRight, Video, MessageCircle, HelpCircle, Info, Speaker, Megaphone, MegaphoneOff, AudioLines, Shield, ChevronUp, ChevronRight } from 'lucide-react';
 
 export const MeetingNotesBlock = memo(function MeetingNotesBlock({ block }) {
   const { updateBlockProperty } = usePageContext();
@@ -34,14 +34,21 @@ export const MeetingNotesBlock = memo(function MeetingNotesBlock({ block }) {
   const [showSettingsPopover, setShowSettingsPopover] = useState(false);
   const [showLanguageSubmenu, setShowLanguageSubmenu] = useState(false);
   const [showInstructionsSubmenu, setShowInstructionsSubmenu] = useState(false);
+  const [showConsentSubmenu, setShowConsentSubmenu] = useState(false);
   const [customInstructions, setCustomInstructions] = useState([]);
   const [showBulbInfo, setShowBulbInfo] = useState(false);
   const [showConfirmClear, setShowConfirmClear] = useState(false);
-  const [editingLineId, setEditingLineId] = useState(null);
   const [isReadingAloud, setIsReadingAloud] = useState(false);
   const [showAudioSourceMenu, setShowAudioSourceMenu] = useState(false);
   const [audioOutputDevices, setAudioOutputDevices] = useState([]);
   const [showOutputDeviceMenu, setShowOutputDeviceMenu] = useState(false);
+  const [audioFiles, setAudioFiles] = useState([]);
+  const [showAudioFilesDropdown, setShowAudioFilesDropdown] = useState(false);
+  const [selectedAudioFileIds, setSelectedAudioFileIds] = useState([]);
+  const [isTranscribingAudioFile, setIsTranscribingAudioFile] = useState(false);
+  const [showConsentModal, setShowConsentModal] = useState(false);
+  const [transcriptExpanded, setTranscriptExpanded] = useState(false);
+  const [editingLineId, setEditingLineId] = useState(null);
   const dateInputRef = useRef(null);
   const timerRef = useRef(null);
   const downloadWrapRef = useRef(null);
@@ -58,6 +65,8 @@ export const MeetingNotesBlock = memo(function MeetingNotesBlock({ block }) {
   const audioSourceWrapRef = useRef(null);
   const outputDeviceWrapRef = useRef(null);
   const wakeWordRef = useRef(null);
+  const transcriptLinesContainerRef = useRef(null);
+  const settingsPopoverRef = useRef(null);
 
   const title = block.title || 'Meeting';
   const date = block.date || new Date().toISOString().split('T')[0];
@@ -137,6 +146,7 @@ export const MeetingNotesBlock = memo(function MeetingNotesBlock({ block }) {
   const selectedOutputDevice = block.selectedOutputDevice || 'default';
   const selectedLanguage = block.selectedLanguage || 'English (US)';
   const selectedInstruction = block.selectedInstruction || 'Auto';
+  const consentMode = block.consentMode || null;
 
   const formatTime = (s) => {
     if (isNaN(s) || s === null || s === undefined) return '00:00';
@@ -243,6 +253,7 @@ export const MeetingNotesBlock = memo(function MeetingNotesBlock({ block }) {
     recordingRef.current = false;
     setInterimText('');
     setIsPaused(false);
+    setIsTranscribingAudioFile(false);
 
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
@@ -256,6 +267,19 @@ export const MeetingNotesBlock = memo(function MeetingNotesBlock({ block }) {
         saveProp('audioDuration', timer);
         setAudioUrl(URL.createObjectURL(audioBlob));
         setAudioDuration(timer);
+        
+        // Add to audioFiles array
+        const newAudioFile = {
+          id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
+          name: `Recording ${audioFiles.length + 1} - ${new Date().toLocaleString()}`,
+          data: base64Data,
+          duration: timer,
+          timestamp: new Date().toISOString(),
+          source: 'recording'
+        };
+        const updatedAudioFiles = [...(audioFiles || []), newAudioFile];
+        setAudioFiles(updatedAudioFiles);
+        saveProp('audioFiles', updatedAudioFiles);
       };
       reader.readAsDataURL(audioBlob);
     }
@@ -268,7 +292,7 @@ export const MeetingNotesBlock = memo(function MeetingNotesBlock({ block }) {
       audioStreamRef.current.getTracks().forEach(t => t.stop());
       audioStreamRef.current = null;
     }
-  }, [recognition, timer, saveProp]);
+  }, [recognition, timer, saveProp, audioFiles]);
 
   /* ── Keep refs updated for wake word detection ── */
   startRecRef.current = startRecording;
@@ -350,6 +374,20 @@ export const MeetingNotesBlock = memo(function MeetingNotesBlock({ block }) {
     const newLines = [...(transcriptLinesRef.current || []), newLineObj];
     saveProp('transcriptLines', newLines);
     setEditingLineId(newId);
+    // Focus the new line after render
+    setTimeout(() => {
+      const el = transcriptLinesContainerRef.current?.querySelector(`[data-line-id="${newId}"] .nnr-line-content`);
+      if (el) {
+        el.focus();
+        // Move cursor to end
+        const range = document.createRange();
+        const sel = window.getSelection();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+    }, 0);
   }, [saveProp]);
 
   const updateManualLine = useCallback((id, newContent) => {
@@ -363,12 +401,41 @@ export const MeetingNotesBlock = memo(function MeetingNotesBlock({ block }) {
   const handleAudioUpload = useCallback((file) => {
     const reader = new FileReader();
     reader.onload = (ev) => {
-      saveProp('audioData', ev.target.result);
+      const audioData = ev.target.result;
+      saveProp('audioData', audioData);
       saveProp('audioDuration', 0);
-      setAudioUrl(ev.target.result);
+      setAudioUrl(audioData);
+      
+      // Add to audioFiles array
+      const newAudioFile = {
+        id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
+        name: `Upload: ${file.name}`,
+        data: audioData,
+        duration: 0,
+        timestamp: new Date().toISOString(),
+        source: 'upload',
+        file: file
+      };
+      const updatedAudioFiles = [...(audioFiles || []), newAudioFile];
+      setAudioFiles(updatedAudioFiles);
+      saveProp('audioFiles', updatedAudioFiles);
+      
+      // Auto-play the uploaded audio
+      if (audioRef.current) {
+        audioRef.current.src = audioData;
+        audioRef.current.play().catch(() => {});
+        setIsPlaying(true);
+      }
+      
+      // Auto-start transcription if in auto mode
+      if (mode === 'auto' || mode === 'manual') {
+        saveProp('mode', 'auto');
+        setIsTranscribingAudioFile(true);
+        setTimeout(() => startRecording(), 100);
+      }
     };
     reader.readAsDataURL(file);
-  }, [saveProp]);
+  }, [saveProp, audioFiles, mode, startRecording]);
 
   const clearAllLines = useCallback(() => {
     saveProp('transcriptLines', []);
@@ -417,6 +484,67 @@ export const MeetingNotesBlock = memo(function MeetingNotesBlock({ block }) {
       audioRef.current.currentTime = pct * (audioRef.current.duration || timer);
     }
   }, [audioUrl, timer]);
+
+  /* ── Audio Files Management ── */
+  const playAudioFile = useCallback((file) => {
+    if (audioRef.current) {
+      if (isPlaying && currentPlayingAudioId === file.id) {
+        audioRef.current.pause();
+        setIsPlaying(false);
+        clearInterval(playbackTimerRef.current);
+      } else {
+        audioRef.current.src = file.data;
+        audioRef.current.play().catch(() => {});
+        setIsPlaying(true);
+        setCurrentPlayingAudioId(file.id);
+        playbackTimerRef.current = setInterval(() => {
+          if (audioRef.current) {
+            setCurrentPlaybackTime(audioRef.current.currentTime);
+            if (audioRef.current.ended) { 
+              setIsPlaying(false); 
+              setCurrentPlayingAudioId(null);
+              clearInterval(playbackTimerRef.current); 
+            }
+          }
+        }, 200);
+      }
+    }
+  }, []);
+
+  const removeAudioFile = useCallback((fileId) => {
+    const updatedAudioFiles = audioFiles.filter(f => f.id !== fileId);
+    setAudioFiles(updatedAudioFiles);
+    saveProp('audioFiles', updatedAudioFiles);
+    setSelectedAudioFileIds(prev => prev.filter(id => id !== fileId));
+  }, [audioFiles, saveProp]);
+
+  const playSelectedAudioFiles = useCallback(() => {
+    const selectedFiles = audioFiles.filter(f => selectedAudioFileIds.includes(f.id));
+    if (selectedFiles.length === 0) return;
+    
+    let currentIndex = 0;
+    const playNext = () => {
+      if (currentIndex >= selectedFiles.length) {
+        setIsPlaying(false);
+        setCurrentPlayingAudioId(null);
+        return;
+      }
+      const file = selectedFiles[currentIndex];
+      if (audioRef.current) {
+        audioRef.current.src = file.data;
+        audioRef.current.play().catch(() => {});
+        setIsPlaying(true);
+        setCurrentPlayingAudioId(file.id);
+        audioRef.current.onended = () => {
+          currentIndex++;
+          playNext();
+        };
+      }
+    };
+    playNext();
+  }, [audioFiles, selectedAudioFileIds]);
+
+  const [currentPlayingAudioId, setCurrentPlayingAudioId] = useState(null);
 
   /* ── Speaker change during recording ── */
   const handleSpeakerChange = (e) => {
@@ -834,6 +962,20 @@ ${text}`;
     }
   }, [block.audioData, block.audioDuration]);
 
+  /* ── Load audio files from block properties on mount ── */
+  useEffect(() => {
+    if (block.audioFiles && block.audioFiles.length > 0) {
+      setAudioFiles(block.audioFiles);
+    }
+  }, [block.audioFiles]);
+
+  /* ── Show consent modal on mount if not set ── */
+  useEffect(() => {
+    if (!block.consentMode && viewMode === 'transcript') {
+      setShowConsentModal(true);
+    }
+  }, [block.consentMode, viewMode]);
+
   /* ── Update audio duration when audio loads ── */
   useEffect(() => {
     if (audioRef.current && audioUrl) {
@@ -997,70 +1139,70 @@ ${text}`;
       </div>
 
       {/* Language submenu */}
-      <div className="nnr-settings-item" onClick={() => setShowLanguageSubmenu(!showLanguageSubmenu)}>
+      <div className={`nnr-settings-item has-submenu${showLanguageSubmenu ? ' open' : ''}`} onClick={() => setShowLanguageSubmenu(!showLanguageSubmenu)}>
         <Globe size={14} />
         <span>Language</span>
         <span className="nnr-settings-item-right">
           <span className="nnr-settings-selected">{selectedLanguage}</span>
-          <ChevronDown size={12} />
+          <span className="nnr-submenu-chevron"><ChevronRight size={12} /></span>
         </span>
       </div>
-      {showLanguageSubmenu && (
-        <div className="nnr-settings-submenu">
-          {LANGUAGES.map(lang => (
-            <div key={lang} className={`nnr-settings-subitem${selectedLanguage === lang ? ' active' : ''}`} onClick={() => { saveProp('selectedLanguage', lang); setShowLanguageSubmenu(false); }}>
-              {lang}
-              {selectedLanguage === lang && <Check size={12} />}
-            </div>
-          ))}
-        </div>
-      )}
+      <div className={`nnr-settings-submenu${showLanguageSubmenu ? ' open' : ''}`}>
+        {LANGUAGES.map(lang => (
+          <div key={lang} className={`nnr-settings-subitem${selectedLanguage === lang ? ' active' : ''}`} onClick={() => { saveProp('selectedLanguage', lang); setShowLanguageSubmenu(false); }}>
+            {lang}
+            {selectedLanguage === lang && <Check size={12} />}
+          </div>
+        ))}
+      </div>
 
       {/* Instructions submenu */}
-      <div className="nnr-settings-item" onClick={() => setShowInstructionsSubmenu(!showInstructionsSubmenu)}>
+      <div className={`nnr-settings-item has-submenu${showInstructionsSubmenu ? ' open' : ''}`} onClick={() => setShowInstructionsSubmenu(!showInstructionsSubmenu)}>
         <BookOpen size={14} />
         <span>Instructions</span>
         <span className="nnr-settings-item-right">
           <span className="nnr-settings-selected">{selectedInstruction}</span>
-          <ChevronDown size={12} />
+          <span className="nnr-submenu-chevron"><ChevronRight size={12} /></span>
         </span>
       </div>
-      {showInstructionsSubmenu && (
-        <div className="nnr-settings-submenu">
-          {INSTRUCTION_PRESETS.map(inst => (
-            <div key={inst} className={`nnr-settings-subitem${selectedInstruction === inst ? ' active' : ''}`} onClick={() => { saveProp('selectedInstruction', inst); setShowInstructionsSubmenu(false); }}>
-              {inst}
-              {selectedInstruction === inst && <Check size={12} />}
-              <span className="nnr-settings-subitem-actions">
-                <Edit3 size={12} />
-                <MoreHorizontal size={12} />
-              </span>
-            </div>
-          ))}
-          <div className="nnr-settings-subitem nnr-settings-subitem-add" onClick={handleAddCustomInstruction}>
-            <Plus size={14} /> Add custom instruction
+      <div className={`nnr-settings-submenu${showInstructionsSubmenu ? ' open' : ''}`}>
+        {INSTRUCTION_PRESETS.map(inst => (
+          <div key={inst} className={`nnr-settings-subitem${selectedInstruction === inst ? ' active' : ''}`} onClick={() => { saveProp('selectedInstruction', inst); setShowInstructionsSubmenu(false); }}>
+            {inst}
+            {selectedInstruction === inst && <Check size={12} />}
+            <span className="nnr-settings-subitem-actions">
+              <Edit3 size={12} />
+              <MoreHorizontal size={12} />
+            </span>
           </div>
-          {renderCustomInstructions()}
+        ))}
+        <div className="nnr-settings-subitem nnr-settings-subitem-add" onClick={handleAddCustomInstruction}>
+          <Plus size={14} /> Add custom instruction
         </div>
-      )}
+        {renderCustomInstructions()}
+      </div>
 
       {/* Consent section */}
-      <div className="nnr-settings-item">
+      <div className={`nnr-settings-item has-submenu${showConsentSubmenu ? ' open' : ''}`} onClick={() => setShowConsentSubmenu(!showConsentSubmenu)}>
         <Volume2 size={14} />
         <span>Auto Play Consent</span>
         <span className="nnr-settings-item-right">
-          <label className="nnr-toggle-switch">
-            <input type="checkbox" checked={consentEnabled} onChange={e => saveProp('consentEnabled', e.target.checked)} />
+          <label className="nnr-toggle-switch" onClick={e => e.stopPropagation()}>
+            <input type="checkbox" checked={consentEnabled} onChange={e => { e.stopPropagation(); saveProp('consentEnabled', e.target.checked); }} />
             <span className="nnr-toggle-slider"></span>
           </label>
+          <span className="nnr-submenu-chevron"><ChevronRight size={12} /></span>
         </span>
       </div>
-      <div className="nnr-settings-item nnr-settings-item-sub">
-        <span>Play consent message</span>
-      </div>
-      <div className="nnr-settings-item nnr-settings-item-sub">
-        <Info size={14} />
-        <span>Learn more</span>
+      <div className={`nnr-settings-submenu${showConsentSubmenu ? ' open' : ''}`}>
+        <div className="nnr-settings-item nnr-settings-item-sub">
+          <Volume2 size={14} />
+          <span>Play consent message</span>
+        </div>
+        <div className="nnr-settings-item nnr-settings-item-sub">
+          <Info size={14} />
+          <span>Learn more</span>
+        </div>
       </div>
 
       <div className="nnr-settings-divider" />
@@ -1144,6 +1286,12 @@ ${text}`;
                 </div>
               )}
             </div>
+            {consentMode && (
+              <div className={`mt-consent-indicator ${consentMode}`} title={consentMode === 'manual' ? 'Manual consent required' : 'Auto-play consent enabled'}>
+                {consentMode === 'manual' ? <UserPlus size={12} /> : <Volume2 size={12} />}
+                <span>{consentMode === 'manual' ? 'Manual Consent' : 'Auto Consent'}</span>
+              </div>
+            )}
             <div className="mt-icon-btn" onClick={() => setShowMoreMenu(!showMoreMenu)} title="More">
               <MoreHorizontal size={14} />
             </div>
@@ -1176,6 +1324,47 @@ ${text}`;
 
         {/* ═══ Notion.so-style Unified Recording UI ═══ */}
         <div className="nnr-unified">
+          {/* ─── Consent Modal (shows before transcript if not set) ─── */}
+          {showConsentModal && (
+            <div className="nnr-consent-modal-overlay">
+              <div className="nnr-consent-modal">
+                <div className="nnr-consent-modal-header">
+                  <Shield size={24} className="nnr-consent-icon" />
+                  <h3>Choose how you notify others</h3>
+                </div>
+                <p className="nnr-consent-modal-text">
+                  Before starting transcription, choose how meeting participants are notified about recording.
+                </p>
+                
+                <button className="nnr-consent-option" onClick={() => { saveProp('consentMode', 'manual'); setShowConsentModal(false); }}>
+                  <div className="nnr-consent-option-icon">
+                    <UserPlus size={20} />
+                  </div>
+                  <div className="nnr-consent-option-content">
+                    <strong>Get Consent Myself</strong>
+                    <span>You are responsible for informing all participants and obtaining their consent before recording.</span>
+                  </div>
+                  <ChevronRight size={16} />
+                </button>
+                
+                <button className="nnr-consent-option" onClick={() => { saveProp('consentMode', 'auto'); setShowConsentModal(false); }}>
+                  <div className="nnr-consent-option-icon">
+                    <Volume2 size={20} />
+                  </div>
+                  <div className="nnr-consent-option-content">
+                    <strong>Automatically Play Audio</strong>
+                    <span>Anyone who joins this meeting or plays this content will hear a consent announcement first. They must accept to proceed.</span>
+                  </div>
+                  <ChevronRight size={16} />
+                </button>
+                
+                <div className="nnr-consent-modal-footer">
+                  <span className="nnr-consent-note">💡 This can be changed later in Settings → Consent</span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* ─── Tab Header ─── */}
           <div className="nnr-tab-header">
             <div
@@ -1197,7 +1386,151 @@ ${text}`;
           {/* ─── Transcript Tab ─── */}
           {viewMode === 'transcript' && (
             <div className="nnr-tab-content">
-              {/* Single horizontal row: Auto/Manual | Animation/Audio | Controls */}
+              {/* Top Icon Bar */}
+              <div className="nnr-top-icon-bar">
+                <div className="nnr-top-icon-group">
+                  {/* Settings */}
+                  <div className="nnr-settings-wrap" ref={settingsWrapRef}>
+                    <div className="nnr-icon-btn" title="Recording settings" onClick={() => setShowSettingsPopover(!showSettingsPopover)}>
+                      <Sliders size={14} />
+                    </div>
+                    {showSettingsPopover && renderSettingsPopover()}
+                  </div>
+
+                  {/* Clear icon - only when transcript content exists */}
+                  {(transcription || transcriptLines.length > 0 || notesContent) && (
+                    <div className="nnr-icon-btn" title="Clear all" onClick={() => setShowConfirmClear(true)}>
+                      <Trash2 size={14} />
+                    </div>
+                  )}
+
+                  {/* Copy icon */}
+                  <div className="nnr-icon-btn" title="Copy transcript" onClick={() => copyText(displayTranscription)}>
+                    <Copy size={14} />
+                  </div>
+
+                  {/* Read aloud toggle - MegaphoneOff default (off), Megaphone when active */}
+                  <div className={'nnr-icon-btn nnr-read-aloud-btn' + (isReadingAloud ? ' active' : '')} title={isReadingAloud ? 'Stop reading aloud' : 'Read aloud'} onClick={() => readAloud(displayTranscription)}>
+                    {isReadingAloud ? (
+                      <>
+                        <Megaphone size={14} />
+                        <span className="nnr-speech-waves">
+                          <span className="wave-bar" />
+                          <span className="wave-bar" />
+                          <span className="wave-bar" />
+                          <span className="wave-bar" />
+                        </span>
+                      </>
+                    ) : (
+                      <MegaphoneOff size={14} />
+                    )}
+                  </div>
+
+                  {/* Speaker output device selector */}
+                  <div className="nnr-output-device-wrap" ref={outputDeviceWrapRef}>
+                    <div className="nnr-icon-btn" title="Select playback speaker" onClick={() => { if (!showOutputDeviceMenu) enumerateOutputDevices(); setShowOutputDeviceMenu(!showOutputDeviceMenu); }}>
+                      <Speaker size={14} />
+                    </div>
+                    {showOutputDeviceMenu && (
+                      <div className="nnr-output-device-menu">
+                        {audioOutputDevices.length === 0 && (
+                          <div className="nnr-output-device-item">Default</div>
+                        )}
+                        {audioOutputDevices.map((device) => (
+                          <div key={device.deviceId} className={'nnr-output-device-item' + (selectedOutputDevice === device.deviceId ? ' active' : '')} onClick={() => { saveProp('selectedOutputDevice', device.deviceId); setShowOutputDeviceMenu(false); }}>
+                            {device.label || 'Speaker ' + (audioOutputDevices.indexOf(device) + 1)}
+                            {selectedOutputDevice === device.deviceId && <Check size={12} />}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <span className="nnr-icons-divider" />
+
+                  {/* Mic source selection */}
+                  <div className="nnr-audio-source-wrap" ref={audioSourceWrapRef}>
+                    <div className="nnr-icon-btn" title={'Audio source: ' + audioSource + (selectedInstruction === 'Meeting' ? ' (locked for Meeting)' : '')} onClick={() => { if (selectedInstruction !== 'Meeting') setShowAudioSourceMenu(!showAudioSourceMenu); }}>
+                      <Mic size={14} />
+                    </div>
+                    {selectedInstruction !== 'Meeting' && showAudioSourceMenu && (
+                      <div className="nnr-audio-source-menu">
+                        <div className={'nnr-audio-source-item' + (audioSource === 'mic' ? ' active' : '')} onClick={() => { saveProp('audioSource', 'mic'); setShowAudioSourceMenu(false); }}>
+                          <Mic size={12} /> Mic {audioSource === 'mic' && <Check size={12} />}
+                        </div>
+                        <div className={'nnr-audio-source-item' + (audioSource === 'system' ? ' active' : '')} onClick={() => { saveProp('audioSource', 'system'); setShowAudioSourceMenu(false); }}>
+                          <Volume2 size={12} /> System Audio {audioSource === 'system' && <Check size={12} />}
+                        </div>
+                        <div className={'nnr-audio-source-item' + (audioSource === 'both' ? ' active' : '')} onClick={() => { saveProp('audioSource', 'both'); setShowAudioSourceMenu(false); }}>
+                          <Mic size={12} /><Volume2 size={12} /> All Sources {audioSource === 'both' && <Check size={12} />}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Audio Files Dropdown */}
+                  <div className="nnr-audio-files-wrap">
+                    <div className={'nnr-icon-btn' + (audioFiles.length > 0 ? ' has-files' : '')} title={audioFiles.length > 0 ? `${audioFiles.length} audio file${audioFiles.length !== 1 ? 's' : ''} available` : 'No audio files'} onClick={() => setShowAudioFilesDropdown(!showAudioFilesDropdown)}>
+                      <AudioLines size={14} />
+                      {audioFiles.length > 0 && <span className="nnr-audio-files-badge">{audioFiles.length}</span>}
+                    </div>
+                    {showAudioFilesDropdown && audioFiles.length > 0 && (
+                      <div className="nnr-audio-files-dropdown">
+                        <div className="nnr-audio-files-header">
+                          <span>Audio Files ({audioFiles.length})</span>
+                          <div className="nnr-audio-files-actions">
+                            {selectedAudioFileIds.length > 0 && (
+                              <button className="nnr-audio-files-play-all" onClick={() => playSelectedAudioFiles()}>
+                                <Play size={12} /> Play Selected ({selectedAudioFileIds.length})
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        <div className="nnr-audio-files-list">
+                          {audioFiles.map((file, idx) => (
+                            <div key={file.id} className={'nnr-audio-file-item' + (selectedAudioFileIds.includes(file.id) ? ' selected' : '') + (isPlaying && currentPlayingAudioId === file.id ? ' playing' : '')}>
+                              <label className="nnr-audio-file-checkbox">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedAudioFileIds.includes(file.id)}
+                                  onChange={(e) => {
+                                    if (e.target.checked) {
+                                      setSelectedAudioFileIds([...selectedAudioFileIds, file.id]);
+                                    } else {
+                                      setSelectedAudioFileIds(selectedAudioFileIds.filter(id => id !== file.id));
+                                    }
+                                  }}
+                                />
+                                <span className="nnr-checkmark" />
+                              </label>
+                              <div className="nnr-audio-file-info">
+                                <span className="nnr-audio-file-name">{file.name}</span>
+                                <span className="nnr-audio-file-meta">
+                                  {file.source === 'upload' ? <Upload size={10} className="nnr-file-source-icon" /> : <Mic size={10} className="nnr-file-source-icon" />}
+                                  {file.source === 'upload' ? 'Upload' : 'Recording'}
+                                  {file.duration && <span className="nnr-audio-file-duration">{formatTime(file.duration)}</span>}
+                                </span>
+                              </div>
+                              <div className="nnr-audio-file-actions">
+                                <button className="nnr-icon-btn-sm" onClick={(e) => { e.stopPropagation(); playAudioFile(file); }} title={isPlaying && currentPlayingAudioId === file.id ? 'Pause' : 'Play'}>
+                                  {isPlaying && currentPlayingAudioId === file.id ? <Pause size={12} /> : <Play size={12} />}
+                                </button>
+                                <button className="nnr-icon-btn-sm" onClick={(e) => { e.stopPropagation(); removeAudioFile(file.id); }} title="Remove">
+                                  <Trash2 size={12} />
+                                </button>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  <span className="nnr-icons-divider" />
+                </div>
+              </div>
+
+              {/* Transcript Row: Auto/Manual | Animation | Controls */}
               <div className="nnr-transcript-row">
                 {/* Left: Auto/Manual toggle (always visible) */}
                 <div className="nnr-transcript-left">
@@ -1229,9 +1562,22 @@ ${text}`;
 
                 {/* Center: Waveform (recording) OR Audio playback (stopped) */}
                 <div className="nnr-transcript-center">
-                  {/* During recording: waveform animation */}
-                  {recording && (
-                    <div className="nnr-waveform">
+                  {/* During recording: waveform animation - mic recording */}
+                  {recording && !isTranscribingAudioFile && (
+                    <div className="nnr-waveform nnr-mic-recording">
+                      {Array.from({ length: 40 }).map((_, i) => (
+                        <div
+                          key={i}
+                          className={`nnr-wave-dot${i % 5 === 0 ? ' nnr-wave-bar-el' : ''}`}
+                          style={{ animationDelay: `${i * 0.06}s` }}
+                        />
+                      ))}
+                    </div>
+                  )}
+
+                  {/* During audio file transcription: audio file animation */}
+                  {recording && isTranscribingAudioFile && (
+                    <div className="nnr-waveform nnr-audio-file-transcribing">
                       {Array.from({ length: 40 }).map((_, i) => (
                         <div
                           key={i}
@@ -1264,84 +1610,17 @@ ${text}`;
                     </div>
                   )}
 
-                  {/* Idle state text relocated to transcript content area (T2) */}
+                  {/* Idle state text */}
+                  {!recording && !transcription && (
+                    <span className="nnr-idle-text">Click <AudioLines size={14} style={{ color: '#2383e2', display: 'inline-block', verticalAlign: 'middle', margin: '0 4px' }} /> to begin</span>
+                  )}
                 </div>
 
-                {/* Right: Sliders + Icons (always) / Start or Pause+Stop */}
+                {/* Right: Start or Pause/Stop */}
                 <div className="nnr-transcript-right">
-                  {/* Sliders */}
-                  <div className="nnr-settings-wrap" ref={settingsWrapRef}>
-                    <div className="nnr-icon-btn" title="Recording settings" onClick={() => setShowSettingsPopover(!showSettingsPopover)}>
-                      <Sliders size={14} />
-                    </div>
-                    {showSettingsPopover && renderSettingsPopover()}
-                  </div>
-
-                  {/* Delete icon - only when transcript content exists */}
-                  {(transcription || transcriptLines.length > 0 || notesContent) && (
-                    <div className="nnr-icon-btn" title="Clear all" onClick={() => setShowConfirmClear(true)}>
-                      <Trash2 size={14} />
-                    </div>
-                  )}
-
-                  {/* Copy icon */}
-                  <div className="nnr-icon-btn" title="Copy transcript" onClick={() => copyText(displayTranscription)}>
-                    <Copy size={14} />
-                  </div>
-
-                  {/* Read aloud toggle */}
-                  <div className={'nnr-icon-btn' + (isReadingAloud ? ' nnr-icon-btn-active' : '')} title={isReadingAloud ? 'Stop reading aloud' : 'Read aloud'} onClick={() => readAloud(displayTranscription)}>
-                    {isReadingAloud ? <MegaphoneOff size={14} /> : <Megaphone size={14} />}
-                  </div>
-
-                  {/* Speaker output device selector */}
-                  <div className="nnr-output-device-wrap" ref={outputDeviceWrapRef}>
-                    <div className="nnr-icon-btn" title="Select playback speaker" onClick={() => { if (!showOutputDeviceMenu) enumerateOutputDevices(); setShowOutputDeviceMenu(!showOutputDeviceMenu); }}>
-                      <Speaker size={14} />
-                    </div>
-                    {showOutputDeviceMenu && (
-                      <div className="nnr-output-device-menu">
-                        {audioOutputDevices.length === 0 && (
-                          <div className="nnr-output-device-item">Default</div>
-                        )}
-                        {audioOutputDevices.map((device) => (
-                          <div key={device.deviceId} className={'nnr-output-device-item' + (selectedOutputDevice === device.deviceId ? ' active' : '')} onClick={() => { saveProp('selectedOutputDevice', device.deviceId); setShowOutputDeviceMenu(false); }}>
-                            {device.label || 'Speaker ' + (audioOutputDevices.indexOf(device) + 1)}
-                            {selectedOutputDevice === device.deviceId && <Check size={12} />}
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  <span className="nnr-icons-divider" />
-
-                  {/* Mic source selection (locked to All Sources in Meeting mode) */}
-                  <div className="nnr-audio-source-wrap" ref={audioSourceWrapRef}>
-                    <div className="nnr-icon-btn" title={'Audio source: ' + audioSource + (selectedInstruction === 'Meeting' ? ' (locked for Meeting)' : '')} onClick={() => { if (selectedInstruction !== 'Meeting') setShowAudioSourceMenu(!showAudioSourceMenu); }}>
-                      <Mic size={14} />
-                    </div>
-                    {selectedInstruction !== 'Meeting' && showAudioSourceMenu && (
-                      <div className="nnr-audio-source-menu">
-                        <div className={'nnr-audio-source-item' + (audioSource === 'mic' ? ' active' : '')} onClick={() => { saveProp('audioSource', 'mic'); setShowAudioSourceMenu(false); }}>
-                          <Mic size={12} /> Mic {audioSource === 'mic' && <Check size={12} />}
-                        </div>
-                        <div className={'nnr-audio-source-item' + (audioSource === 'system' ? ' active' : '')} onClick={() => { saveProp('audioSource', 'system'); setShowAudioSourceMenu(false); }}>
-                          <Volume2 size={12} /> System Audio {audioSource === 'system' && <Check size={12} />}
-                        </div>
-                        <div className={'nnr-audio-source-item' + (audioSource === 'both' ? ' active' : '')} onClick={() => { saveProp('audioSource', 'both'); setShowAudioSourceMenu(false); }}>
-                          <Mic size={12} /><Volume2 size={12} /> All Sources {audioSource === 'both' && <Check size={12} />}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-
-                  <span className="nnr-icons-divider" />
-
-                  {/* Start transcribing or Pause/Stop */}
                   {!recording ? (
                     <div
-                      className="nnr-icon-btn nnr-start-record-btn"
+                      className={`nnr-icon-btn nnr-start-record-btn${mode === 'manual' ? ' nnr-manual-highlight' : ''}`}
                       title="Start transcribing"
                       onClick={() => {
                         if (mode === 'manual') {
@@ -1374,35 +1653,68 @@ ${text}`;
                   </div>
                 )}
                 {displayTranscriptLines && displayTranscriptLines.length > 0 ? (
-                  <div className="nnr-transcript-text">
-                    {displayTranscriptLines.map(function (line, idx) {
-                      var isManualSource = line.source && (line.source.indexOf('Manual') !== -1);
-                      var canEdit = mode === 'manual' && isManualSource;
-                      var lineNum = String(idx + 1).padStart(3, '0');
-                      var cssClass = 'nnr-line-content';
-                      if (canEdit) cssClass = cssClass;
-                      else cssClass = cssClass + ' nnr-line-content-greyed';
-                      return (
-                        <div key={line.id} className="nnr-transcript-line">
-                          <span className="nnr-line-number">{lineNum}</span>
-                          <span className="nnr-line-meta">{line.timestamp} | {line.source} | </span>
-                          <span
-                            className={cssClass}
-                            contentEditable={canEdit}
-                            suppressContentEditableWarning={true}
-                            onBlur={function (e) { var txt = e.currentTarget.textContent; updateManualLine(line.id, txt); setEditingLineId(null); }}
-                            onFocus={function () { setEditingLineId(line.id); }}
-                          >{line.content}</span>
+                  <div className={`nnr-transcript-text${transcriptExpanded ? ' expanded' : ''}`} ref={transcriptLinesContainerRef}>
+                    {/* Expand/Collapse button */}
+                    <button
+                      className="nnr-transcript-expand-btn"
+                      onClick={() => setTranscriptExpanded(!transcriptExpanded)}
+                      title={transcriptExpanded ? 'Collapse' : 'Expand'}
+                      aria-label={transcriptExpanded ? 'Collapse transcript' : 'Expand transcript'}
+                    >
+                      {transcriptExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
+                    </button>
+
+                    <div className="nnr-transcript-lines">
+                      {displayTranscriptLines.map(function (line, idx) {
+                        var isManualSource = line.source && (line.source.indexOf('Manual') !== -1);
+                        var canEdit = mode === 'manual' && isManualSource;
+                        var lineNum = String(idx + 1).padStart(3, '0');
+                        var cssClass = 'nnr-line-content';
+                        if (canEdit) cssClass = cssClass;
+                        else cssClass = cssClass + ' nnr-line-content-greyed';
+                        return (
+                          <div key={line.id} className="nnr-transcript-line" data-line-id={line.id}>
+                            <span className="nnr-line-number">{lineNum}</span>
+                            <span className="nnr-line-meta">{line.timestamp} | {line.source} | </span>
+                            <span
+                              className={cssClass}
+                              contentEditable={canEdit}
+                              suppressContentEditableWarning={true}
+                              onBlur={function (e) { var txt = e.currentTarget.textContent; updateManualLine(line.id, txt); setEditingLineId(null); }}
+                              onFocus={function () { setEditingLineId(line.id); }}
+                            >{line.content}</span>
+                          </div>
+                        );
+                      })}
+                      
+                      {/* Live interim text as inline line */}
+                      {interimText && recording && (
+                        <div className="nnr-transcript-line nnr-transcript-line-live">
+                          <span className="nnr-line-number">&#8230;</span>
+                          <span className="nnr-line-meta">Live | </span>
+                          <span className="nnr-line-content">
+                            <span className="nnr-live-badge">🔴</span> {interimText}
+                            <span className="nnr-interim-cursor">|</span>
+                          </span>
                         </div>
-                      );
-                    })}
+                      )}
+                    </div>
                   </div>
                 ) : (
-                  <div className="nnr-transcript-text">
+                  <div className={`nnr-transcript-text${transcriptExpanded ? ' expanded' : ''}`}>
                     {displayTranscription || notesContent}
+                    {interimText && recording && (
+                      <div className="nnr-transcript-line nnr-transcript-line-live">
+                        <span className="nnr-line-number">&#8230;</span>
+                        <span className="nnr-line-meta">Live | </span>
+                        <span className="nnr-line-content">
+                          <span className="nnr-live-badge">🔴</span> {interimText}
+                          <span className="nnr-interim-cursor">|</span>
+                        </span>
+                      </div>
+                    )}
                   </div>
                 )}
-                {interimText && <div className="nnr-transcript-interim-wrap"><span className="nnr-interim">{interimText}<span className="nnr-interim-cursor">|</span></span></div>}
               </div>
 
               {/* Clear confirmation modal (reused pattern) */}

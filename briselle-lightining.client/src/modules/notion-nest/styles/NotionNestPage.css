@@ -9981,3 +9981,505 @@ kbd {
 .nnr-output-device-item.active {
   color: #2383e2;
 }
+
+/* ──────────────────────────────────────────────
+   New Transcript Tab Features (2026-07-20)
+   ────────────────────────────────────────────── */
+
+/* ── Consent Modal ── */
+.nnr-consent-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10000;
+  animation: nnr-fade-in 0.2s ease;
+}
+@keyframes nnr-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.nnr-consent-modal {
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px;
+  width: 100%;
+  max-width: 480px;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.2);
+  animation: nnr-slide-up 0.3s ease;
+}
+@keyframes nnr-slide-up {
+  from { transform: translateY(20px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.nnr-consent-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.nnr-consent-icon {
+  color: #2383e2;
+  flex-shrink: 0;
+}
+.nnr-consent-modal-header h3 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+  color: #111827;
+}
+.nnr-consent-modal-text {
+  font-size: 13px;
+  color: #6b7280;
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+.nnr-consent-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.15s;
+  text-align: left;
+  width: 100%;
+  margin-bottom: 12px;
+}
+.nnr-consent-option:hover {
+  border-color: #2383e2;
+  background: #f0f7ff;
+}
+.nnr-consent-option-icon {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  background: #f0f7ff;
+  color: #2383e2;
+  flex-shrink: 0;
+}
+.nnr-consent-option-content strong {
+  display: block;
+  font-size: 14px;
+  color: #111827;
+  margin-bottom: 4px;
+}
+.nnr-consent-option-content span {
+  font-size: 12px;
+  color: #6b7280;
+  line-height: 1.4;
+}
+.nnr-consent-modal-footer {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid #f3f4f6;
+}
+.nnr-consent-note {
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+/* ── Top Icon Bar ── */
+.nnr-top-icon-bar {
+  display: flex;
+  justify-content: flex-end;
+  padding: 4px 8px 0;
+  margin-bottom: 8px;
+}
+.nnr-top-icon-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.nnr-top-icon-group .nnr-icon-btn {
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  color: #6b7280;
+  transition: all 0.15s;
+}
+.nnr-top-icon-group .nnr-icon-btn:hover {
+  background: #f3f4f6;
+  color: #374151;
+}
+.nnr-top-icon-group .nnr-icon-btn.active {
+  background: #f0f7ff;
+  color: #2383e2;
+}
+.nnr-top-icon-group .nnr-icon-btn.has-files {
+  color: #2383e2;
+}
+.nnr-top-icon-group .nnr-icon-btn.has-files:hover {
+  background: #f0f7ff;
+}
+.nnr-audio-files-badge {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  min-width: 16px;
+  height: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: #2383e2;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.nnr-icon-btn {
+  position: relative;
+}
+.nnr-icons-divider {
+  width: 1px;
+  height: 20px;
+  background: #e5e7eb;
+  flex-shrink: 0;
+  margin: 0 4px;
+}
+
+/* ── Read Aloud Button ── */
+.nnr-read-aloud-btn {
+  color: #9b9b9b;
+}
+.nnr-read-aloud-btn:hover {
+  background: #f3f4f6;
+  color: #374151;
+}
+.nnr-read-aloud-btn.active {
+  color: #2383e2;
+  background: #f0f7ff;
+}
+.nnr-speech-waves {
+  display: flex;
+  gap: 2px;
+  align-items: center;
+  height: 16px;
+  margin-left: 4px;
+}
+.nnr-speech-waves .wave-bar {
+  width: 3px;
+  background: #2383e2;
+  border-radius: 2px;
+  animation: nnr-wave-bar 1s ease-in-out infinite;
+}
+.nnr-speech-waves .wave-bar:nth-child(1) { animation-delay: 0ms; height: 4px; }
+.nnr-speech-waves .wave-bar:nth-child(2) { animation-delay: 100ms; height: 8px; }
+.nnr-speech-waves .wave-bar:nth-child(3) { animation-delay: 200ms; height: 12px; }
+.nnr-speech-waves .wave-bar:nth-child(4) { animation-delay: 300ms; height: 6px; }
+@keyframes nnr-wave-bar {
+  0%, 100% { opacity: 0.3; transform: scaleY(0.5); }
+  50% { opacity: 1; transform: scaleY(1); }
+}
+
+/* ── Audio Files Dropdown ── */
+.nnr-audio-files-wrap {
+  position: relative;
+}
+.nnr-audio-files-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  min-width: 320px;
+  max-width: 400px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 5000;
+  overflow: hidden;
+}
+.nnr-audio-files-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid #f3f4f6;
+  font-size: 12px;
+  font-weight: 600;
+  color: #374151;
+}
+.nnr-audio-files-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 4px;
+  background: #2383e2;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.nnr-audio-files-actions button:hover {
+  background: #1b6fc2;
+}
+.nnr-audio-files-list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+.nnr-audio-file-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.nnr-audio-file-item:hover {
+  background: #f3f4f6;
+}
+.nnr-audio-file-item.selected {
+  background: #f0f7ff;
+}
+.nnr-audio-file-item.playing {
+  background: #f0f7ff;
+}
+.nnr-audio-file-checkbox {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1.5px solid #d1d5db;
+  border-radius: 4px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.nnr-audio-file-checkbox input {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+.nnr-checkmark {
+  display: none;
+  width: 10px;
+  height: 10px;
+  background: #2383e2;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23fff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'%3E%3C/polyline%3E%3C/svg%3E") center/contain no-repeat;
+}
+.nnr-audio-file-checkbox input:checked + .nnr-checkmark {
+  display: block;
+}
+.nnr-audio-file-checkbox input:checked ~ .nnr-checkmark {
+  display: block;
+}
+.nnr-audio-file-checkbox input:checked + .nnr-checkmark,
+.nnr-audio-file-checkbox input:checked ~ .nnr-checkmark {
+  display: block;
+}
+.nnr-audio-file-checkbox input:checked ~ .nnr-checkmark {
+  display: block;
+}
+.nnr-audio-file-item.selected .nnr-checkmark {
+  display: block;
+}
+.nnr-audio-file-info {
+  flex: 1;
+  min-width: 0;
+}
+.nnr-audio-file-name {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: #111827;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.nnr-audio-file-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: #9b9b9b;
+}
+.nnr-file-source-icon {
+  flex-shrink: 0;
+}
+.nnr-audio-file-duration {
+  font-variant-numeric: tabular-nums;
+}
+.nnr-audio-file-actions {
+  display: flex;
+  gap: 4px;
+}
+.nnr-icon-btn-sm {
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.nnr-icon-btn-sm:hover {
+  background: #f3f4f6;
+  color: #374151;
+}
+
+/* ── Transcript Expand/Collapse ── */
+.nnr-transcript-text {
+  position: relative;
+  max-height: 150px;
+  overflow: hidden;
+  transition: max-height 0.3s ease;
+}
+.nnr-transcript-text.expanded {
+  max-height: none;
+  overflow-y: auto;
+}
+.nnr-transcript-text:not(.expanded)::after {
+  content: '';
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: linear-gradient(to bottom, transparent, #fff 80%);
+  pointer-events: none;
+  border-radius: 0 0 6px 6px;
+}
+.nnr-transcript-expand-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.05);
+  color: #6b7280;
+  cursor: pointer;
+  opacity: 0;
+  transition: all 0.2s;
+  z-index: 10;
+}
+.nnr-transcript-text:hover .nnr-transcript-expand-btn {
+  opacity: 1;
+}
+.nnr-transcript-expand-btn:hover {
+  background: rgba(35, 131, 226, 0.1);
+  color: #2383e2;
+}
+
+/* ── Transcript Lines ── */
+.nnr-transcript-lines {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.nnr-transcript-line-live {
+  opacity: 0.85;
+  color: #2383e2;
+  font-style: italic;
+}
+.nnr-transcript-line-live .nnr-line-content {
+  animation: nnr-pulse-text 1.5s infinite;
+}
+.nnr-live-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 4px;
+  font-size: 12px;
+}
+@keyframes nnr-pulse-text {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* ── Recording Animations ── */
+.nnr-mic-recording {
+  animation: nnr-mic-pulse 1.5s ease-in-out infinite;
+}
+@keyframes nnr-mic-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+.nnr-audio-file-transcribing {
+  animation: nnr-audio-file-pulse 1.5s ease-in-out infinite;
+}
+@keyframes nnr-audio-file-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* ── Manual Mode Highlight ── */
+.nnr-manual-highlight {
+  animation: nnr-plus-pulse 2s ease-in-out infinite;
+  background: rgba(35, 131, 226, 0.15);
+  color: #2383e2;
+}
+@keyframes nnr-plus-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(35, 131, 226, 0.4); }
+  50% { box-shadow: 0 0 0 8px rgba(35, 131, 226, 0); }
+}
+
+/* ── Settings Popover - Collapsible Submenus ── */
+.nnr-settings-popover {
+  max-height: none;
+  overflow: visible;
+}
+.nnr-settings-submenu {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.2s ease;
+  background: #fafafa;
+  border-left: 2px solid #e5e7eb;
+  margin-left: 8px;
+}
+.nnr-settings-submenu.open {
+  max-height: 300px;
+  overflow-y: auto;
+}
+.nnr-settings-item.has-submenu {
+  position: relative;
+}
+.nnr-settings-item.has-submenu .nnr-submenu-chevron {
+  transition: transform 0.2s;
+}
+.nnr-settings-item.has-submenu.open .nnr-submenu-chevron {
+  transform: rotate(90deg);
+}
+
+/* ── Header Consent Indicator ── */
+.mt-consent-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+}
+.mt-consent-indicator.manual {
+  background: #fef3c7;
+  color: #92400e;
+}
+.mt-consent-indicator.auto {
+  background: #dbeafe;
+  color: #1e40af;
+}
