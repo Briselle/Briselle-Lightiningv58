@@ -8633,33 +8633,47 @@ kbd {
 .nnr-waveform {
   display: flex;
   align-items: center;
-  gap: 3px;
+  gap: 2px;
   flex: 1;
   justify-content: center;
-  height: 24px;
+  height: 32px;
   overflow: hidden;
 }
 .nnr-wave-dot {
-  width: 4px;
-  height: 4px;
+  width: 3px;
+  min-height: 3px;
+  max-height: 30px;
   background: #9b9b9b;
-  border-radius: 50%;
-  animation: nnr-dot-pulse 1.2s ease-in-out infinite;
+  border-radius: 2px;
+  transition: height 0.1s ease;
 }
 .nnr-wave-dot.nnr-wave-bar-el {
   width: 3px;
-  height: 16px;
+  min-height: 4px;
   border-radius: 2px;
   background: #2383e2;
-  animation: nnr-bar-pulse 0.8s ease-in-out infinite alternate;
 }
-@keyframes nnr-dot-pulse {
-  0%, 100% { opacity: 0.4; transform: scale(0.8); }
-  50% { opacity: 1; transform: scale(1.2); }
+.nnr-mic-recording .nnr-wave-dot {
+  background: #2383e2;
 }
-@keyframes nnr-bar-pulse {
-  0% { height: 4px; }
-  100% { height: 20px; }
+
+/* BUG-004: Notion.so-style CSS-animated waveform (smooth flowing equalizer)
+   Created At: 2026-07-22 | Last Modified: 2026-07-22 */
+.nnr-mic-recording .nnr-wave-dot,
+.nnr-audio-file-transcribing .nnr-wave-dot {
+  animation: nnr-notion-wave 1.2s ease-in-out infinite;
+  transform-origin: center bottom;
+}
+@keyframes nnr-notion-wave {
+  0%, 100% { transform: scaleY(0.3); }
+  50% { transform: scaleY(1); }
+}
+
+.nnr-audio-file-transcribing .nnr-wave-dot {
+  background: #7c3aed;
+}
+.nnr-audio-file-transcribing .nnr-wave-dot.nnr-wave-bar-el {
+  background: #7c3aed;
 }
 
 /* ── Content Area ── */
@@ -9030,6 +9044,7 @@ kbd {
   border-radius: 12px;
   padding: 2px;
   margin-left: 4px;
+  overflow: hidden;
 }
 
 .nnr-mode-option {
@@ -9052,44 +9067,11 @@ kbd {
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
 }
 
-/* Created At: 2026-07-20 | Last Modified: 2026-07-20 | Previous Version Back URL: file:///c:/BriselleServer/Briselle-Lightiningv58/briselle-lightining.client/src/modules/notion-nest/NotionPage.css#L9054 */
-.nnr-add-manual-compact {
-  display: flex;
-  align-items: center;
-  gap: 0;
-  padding: 2px 6px;
-  cursor: pointer;
-  border-radius: 10px;
-  margin-left: 4px;
-  color: #2383e2;
-  transition: all 0.2s ease-in-out;
-  background: transparent;
-  max-width: 22px;
-  overflow: hidden;
-  white-space: nowrap;
-}
+/* ── BUG-003: Add Manual Transcript Button — Blue styling matching mode options
+   Created: 2026-07-20 | Last Modified: 2026-07-22
+   Previous Version Back URL: file:///c:/BriselleServer/Briselle-Lightiningv58/briselle-lightining.client/src/modules/notion-nest/styles/NotionNestPage.css#L9058 */
+/* NOTE: Duplicate removed. Canonical rule is at L9787-L9823 below. */
 
-.nnr-add-manual-compact:hover {
-  max-width: 180px;
-  background: rgba(35, 131, 226, 0.1);
-  padding: 2px 8px;
-  gap: 4px;
-}
-
-.nnr-add-manual-label {
-  font-size: 10px;
-  font-weight: 500;
-  color: #2383e2;
-  opacity: 0;
-  max-width: 0;
-  overflow: hidden;
-  transition: all 0.2s ease-in-out;
-}
-
-.nnr-add-manual-compact:hover .nnr-add-manual-label {
-  opacity: 1;
-  max-width: 150px;
-}
 
 /* ── Mode indicator at top of notes ── */
 .nnr-mode-indicator {
@@ -9380,13 +9362,17 @@ kbd {
   margin-top: 4px;
   min-width: 260px;
   max-height: 400px;
-  overflow-y: auto;
+  overflow: visible;
   background: #fff;
   border: 1px solid #e5e7eb;
   border-radius: 10px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
   z-index: 5000;
   padding: 6px 0;
+}
+.nnr-settings-popover-inner {
+  max-height: 390px;
+  overflow-y: auto;
 }
 
 .nnr-settings-item {
@@ -9424,50 +9410,6 @@ kbd {
   padding-left: 38px;
   font-size: 12px;
   color: #6b7280;
-}
-
-/* ── Settings Submenu ── */
-.nnr-settings-submenu {
-  border-top: 1px solid #f3f4f6;
-  max-height: 200px;
-  overflow-y: auto;
-}
-
-.nnr-settings-subitem {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 14px 7px 38px;
-  font-size: 13px;
-  color: #374151;
-  cursor: pointer;
-  transition: background 0.1s;
-}
-
-.nnr-settings-subitem:hover {
-  background: #f3f4f6;
-}
-
-.nnr-settings-subitem.active {
-  color: #2383e2;
-}
-
-.nnr-settings-subitem-actions {
-  margin-left: auto;
-  display: flex;
-  gap: 2px;
-  opacity: 0;
-  transition: opacity 0.1s;
-}
-
-.nnr-settings-subitem:hover .nnr-settings-subitem-actions {
-  opacity: 1;
-}
-
-.nnr-settings-subitem-add {
-  color: #2383e2;
-  border-top: 1px solid #f3f4f6;
-  margin-top: 2px;
 }
 
 /* ── Settings Divider ── */
@@ -9744,6 +9686,10 @@ kbd {
   white-space: nowrap;
   user-select: none;
 }
+.nnr-hide-timeline .nnr-line-number,
+.nnr-hide-timeline .nnr-line-meta {
+  display: none;
+}
 .nnr-line-content {
   color: var(--text-color, #333);
   word-break: break-word;
@@ -9816,36 +9762,38 @@ kbd {
   border-color: #999;
 }
 
-/* ── Compact Add Manual Transcript Button ── */
-/* Created: 2026-07-19 | Last Modified: 2026-07-19 */
+/* ── BUG-003: Compact Add Manual Transcript Button — Blue pill style
+   Created: 2026-07-19 | Last Modified: 2026-07-22
+   Previous Version Back URL: file:///c:/BriselleServer/Briselle-Lightiningv58/briselle-lightining.client/src/modules/notion-nest/styles/NotionNestPage.css#L9787 */
 .nnr-add-manual-compact {
   display: inline-flex;
   align-items: center;
   gap: 0;
-  color: #2383e2;
+  color: #ffffff;
   cursor: pointer;
-  padding: 4px 6px;
-  border-radius: 4px;
-  border: 1px solid transparent;
+  padding: 3px 7px;
+  border-radius: 10px;
+  border: none;
   transition: all 0.2s ease;
   overflow: hidden;
-  max-width: 24px;
+  max-width: 28px;
   white-space: nowrap;
-  margin-left: 8px;
+  margin-left: 4px;
+  background: #2383e2;
 }
 .nnr-add-manual-compact .nnr-add-manual-label {
-  font-size: 12px;
+  font-size: 11px;
   font-weight: 500;
   opacity: 0;
   max-width: 0;
   overflow: hidden;
   transition: all 0.2s ease;
+  color: #ffffff;
 }
 .nnr-add-manual-compact:hover {
-  background: #2383e2;
-  color: #ffffff;
+  background: #1b6fc2;
   max-width: 200px;
-  padding: 4px 10px 4px 6px;
+  padding: 3px 10px 3px 7px;
   gap: 4px;
 }
 .nnr-add-manual-compact:hover .nnr-add-manual-label {
@@ -10183,6 +10131,49 @@ kbd {
   50% { opacity: 1; transform: scaleY(1); }
 }
 
+/* ── BUG-008: Mic Recording Glow Animation — Professional blue glow with radiating pulse
+   Created At: 2026-07-20 | Last Modified: 2026-07-22
+   Previous Version Back URL: file:///c:/BriselleServer/Briselle-Lightiningv58/briselle-lightining.client/src/modules/notion-nest/styles/NotionNestPage.css#L10156 */
+.nnr-mic-active {
+  color: #2383e2 !important;
+  animation: nnr-mic-glow 1.5s ease-in-out infinite;
+  position: relative;
+  z-index: 1;
+}
+.nnr-mic-active::before {
+  content: '';
+  position: absolute;
+  inset: -4px;
+  border-radius: 50%;
+  background: rgba(35, 131, 226, 0.15);
+  animation: nnr-mic-ring 1.5s ease-in-out infinite;
+  z-index: -1;
+}
+@keyframes nnr-mic-glow {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+    filter: drop-shadow(0 0 2px rgba(35, 131, 226, 0.3));
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.1);
+    filter: drop-shadow(0 0 8px rgba(35, 131, 226, 0.6));
+  }
+}
+@keyframes nnr-mic-ring {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.4;
+    box-shadow: 0 0 0 0 rgba(35, 131, 226, 0.4);
+  }
+  50% {
+    transform: scale(1.3);
+    opacity: 0;
+    box-shadow: 0 0 0 10px rgba(35, 131, 226, 0);
+  }
+}
+
 /* ── Audio Files Dropdown ── */
 .nnr-audio-files-wrap {
   position: relative;
@@ -10316,6 +10307,13 @@ kbd {
 .nnr-audio-file-duration {
   font-variant-numeric: tabular-nums;
 }
+.nnr-audio-file-size {
+  font-size: 9px;
+  color: var(--mm-text-muted);
+  opacity: 0.7;
+  margin-left: 4px;
+  font-variant-numeric: tabular-nums;
+}
 .nnr-audio-file-actions {
   display: flex;
   gap: 4px;
@@ -10341,7 +10339,7 @@ kbd {
 /* ── Transcript Expand/Collapse ── */
 .nnr-transcript-text {
   position: relative;
-  max-height: 150px;
+  max-height: 400px;
   overflow: hidden;
   transition: max-height 0.3s ease;
 }
@@ -10349,7 +10347,7 @@ kbd {
   max-height: none;
   overflow-y: auto;
 }
-.nnr-transcript-text:not(.expanded)::after {
+.nnr-transcript-text:not(.expanded).has-overflow::after {
   content: '';
   position: absolute;
   bottom: 0;
@@ -10381,9 +10379,17 @@ kbd {
 .nnr-transcript-text:hover .nnr-transcript-expand-btn {
   opacity: 1;
 }
+.nnr-transcript-text:not(.expanded).has-overflow:hover .nnr-transcript-expand-btn {
+  animation: nnr-pulse-expand 2s ease-in-out infinite;
+}
 .nnr-transcript-expand-btn:hover {
   background: rgba(35, 131, 226, 0.1);
   color: #2383e2;
+}
+
+@keyframes nnr-pulse-expand {
+  0%, 100% { opacity: 0.7; transform: scale(1); box-shadow: 0 0 2px rgba(35, 131, 226, 0.2); }
+  50% { opacity: 1; transform: scale(1.15); box-shadow: 0 0 8px rgba(35, 131, 226, 0.4); }
 }
 
 /* ── Transcript Lines ── */
@@ -10438,31 +10444,82 @@ kbd {
   50% { box-shadow: 0 0 0 8px rgba(35, 131, 226, 0); }
 }
 
-/* ── Settings Popover - Collapsible Submenus ── */
-.nnr-settings-popover {
-  max-height: none;
-  overflow: visible;
-}
-.nnr-settings-submenu {
-  max-height: 0;
-  overflow: hidden;
-  transition: max-height 0.2s ease;
-  background: #fafafa;
-  border-left: 2px solid #e5e7eb;
-  margin-left: 8px;
-}
-.nnr-settings-submenu.open {
-  max-height: 300px;
-  overflow-y: auto;
-}
-.nnr-settings-item.has-submenu {
+/* ── Settings Popover - Right Side Flyout Submenus ── */
+.nnr-settings-item-has-flyout {
   position: relative;
 }
-.nnr-settings-item.has-submenu .nnr-submenu-chevron {
-  transition: transform 0.2s;
+.nnr-settings-item-has-flyout .nnr-settings-item-right .lucide-chevron-right {
+  transition: transform 0.15s;
+  color: #9b9b9b;
 }
-.nnr-settings-item.has-submenu.open .nnr-submenu-chevron {
-  transform: rotate(90deg);
+.nnr-settings-flyout {
+  position: absolute;
+  left: calc(100% - 4px);
+  top: -1px;
+  min-width: 240px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 5001;
+  padding: 6px 0;
+  max-height: 360px;
+  overflow-y: auto;
+  animation: nnr-flyout-in 0.15s ease;
+}
+.nnr-settings-flyout::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 16px;
+  width: 10px;
+  height: 10px;
+  background: #fff;
+  border-left: 1px solid #e5e7eb;
+  border-bottom: 1px solid #e5e7eb;
+  transform: rotate(45deg);
+}
+@keyframes nnr-flyout-in {
+  from { opacity: 0; transform: translateX(-4px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.nnr-settings-flyout-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  font-size: 13px;
+  color: #374151;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+.nnr-settings-flyout-item:hover {
+  background: #f3f4f6;
+}
+.nnr-settings-flyout-item.active {
+  color: #2383e2;
+  background: #f0f7ff;
+}
+.nnr-settings-flyout-item .lucide-check {
+  margin-left: auto;
+  color: #2383e2;
+}
+.nnr-settings-flyout-item-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.nnr-settings-flyout-item:hover .nnr-settings-flyout-item-actions {
+  opacity: 1;
+}
+.nnr-settings-flyout-item-add {
+  border-top: 1px solid #f3f4f6;
+  color: #2383e2;
+  font-weight: 500;
+  margin-top: 4px;
+  padding-top: 10px;
 }
 
 /* ── Header Consent Indicator ── */
@@ -10482,4 +10539,83 @@ kbd {
 .mt-consent-indicator.auto {
   background: #dbeafe;
   color: #1e40af;
+}
+
+/* ── Manual mode add button pulse animation ── */
+.nnr-add-icon-pulse {
+  animation: nnr-add-pulse 2s ease-in-out infinite;
+  filter: drop-shadow(0 0 3px rgba(59, 130, 246, 0.5));
+}
+@keyframes nnr-add-pulse {
+  0%, 100% { transform: scale(1); opacity: 0.8; filter: drop-shadow(0 0 2px rgba(59, 130, 246, 0.3)); }
+  50% { transform: scale(1.2); opacity: 1; filter: drop-shadow(0 0 6px rgba(59, 130, 246, 0.7)); }
+}
+
+/* ── BUG-001: Manual Mode Empty Placeholder Styling
+   Created At: 2026-07-22 | Last Modified: 2026-07-22 */
+.nnr-manual-empty-placeholder {
+  cursor: text;
+  min-height: 60px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed #d1d5db;
+  border-radius: 6px;
+  margin: 8px 12px;
+  transition: all 0.2s;
+}
+.nnr-manual-empty-placeholder:hover {
+  border-color: #2383e2;
+  background: rgba(35, 131, 226, 0.04);
+}
+.nnr-manual-placeholder-text {
+  font-size: 13px;
+  color: #9b9b9b;
+  font-style: italic;
+}
+
+/* ── BUG-007: Uploaded Audio Controls Bar Styling
+   Created At: 2026-07-22 | Last Modified: 2026-07-22 */
+.nnr-audio-controls-uploaded {
+  background: #f0f7ff;
+  border: 1px solid #d6e8fa;
+  padding: 4px 10px;
+  border-radius: 20px;
+  gap: 8px;
+}
+.nnr-stop-audio-btn {
+  background: #ef4444 !important;
+  color: #fff !important;
+}
+.nnr-stop-audio-btn:hover {
+  background: #dc2626 !important;
+}
+
+/* ── TASK-ZIVA-002: Transcript Container Default Fixed Height (400px) & Expand View ── */
+.nnr-transcript-text {
+  height: 400px !important;
+  max-height: 400px !important;
+  min-height: 400px !important;
+  overflow-y: auto !important;
+  box-sizing: border-box;
+  transition: max-height 0.3s ease, height 0.3s ease;
+}
+.nnr-transcript-text.expanded {
+  height: auto !important;
+  max-height: none !important;
+  overflow-y: visible !important;
+}
+
+/* ── TASK-ZIVA-004: Audio File Item Duration Badge Styling ── */
+.nnr-audio-file-duration {
+  font-size: 11px;
+  font-weight: 600;
+  color: #2383e2;
+  background: rgba(35, 131, 226, 0.1);
+  padding: 2px 6px;
+  border-radius: 4px;
+  margin-left: 6px;
+  font-family: monospace;
+  display: inline-flex;
+  align-items: center;
 }
