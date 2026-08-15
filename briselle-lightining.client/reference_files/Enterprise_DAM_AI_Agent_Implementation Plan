@@ -1,0 +1,123 @@
+# Implementation Plan — Enterprise Digital Asset Management (DAM) Refactoring Guide
+
+## Overview
+This document provides a comprehensive technical architecture and execution plan for refactoring the application to a centralized **Enterprise Digital Asset Management (DAM)** architecture backed by **Supabase Storage** and PostgreSQL metadata, while **preserving 100% of existing UI/UX**.
+
+---
+
+## User Review Required
+
+> [!IMPORTANT]
+> - **Zero UI/UX Changes:** Existing upload dialogs, drag-and-drop zones, progress bars, popover menus, and audio playback controls remain visually unchanged.
+> - **Binary Removal:** No business entity will store raw Base64 strings, byte arrays, or Blob data in database properties (e.g. `audioData` in `MeetingNotesBlock` is replaced by DAM `fileId` references).
+> - **Single Upload Pipeline:** Every file upload flows strictly through `FileService.upload()` with zero direct component calls to storage buckets.
+> - **Supabase Storage Integration:** Physical files are stored securely in Supabase Storage (`enterprise-assets` bucket) with Row Level Security (RLS) and signed URLs.
+
+---
+
+## Detailed Implementation Plan (10 Points)
+
+### Point 1: Primary Objective & Binary Removal Architecture (`TASK-DAM-001`)
+- Refactor all business records (`ddata`, `MeetingNotesBlock`, `UploadZone`, record attachments) to eliminate raw binary/Base64/Blob storage.
+- Business entities persist only `fileId` (UUID) references or array of `fileId`s.
+- Existing binary properties (e.g. `audioData`, `base64Data`) will be migrated into Supabase Storage physical assets and referenced via `fileId`.
+
+### Point 2: Preserve Existing UI/UX (`TASK-DAM-002`)
+- Keep all existing React UI components (`MeetingNotesBlock.jsx`, `UploadZone.jsx`, `ConfigurableListTemplate.tsx`) visually identical.
+- Refactor only the asynchronous handlers called after the user selects or drops a file.
+
+### Point 3: Single Upload Pipeline Abstraction (`FileService.upload`) (`TASK-DAM-003`)
+- Create centralized client service `FileService` at `src/services/FileService.ts`:
+  ```typescript
+  export interface UploadParams {
+    file: File | Blob;
+    entityType: string;
+    entityId: string;
+    objectId?: string;
+    ownerId?: string;
+    metadata?: Record<string, any>;
+    options?: {
+      generateThumbnail?: boolean;
+      extractMetadata?: boolean;
+      isPublic?: boolean;
+    };
+  }
+
+  export class FileService {
+    static async upload(params: UploadParams): Promise<{ fileId: string; publicUrl?: string }>;
+  }
+  ```
+- Components will never access Supabase directly, calculate storage paths, or generate bucket names.
+
+### Point 4: Target Architecture & End-to-End Layer Flow (`TASK-DAM-004`)
+- Flow: `React UI` -> `FileService.upload()` -> `Client Validation` -> `Metadata Extraction & Checksum` -> `Supabase Storage (Physical)` -> `enterprise_files (Metadata)` -> Return `fileId` -> Business entity saves `fileId`.
+
+### Point 5: Client & Server Validation Framework (`TASK-DAM-005`)
+- Enforce strict validation rules on both frontend and server:
+  - Allowed file extensions & MIME type matching.
+  - Maximum size limits by file type (Images: 20MB, Audio: 100MB, Video: 500MB, Docs: 50MB).
+  - Audio/Video duration sanity checks.
+  - SHA-256 duplicate file detection.
+
+### Point 6: Dynamic File Processing & Type-Specific Pipelines (`TASK-DAM-006`)
+- **Images:** Width, height, aspect ratio, orientation, EXIF, thumbnail generation.
+- **PDFs:** Page count, preview rendering, OCR hook.
+- **Office Docs:** Author, title, creation date, modification audit.
+- **Audio:** Duration, sample rate, channels, codec, waveform JSON generation, Ziva AI transcript hook.
+- **Video:** Duration, resolution, frame rate, video codec, poster thumbnail extraction.
+
+### Point 7: Enterprise Digital Asset Schema (`enterprise_files` Table) (`TASK-DAM-007`)
+- Create SQL migration for `enterprise_files` based on `Enterprise_Digital_Asset_Table_v1`:
+  - Columns: `id` (UUID PK), `file_name`, `original_name`, `file_extension`, `mime_type`, `size_bytes`, `storage_bucket`, `storage_path`, `checksum_sha256`, `owner_id`, `tenant_id`, `created_at`, `updated_at`, `is_deleted`.
+  - JSONB Metadata Columns: `physical_metadata`, `version_info`, `status_info`, `security_info`, `ai_metadata`, `search_metadata`, `processing_metadata`, `audit_info`, `custom_metadata`, `system_metadata`, `compliance_metadata`.
+
+### Point 8: Repository Migration Inventory (`TASK-DAM-008`)
+- **Location 1:** `MeetingNotesBlock.jsx` -> Refactor `audioData` Base64 string & `audioFiles` array to store `fileId` references retrieved from `FileService.upload()`.
+- **Location 2:** `UploadZone.jsx` -> Refactor local FileReader Base64 preview to call `FileService.upload()`.
+- **Location 3:** `ConfigurableListTemplate.tsx` -> Refactor list record file attachments to DAM `fileId` pattern.
+- **Location 4:** Record attachments (`RecordsList.tsx`, `RecordDetail.tsx`) -> Store DAM `fileId` instead of inline byte arrays.
+
+### Point 9: Centralized `FileService` Implementation (`TASK-DAM-009`)
+- Implement complete API surface in `FileService`:
+  - `upload(params)`
+  - `download(fileId)`
+  - `getSignedUrl(fileId, expiresInSeconds)`
+  - `delete(fileId, softDelete)`
+  - `restore(fileId)`
+  - `getMetadata(fileId)`
+  - `listForEntity(entityType, entityId)`
+
+### Point 10: Supabase Storage, Security Policies & AI Enrichment Hooks (`TASK-DAM-010`)
+- Setup `enterprise-assets` bucket in Supabase Storage.
+- Apply Row Level Security (RLS) policies for multi-tenant isolation.
+- Integrate AI enrichment hooks for Ziva AI audio transcription, OCR, and semantic vector embeddings.
+
+---
+
+## Proposed Code Changes
+
+### [NEW] [enterprise_files_migration.sql](file:///c:/BriselleServer/Briselle-Lightiningv58/briselle-lightining.client/src/services/dam/enterprise_files_migration.sql)
+- Database schema migration for `enterprise_files` table with all JSONB metadata columns and RLS policies.
+
+### [NEW] [FileService.ts](file:///c:/BriselleServer/Briselle-Lightiningv58/briselle-lightining.client/src/services/FileService.ts)
+- Centralized `FileService` client SDK communicating with Supabase Storage and `enterprise_files` metadata table.
+
+### [NEW] [metadataExtractors.ts](file:///c:/BriselleServer/Briselle-Lightiningv58/briselle-lightining.client/src/services/dam/metadataExtractors.ts)
+- Client/server metadata extractors for audio duration, image dimensions, document properties, and SHA-256 checksums.
+
+### [MODIFY] [MeetingNotesBlock.jsx](file:///c:/BriselleServer/Briselle-Lightiningv58/briselle-lightining.client/src/modules/notion-nest/blocks/MeetingNotesBlock.jsx)
+- Replace inline Base64 storage (`audioData`, `audioFiles`) with `FileService.upload()` and `fileId` references while preserving exact UI.
+
+### [MODIFY] [UploadZone.jsx](file:///c:/BriselleServer/Briselle-Lightiningv58/briselle-lightining.client/src/modules/notion-nest/components/UploadZone.jsx)
+- Update upload trigger to call `FileService.upload()`.
+
+---
+
+## Verification Plan
+
+### Manual Verification
+1. **DAM Schema Verification:** Run `enterprise_files_migration.sql` in Supabase/PostgreSQL. Verify all JSONB metadata columns and indexes are created.
+2. **Single Upload Pipeline Test:** Upload an audio file in Meeting Notes block -> Verify `FileService.upload()` uploads physical file to `enterprise-assets` bucket, creates `enterprise_files` record, and stores only `fileId` in block property.
+3. **Binary Storage Audit:** Inspect local state and database -> Verify zero Base64 strings or binary blobs are stored in `ddata` or block JSON properties.
+4. **Playback & Signed URLs:** Play recorded or uploaded audio in Meeting Notes -> Verify `FileService.getSignedUrl(fileId)` streams audio smoothly through the AudioController without UI breakages.
+5. **Image & Attachment Test:** Upload an image in UploadZone -> Verify image dimensions, size, and SHA-256 checksum are populated in `enterprise_files.physical_metadata`.

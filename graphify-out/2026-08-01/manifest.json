@@ -1,0 +1,1367 @@
+{
+  "Briselle-Lightining.Server/Briselle-Lightining.Server.csproj": {
+    "mtime": 1768491618.2988577,
+    "ast_hash": "a3c8078b3e2fec659d850fdbf2e681ae",
+    "semantic_hash": "a3c8078b3e2fec659d850fdbf2e681ae"
+  },
+  "Briselle-Lightining.Server/Controllers/WeatherForecastController.cs": {
+    "mtime": 1768491618.3068569,
+    "ast_hash": "cb3c577f7ba5542eb343937001b93518",
+    "semantic_hash": "cb3c577f7ba5542eb343937001b93518"
+  },
+  "Briselle-Lightining.Server/Controllers/ZivaController.cs": {
+    "mtime": 1785342019.1183777,
+    "ast_hash": "93f695888d16019abf519d00d471c779",
+    "semantic_hash": ""
+  },
+  "Briselle-Lightining.Server/Hubs/RealtimeHub.cs": {
+    "mtime": 1768491618.3118596,
+    "ast_hash": "b62a73b72654c9b0386f4162bb15d7bb",
+    "semantic_hash": "b62a73b72654c9b0386f4162bb15d7bb"
+  },
+  "Briselle-Lightining.Server/Program.cs": {
+    "mtime": 1778956207.0740952,
+    "ast_hash": "7dbfc3610fd0a8e537197a616f27676c",
+    "semantic_hash": "7dbfc3610fd0a8e537197a616f27676c"
+  },
+  "Briselle-Lightining.Server/Properties/launchSettings.json": {
+    "mtime": 1768491618.3188558,
+    "ast_hash": "7d50c83c72e1172fbd6612b2bd1b34a7",
+    "semantic_hash": "7d50c83c72e1172fbd6612b2bd1b34a7"
+  },
+  "Briselle-Lightining.Server/WeatherForecast.cs": {
+    "mtime": 1768491618.3188558,
+    "ast_hash": "adc5fb346ff0a9140232bd52b9cf9846",
+    "semantic_hash": "adc5fb346ff0a9140232bd52b9cf9846"
+  },
+  "Briselle-Lightining.Server/appsettings.Development.json": {
+    "mtime": 1778956697.7266722,
+    "ast_hash": "04232589b9c4efd2131e126482933063",
+    "semantic_hash": "04232589b9c4efd2131e126482933063"
+  },
+  "Briselle-Lightining.Server/appsettings.json": {
+    "mtime": 1768491618.323429,
+    "ast_hash": "f7e65dde4e5533740a0d57ac9355c0e8",
+    "semantic_hash": "f7e65dde4e5533740a0d57ac9355c0e8"
+  },
+  "Briselle-Lightining.sln": {
+    "mtime": 1768491618.323429,
+    "ast_hash": "7a19d23face56afcd4b57d6a96debf07",
+    "semantic_hash": "7a19d23face56afcd4b57d6a96debf07"
+  },
+  "briselle-lightining.client/.bolt/config.json": {
+    "mtime": 1768491618.3284361,
+    "ast_hash": "b380016764830d78f49f05a6be1094c4",
+    "semantic_hash": "b380016764830d78f49f05a6be1094c4"
+  },
+  "briselle-lightining.client/.obsidian/app.json": {
+    "mtime": 1784468151.4828954,
+    "ast_hash": "99914b932bd37a50b983c5e7c90ae93b",
+    "semantic_hash": "99914b932bd37a50b983c5e7c90ae93b"
+  },
+  "briselle-lightining.client/.obsidian/appearance.json": {
+    "mtime": 1784468151.6155653,
+    "ast_hash": "99914b932bd37a50b983c5e7c90ae93b",
+    "semantic_hash": "99914b932bd37a50b983c5e7c90ae93b"
+  },
+  "briselle-lightining.client/.obsidian/core-plugins.json": {
+    "mtime": 1784468145.5851228,
+    "ast_hash": "7c877bea49eaeabb100563bd157b9051",
+    "semantic_hash": "7c877bea49eaeabb100563bd157b9051"
+  },
+  "briselle-lightining.client/.obsidian/graph.json": {
+    "mtime": 1784468853.653,
+    "ast_hash": "d8ea422865008e636110b0d0c7e396f3",
+    "semantic_hash": "d8ea422865008e636110b0d0c7e396f3"
+  },
+  "briselle-lightining.client/.obsidian/workspace.json": {
+    "mtime": 1784468879.80743,
+    "ast_hash": "9c34566174cff7e2efc905b860b6e30c",
+    "semantic_hash": "9c34566174cff7e2efc905b860b6e30c"
+  },
+  "briselle-lightining.client/eslint.config.js": {
+    "mtime": 1768491618.3309324,
+    "ast_hash": "4225f837ef9e9b6352935d05a57f40ff",
+    "semantic_hash": "4225f837ef9e9b6352935d05a57f40ff"
+  },
+  "briselle-lightining.client/fix_menus_dup.cjs": {
+    "mtime": 1782571245.0684772,
+    "ast_hash": "473196a2a47d40acdc73862668b549de",
+    "semantic_hash": "473196a2a47d40acdc73862668b549de"
+  },
+  "briselle-lightining.client/package.json": {
+    "mtime": 1783595043.083413,
+    "ast_hash": "006997ecba5885f3149ad5987b683571",
+    "semantic_hash": "006997ecba5885f3149ad5987b683571"
+  },
+  "briselle-lightining.client/postcss.config.js": {
+    "mtime": 1768491618.339943,
+    "ast_hash": "33fad9c02cb0ec6d6030369ef6347d57",
+    "semantic_hash": "33fad9c02cb0ec6d6030369ef6347d57"
+  },
+  "briselle-lightining.client/src/App.tsx": {
+    "mtime": 1779524663.5678563,
+    "ast_hash": "1928737022207eb5eb25c4c54923bf6a",
+    "semantic_hash": "1928737022207eb5eb25c4c54923bf6a"
+  },
+  "briselle-lightining.client/src/components/ErrorBoundary.tsx": {
+    "mtime": 1779180408.1536963,
+    "ast_hash": "5c3abcf715727b8fd3841ade259c5908",
+    "semantic_hash": "5c3abcf715727b8fd3841ade259c5908"
+  },
+  "briselle-lightining.client/src/components/dashboard/ObjectMetrics.tsx": {
+    "mtime": 1768491618.3869524,
+    "ast_hash": "8c08d40b84e465a139169d9874d182dd",
+    "semantic_hash": "8c08d40b84e465a139169d9874d182dd"
+  },
+  "briselle-lightining.client/src/components/dashboard/RecentActivityList.tsx": {
+    "mtime": 1768491618.387952,
+    "ast_hash": "cea06c01604c73c39b1b0f9de0258963",
+    "semantic_hash": "cea06c01604c73c39b1b0f9de0258963"
+  },
+  "briselle-lightining.client/src/components/dashboard/StatCard.tsx": {
+    "mtime": 1768491618.395011,
+    "ast_hash": "bd61ba54d4a3f5c9f13f0dfdbf752f79",
+    "semantic_hash": "bd61ba54d4a3f5c9f13f0dfdbf752f79"
+  },
+  "briselle-lightining.client/src/components/navigation/Header.tsx": {
+    "mtime": 1768491618.4017484,
+    "ast_hash": "07c43e54bbf8e17961d810f4305d6e19",
+    "semantic_hash": "07c43e54bbf8e17961d810f4305d6e19"
+  },
+  "briselle-lightining.client/src/components/navigation/Sidebar.tsx": {
+    "mtime": 1783030183.9442382,
+    "ast_hash": "a76b053d1e7de802cc41b94b551deb35",
+    "semantic_hash": "a76b053d1e7de802cc41b94b551deb35"
+  },
+  "briselle-lightining.client/src/components/ui/LoadingSpinner.tsx": {
+    "mtime": 1768491618.4063137,
+    "ast_hash": "938ac641d5b3e131060d9e3299a5b934",
+    "semantic_hash": "938ac641d5b3e131060d9e3299a5b934"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/ConfigurableListTemplate.tsx": {
+    "mtime": 1780225073.8286805,
+    "ast_hash": "eab4c547af61406c8173e3af1872afb8",
+    "semantic_hash": "eab4c547af61406c8173e3af1872afb8"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/ListPageTemplate1.tsx": {
+    "mtime": 1768491618.422377,
+    "ast_hash": "6f0273b2efac387630a493fc72e1bca8",
+    "semantic_hash": "6f0273b2efac387630a493fc72e1bca8"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/ListPageTemplate2.tsx": {
+    "mtime": 1768491618.4313102,
+    "ast_hash": "3348ee26199dd19a251e9f8261683df7",
+    "semantic_hash": "3348ee26199dd19a251e9f8261683df7"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/TableSettingsModal.tsx": {
+    "mtime": 1778706193.6092725,
+    "ast_hash": "b6f849b25af0ec41bbc79c4148d7b1c8",
+    "semantic_hash": "b6f849b25af0ec41bbc79c4148d7b1c8"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/action-components/Action_ChangeOwner.tsx": {
+    "mtime": 1768594423.4482975,
+    "ast_hash": "c2aa6d33436cfe3b9a30777a3f6699d8",
+    "semantic_hash": "c2aa6d33436cfe3b9a30777a3f6699d8"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/action-components/Action_Chart.tsx": {
+    "mtime": 1768594423.4482975,
+    "ast_hash": "017d9100bde1250c777158829c94925a",
+    "semantic_hash": "017d9100bde1250c777158829c94925a"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/action-components/Action_ColumnVisibility.tsx": {
+    "mtime": 1777154621.3903544,
+    "ast_hash": "8052bdac21169c9d476cdb1c79c60fa1",
+    "semantic_hash": "8052bdac21169c9d476cdb1c79c60fa1"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/action-components/Action_Export.tsx": {
+    "mtime": 1769107504.9078033,
+    "ast_hash": "6dd8fe759672c5452db5a2e2f502eb50",
+    "semantic_hash": "6dd8fe759672c5452db5a2e2f502eb50"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/action-components/Action_Filter.tsx": {
+    "mtime": 1776425280.9605176,
+    "ast_hash": "00269d8583cdf7ff2a0dcd50210de74b",
+    "semantic_hash": "00269d8583cdf7ff2a0dcd50210de74b"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/action-components/Action_FreezePane.tsx": {
+    "mtime": 1775855319.8296423,
+    "ast_hash": "69a6532100abda25d27c663ead389374",
+    "semantic_hash": "69a6532100abda25d27c663ead389374"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/action-components/Action_Group.tsx": {
+    "mtime": 1768936733.3482728,
+    "ast_hash": "4e153a02d61e21bd9d046b72253c9b1c",
+    "semantic_hash": "4e153a02d61e21bd9d046b72253c9b1c"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/action-components/Action_Import.tsx": {
+    "mtime": 1769107504.9078033,
+    "ast_hash": "3064457ed52b8faf3b098d977fe3cd88",
+    "semantic_hash": "3064457ed52b8faf3b098d977fe3cd88"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/action-components/Action_Preset.tsx": {
+    "mtime": 1777924230.8120513,
+    "ast_hash": "5427ae57ce218e6925f86d7b4470037b",
+    "semantic_hash": "5427ae57ce218e6925f86d7b4470037b"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/action-components/Action_Print.tsx": {
+    "mtime": 1768594423.8973043,
+    "ast_hash": "9afb0c0a34776010deaa286c88368b43",
+    "semantic_hash": "9afb0c0a34776010deaa286c88368b43"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/action-components/Action_Refresh.tsx": {
+    "mtime": 1768594423.8962977,
+    "ast_hash": "f35b132400186e1493e1d49b8fe99011",
+    "semantic_hash": "f35b132400186e1493e1d49b8fe99011"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/action-components/Action_Search.tsx": {
+    "mtime": 1773406342.0906785,
+    "ast_hash": "c2bcb17508506250ef818784734f1ae2",
+    "semantic_hash": "c2bcb17508506250ef818784734f1ae2"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/action-components/Action_Settings.tsx": {
+    "mtime": 1768594424.0293076,
+    "ast_hash": "441e754a9151d4e061fa1f2c1c7e8caf",
+    "semantic_hash": "441e754a9151d4e061fa1f2c1c7e8caf"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/action-components/Action_Share.tsx": {
+    "mtime": 1776425300.0690484,
+    "ast_hash": "a60124e3950b24a624dcd8bd6a0c244e",
+    "semantic_hash": "a60124e3950b24a624dcd8bd6a0c244e"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/action-components/Action_Sort.tsx": {
+    "mtime": 1768836632.7139075,
+    "ast_hash": "ac9cead9d9d56dfd005993c166363e2c",
+    "semantic_hash": "ac9cead9d9d56dfd005993c166363e2c"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/action-components/Action_TableLayoutSetup.tsx": {
+    "mtime": 1776265999.4635906,
+    "ast_hash": "778c4e4a5e190bde9ade929d7cd37330",
+    "semantic_hash": "778c4e4a5e190bde9ade929d7cd37330"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/action-components/Action_TableView.tsx": {
+    "mtime": 1776265999.451588,
+    "ast_hash": "bef7b8f003338aa3fbad3b8b675803b9",
+    "semantic_hash": "bef7b8f003338aa3fbad3b8b675803b9"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/hooks/useTableData.ts": {
+    "mtime": 1776345374.7206814,
+    "ast_hash": "05bc87da0eaa8e2d26385bd2f82ce427",
+    "semantic_hash": "05bc87da0eaa8e2d26385bd2f82ce427"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/modal-settings-sections/BehaviorSettingsSection.tsx": {
+    "mtime": 1778752271.9398313,
+    "ast_hash": "e156d2403c5eb477e4b8aa2be80a3798",
+    "semantic_hash": "e156d2403c5eb477e4b8aa2be80a3798"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/modal-settings-sections/DataSettingsSection.tsx": {
+    "mtime": 1768893638.6586413,
+    "ast_hash": "9824f8e3ef3293eb56aa554789d6d4ab",
+    "semantic_hash": "9824f8e3ef3293eb56aa554789d6d4ab"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/modal-settings-sections/DeviceSettingsSection.tsx": {
+    "mtime": 1768893638.6702254,
+    "ast_hash": "1b96172fcb36578fddc54f9cac63f80c",
+    "semantic_hash": "1b96172fcb36578fddc54f9cac63f80c"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/modal-settings-sections/DisplaySettingsSection.tsx": {
+    "mtime": 1779288872.8280723,
+    "ast_hash": "eabf3e6aa91593ba978a50ab85ec502f",
+    "semantic_hash": "eabf3e6aa91593ba978a50ab85ec502f"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/modal-settings-sections/LayoutSettingsSection.tsx": {
+    "mtime": 1776265999.4575863,
+    "ast_hash": "cb039d062149dbd0601603c95480a43c",
+    "semantic_hash": "cb039d062149dbd0601603c95480a43c"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/modal-settings-sections/PresetSettingsSection.tsx": {
+    "mtime": 1777155792.378139,
+    "ast_hash": "71fe2e7a435715236befaf30051379fd",
+    "semantic_hash": "71fe2e7a435715236befaf30051379fd"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/modal-settings-sections/TabSettingsSection.tsx": {
+    "mtime": 1779285719.9962888,
+    "ast_hash": "27125947bacfd0f1f86c3dd5defd2d9d",
+    "semantic_hash": "27125947bacfd0f1f86c3dd5defd2d9d"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/modal-settings-sections/ThemeSettingsSection.tsx": {
+    "mtime": 1773430833.497609,
+    "ast_hash": "7227e5c03cd093645d373ca3b2cb6975",
+    "semantic_hash": "7227e5c03cd093645d373ca3b2cb6975"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/objectLoaderRecordModals.tsx": {
+    "mtime": 1780225079.968428,
+    "ast_hash": "fcc43863720787535d522e5bb85986ad",
+    "semantic_hash": "fcc43863720787535d522e5bb85986ad"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/table-components/ChartPanel.tsx": {
+    "mtime": 1776425314.46405,
+    "ast_hash": "6f322fa9701d75d37253e05b31041501",
+    "semantic_hash": "6f322fa9701d75d37253e05b31041501"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/table-components/DataTable.tsx": {
+    "mtime": 1776265999.460587,
+    "ast_hash": "ed3644ee92711b3e7eda6d629a8ed308",
+    "semantic_hash": "ed3644ee92711b3e7eda6d629a8ed308"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/table-components/TableActionPanel.refactored.tsx": {
+    "mtime": 1777153964.988293,
+    "ast_hash": "14b998bed06f74a57f616ba68d6de38f",
+    "semantic_hash": "14b998bed06f74a57f616ba68d6de38f"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/table-components/TableActionPanel.tsx": {
+    "mtime": 1778186960.5887876,
+    "ast_hash": "cdca58315435ac93f6a9a6e80708eb0f",
+    "semantic_hash": "cdca58315435ac93f6a9a6e80708eb0f"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/table-components/TableFooter.tsx": {
+    "mtime": 1768594424.579698,
+    "ast_hash": "a240b7c94848760eeb741b93cbf7fd97",
+    "semantic_hash": "a240b7c94848760eeb741b93cbf7fd97"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/table-components/TableTabPanel.tsx": {
+    "mtime": 1775328798.036393,
+    "ast_hash": "babbfdbdd79001035efbf01aafbb48b9",
+    "semantic_hash": "babbfdbdd79001035efbf01aafbb48b9"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/table-components/TableTitlePanel.tsx": {
+    "mtime": 1768491618.4703052,
+    "ast_hash": "82b02eec477a4dcd10f31a7d92558c2f",
+    "semantic_hash": "82b02eec477a4dcd10f31a7d92558c2f"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/table-components/tableActions/Action_Search.tsx": {
+    "mtime": 1768893638.8102214,
+    "ast_hash": "046af229438bb65be2f23cdda2eb21ee",
+    "semantic_hash": "046af229438bb65be2f23cdda2eb21ee"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/utils/actionPanelOrder.ts": {
+    "mtime": 1776343198.4641013,
+    "ast_hash": "261020d18974660c0b566d7dab1a952d",
+    "semantic_hash": "261020d18974660c0b566d7dab1a952d"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/utils/canonicalObjectLoaderDefaults.ts": {
+    "mtime": 1774683851.0975657,
+    "ast_hash": "de38f6920a1cb695a130a16d5683b6b2",
+    "semantic_hash": "de38f6920a1cb695a130a16d5683b6b2"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/utils/clipboardGridTable.ts": {
+    "mtime": 1776425257.028116,
+    "ast_hash": "d7e65a8a5678f9a6fdfc960414e81e4e",
+    "semantic_hash": "d7e65a8a5678f9a6fdfc960414e81e4e"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/utils/configService.ts": {
+    "mtime": 1777322550.437744,
+    "ast_hash": "2bbf2503747949d4a0c9bbd9d589abe8",
+    "semantic_hash": "2bbf2503747949d4a0c9bbd9d589abe8"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/utils/freezePaneConfigSync.ts": {
+    "mtime": 1777663294.896323,
+    "ast_hash": "26a412e7a6dd1080d12005f52d8e19c0",
+    "semantic_hash": "26a412e7a6dd1080d12005f52d8e19c0"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/utils/loadTableConfig.ts": {
+    "mtime": 1768492184.143279,
+    "ast_hash": "8aaa47135685e5f04408598698602b92",
+    "semantic_hash": "8aaa47135685e5f04408598698602b92"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/utils/mergePresetConfig.ts": {
+    "mtime": 1774682715.9049997,
+    "ast_hash": "c4aed0e43e74575d95394bffdc5201f8",
+    "semantic_hash": "c4aed0e43e74575d95394bffdc5201f8"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/utils/objectLoaderDataValidationRules.ts": {
+    "mtime": 1778182001.0036595,
+    "ast_hash": "efc049681466bda6eef1f8f48f902630",
+    "semantic_hash": "efc049681466bda6eef1f8f48f902630"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/utils/presets.ts": {
+    "mtime": 1778706251.5100107,
+    "ast_hash": "351c64979a113e131b95229abd92e740",
+    "semantic_hash": "351c64979a113e131b95229abd92e740"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/utils/tabBarIcons.tsx": {
+    "mtime": 1777924218.8324769,
+    "ast_hash": "1d4b68ef0b5670eed71b28f982450a38",
+    "semantic_hash": "1d4b68ef0b5670eed71b28f982450a38"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/utils/tabBarNormalize.ts": {
+    "mtime": 1775328798.036393,
+    "ast_hash": "46a0aeaea608781a0c6cfdbaac9a36ba",
+    "semantic_hash": "46a0aeaea608781a0c6cfdbaac9a36ba"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/utils/tabSettingsColorInputs.tsx": {
+    "mtime": 1779291756.3597538,
+    "ast_hash": "6f64a0f9f8bc8edd387736c341521dc5",
+    "semantic_hash": "6f64a0f9f8bc8edd387736c341521dc5"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/utils/tableUserViewStorage.ts": {
+    "mtime": 1776332343.5830367,
+    "ast_hash": "e232074caf97350760cf9ff5ef41c6c6",
+    "semantic_hash": "e232074caf97350760cf9ff5ef41c6c6"
+  },
+  "briselle-lightining.client/src/layouts/AppLayout.tsx": {
+    "mtime": 1783030016.5667663,
+    "ast_hash": "5f9fb978b38be5382ba96051e39c7510",
+    "semantic_hash": "5f9fb978b38be5382ba96051e39c7510"
+  },
+  "briselle-lightining.client/src/main.tsx": {
+    "mtime": 1779521285.6455972,
+    "ast_hash": "35fd409838ce1b8462af97fc15918b08",
+    "semantic_hash": "35fd409838ce1b8462af97fc15918b08"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/components/UploadZone.jsx": {
+    "mtime": 1784987854.0759206,
+    "ast_hash": "f3679af296ad008d678b996a1430dc16",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/src/modules/notion-nest/index.ts": {
+    "mtime": 1784495547.6527328,
+    "ast_hash": "f49160265b0539e97bf29c1ed09b9844",
+    "semantic_hash": "f49160265b0539e97bf29c1ed09b9844"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/pages/NotionNestPage.tsx": {
+    "mtime": 1785530157.670506,
+    "ast_hash": "0d70d8d824c7b87044af3241fc7e9924",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/src/modules/objects/FieldRelated/FieldAttributesSectionedPanel.tsx": {
+    "mtime": 1778705693.4102125,
+    "ast_hash": "27f9eb18f3cd18664dbc3c71c6f9c7bf",
+    "semantic_hash": "27f9eb18f3cd18664dbc3c71c6f9c7bf"
+  },
+  "briselle-lightining.client/src/modules/objects/FieldRelated/fieldDataTypeModel.tsx": {
+    "mtime": 1780225052.1194332,
+    "ast_hash": "3e615120cb20f54a3a3ae2066cbf1a5f",
+    "semantic_hash": "3e615120cb20f54a3a3ae2066cbf1a5f"
+  },
+  "briselle-lightining.client/src/modules/objects/FieldRelated/fieldDataViewAttributes.ts": {
+    "mtime": 1778699734.0342155,
+    "ast_hash": "e0afbcc6e9701bf53cf6a46b27494879",
+    "semantic_hash": "e0afbcc6e9701bf53cf6a46b27494879"
+  },
+  "briselle-lightining.client/src/modules/objects/FieldRelated/fieldTypeMaster.ts": {
+    "mtime": 1780225015.6999109,
+    "ast_hash": "d560959172e93f755111e73721bdb6f7",
+    "semantic_hash": "d560959172e93f755111e73721bdb6f7"
+  },
+  "briselle-lightining.client/src/modules/objects/FieldRelated/notionNestSystemField.ts": {
+    "mtime": 1784495571.9787476,
+    "ast_hash": "956ff1ac90420847e46ae69277b76cee",
+    "semantic_hash": "956ff1ac90420847e46ae69277b76cee"
+  },
+  "briselle-lightining.client/src/modules/objects/FieldRelated/objectDefinitionSchema.ts": {
+    "mtime": 1780225015.6989002,
+    "ast_hash": "bb167f6bdb71dc398124f402e253624d",
+    "semantic_hash": "bb167f6bdb71dc398124f402e253624d"
+  },
+  "briselle-lightining.client/src/modules/objects/FieldRelated/platformSystemFields.ts": {
+    "mtime": 1780225049.087183,
+    "ast_hash": "7b833aa332c656c05623b5fe2e7a6a93",
+    "semantic_hash": "7b833aa332c656c05623b5fe2e7a6a93"
+  },
+  "briselle-lightining.client/src/modules/objects/ObjectRelated/ObjectAdd.tsx": {
+    "mtime": 1780225026.8254983,
+    "ast_hash": "6ac1d79aa4ba7f0ad2932cb3eec231f6",
+    "semantic_hash": "6ac1d79aa4ba7f0ad2932cb3eec231f6"
+  },
+  "briselle-lightining.client/src/modules/objects/ObjectRelated/ObjectConfig.tsx": {
+    "mtime": 1779139308.6927097,
+    "ast_hash": "2b2412620ed38f22132867cff2c44b88",
+    "semantic_hash": "2b2412620ed38f22132867cff2c44b88"
+  },
+  "briselle-lightining.client/src/modules/objects/ObjectRelated/ObjectDetail.tsx": {
+    "mtime": 1780225053.9217627,
+    "ast_hash": "a877278315ab603d0fbdabb48838812f",
+    "semantic_hash": "a877278315ab603d0fbdabb48838812f"
+  },
+  "briselle-lightining.client/src/modules/objects/ObjectRelated/ObjectsList.tsx": {
+    "mtime": 1778300759.3037224,
+    "ast_hash": "5ab9eb575dea2081c2f67b4d940f5cef",
+    "semantic_hash": "5ab9eb575dea2081c2f67b4d940f5cef"
+  },
+  "briselle-lightining.client/src/modules/objects/ObjectRelated/dobjTableShared.ts": {
+    "mtime": 1778752251.8375895,
+    "ast_hash": "a3245d8d471cd1f74b403fe5e55663a6",
+    "semantic_hash": "a3245d8d471cd1f74b403fe5e55663a6"
+  },
+  "briselle-lightining.client/src/modules/objects/ObjectRelated/templist.tsx": {
+    "mtime": 1778752297.626029,
+    "ast_hash": "25eb8d01e8afc833f3b7d764b911fa1a",
+    "semantic_hash": "25eb8d01e8afc833f3b7d764b911fa1a"
+  },
+  "briselle-lightining.client/src/modules/objects/ObjectRelated/zivaObjectCreateFromChat.ts": {
+    "mtime": 1779119934.8920457,
+    "ast_hash": "3eebef5b5d68ee72f46afa288fa8a27a",
+    "semantic_hash": "3eebef5b5d68ee72f46afa288fa8a27a"
+  },
+  "briselle-lightining.client/src/modules/objects/ObjectRelated/zivaUpdateObjectFieldAttributes.ts": {
+    "mtime": 1779119914.6582508,
+    "ast_hash": "0359f2c6709a29932997d701ef8a5009",
+    "semantic_hash": "0359f2c6709a29932997d701ef8a5009"
+  },
+  "briselle-lightining.client/src/modules/objects/index.ts": {
+    "mtime": 1778186571.6493926,
+    "ast_hash": "9f0a41690266ed767d48f80de89aa9c3",
+    "semantic_hash": "9f0a41690266ed767d48f80de89aa9c3"
+  },
+  "briselle-lightining.client/src/modules/objects/pages/index.ts": {
+    "mtime": 1778275852.4099157,
+    "ast_hash": "cab0a5d20b4a4dd5795c6ce2289727f0",
+    "semantic_hash": "cab0a5d20b4a4dd5795c6ce2289727f0"
+  },
+  "briselle-lightining.client/src/modules/objects/schema/index.ts": {
+    "mtime": 1778275852.4099157,
+    "ast_hash": "97feb1d5d8ba29daecae92d86bafe21f",
+    "semantic_hash": "97feb1d5d8ba29daecae92d86bafe21f"
+  },
+  "briselle-lightining.client/src/modules/objects/shared/index.ts": {
+    "mtime": 1778275852.4099157,
+    "ast_hash": "91dfa43a3b1e88c20789317854d0d319",
+    "semantic_hash": "91dfa43a3b1e88c20789317854d0d319"
+  },
+  "briselle-lightining.client/src/modules/objects/shared/objectTypes.ts": {
+    "mtime": 1781942043.7130215,
+    "ast_hash": "d199538b86ad6405f38837484c016bd1",
+    "semantic_hash": "d199538b86ad6405f38837484c016bd1"
+  },
+  "briselle-lightining.client/src/modules/records/index.ts": {
+    "mtime": 1778186538.4124362,
+    "ast_hash": "f77941d1b9cee79be35ad4090d8479c0",
+    "semantic_hash": "f77941d1b9cee79be35ad4090d8479c0"
+  },
+  "briselle-lightining.client/src/modules/records/loader/index.ts": {
+    "mtime": 1778186531.7554123,
+    "ast_hash": "a147703d8793c3d836f5b9d3e97f22f8",
+    "semantic_hash": "a147703d8793c3d836f5b9d3e97f22f8"
+  },
+  "briselle-lightining.client/src/modules/records/loader/objectLoaderDataValidationRules.ts": {
+    "mtime": 1778186524.4709733,
+    "ast_hash": "f81b23a0b12811093eb64ca307f50588",
+    "semantic_hash": "f81b23a0b12811093eb64ca307f50588"
+  },
+  "briselle-lightining.client/src/modules/records/loader/objectLoaderRecordModals.ts": {
+    "mtime": 1778186515.4336965,
+    "ast_hash": "a05554775493b150d15ea2753d09def0",
+    "semantic_hash": "a05554775493b150d15ea2753d09def0"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/package.json": {
+    "mtime": 1778956682.2802467,
+    "ast_hash": "2e0eeb19be0a46540d068eadd52962f0",
+    "semantic_hash": "2e0eeb19be0a46540d068eadd52962f0"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/server/createZivaApi.mjs": {
+    "mtime": 1779138385.2905262,
+    "ast_hash": "1b4593aea3206895529359ea49e17d73",
+    "semantic_hash": "1b4593aea3206895529359ea49e17d73"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/server/zivaServerConfig.mjs": {
+    "mtime": 1778956639.9534395,
+    "ast_hash": "7f4b939cb7e5b047627ca70bc05708cd",
+    "semantic_hash": "7f4b939cb7e5b047627ca70bc05708cd"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/server/zivaStandaloneServer.mjs": {
+    "mtime": 1778960588.913143,
+    "ast_hash": "0d43f9572a499abee5f36c2ab28b5f5d",
+    "semantic_hash": "0d43f9572a499abee5f36c2ab28b5f5d"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/SimpleZivaContactForm.jsx": {
+    "mtime": 1778754522.0,
+    "ast_hash": "164e149ff70d97e28e36ee19e2763345",
+    "semantic_hash": "164e149ff70d97e28e36ee19e2763345"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/ZivaChat.jsx": {
+    "mtime": 1779139986.3825285,
+    "ast_hash": "bc85375bcccdc287650f1285dbdb8f5b",
+    "semantic_hash": "bc85375bcccdc287650f1285dbdb8f5b"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/ZivaModePicker.jsx": {
+    "mtime": 1779135545.6258256,
+    "ast_hash": "b386e6f298d1492c14ff329f1f843edb",
+    "semantic_hash": "b386e6f298d1492c14ff329f1f843edb"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/ZivaModelPicker.jsx": {
+    "mtime": 1779134366.7818148,
+    "ast_hash": "623392d9b77eeb2a7a529aab29d4bf19",
+    "semantic_hash": "623392d9b77eeb2a7a529aab29d4bf19"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/ZivaPage.jsx": {
+    "mtime": 1778758674.8037627,
+    "ast_hash": "135fc680749d9bad9b545e8ff0d02842",
+    "semantic_hash": "135fc680749d9bad9b545e8ff0d02842"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/components/ZivaPlanChecklist.jsx": {
+    "mtime": 1779138190.6112487,
+    "ast_hash": "bce4c2ceb03324e17a7ba6d6b767b5e8",
+    "semantic_hash": "bce4c2ceb03324e17a7ba6d6b767b5e8"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/defaultConfig.js": {
+    "mtime": 1779117658.0925431,
+    "ast_hash": "d5538f8bc9249207a4ce82d219a7683b",
+    "semantic_hash": "d5538f8bc9249207a4ce82d219a7683b"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/index.js": {
+    "mtime": 1778956700.687979,
+    "ast_hash": "e699195bfa265159a0beca1fe854844c",
+    "semantic_hash": "e699195bfa265159a0beca1fe854844c"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/zivaAiSuggestions.js": {
+    "mtime": 1779113887.2103486,
+    "ast_hash": "f5d864a71bb9918f34a7e0dfe3f16841",
+    "semantic_hash": "f5d864a71bb9918f34a7e0dfe3f16841"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/zivaAssistantModes.js": {
+    "mtime": 1779138298.3101516,
+    "ast_hash": "2d57350bd060fb2528ad02e14ae010f9",
+    "semantic_hash": "2d57350bd060fb2528ad02e14ae010f9"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/zivaComprehensiveCreate.js": {
+    "mtime": 1779132959.4409585,
+    "ast_hash": "1f42d753434e590525d4bb663b2384db",
+    "semantic_hash": "1f42d753434e590525d4bb663b2384db"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/zivaExplicitFieldsCreate.js": {
+    "mtime": 1779133013.8363693,
+    "ast_hash": "4960e6c6b9dc0dfa1551b0451201eb33",
+    "semantic_hash": "4960e6c6b9dc0dfa1551b0451201eb33"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/zivaExploreContext.js": {
+    "mtime": 1779138181.781237,
+    "ast_hash": "523a0a99244bdbf47d9f4788814da957",
+    "semantic_hash": "523a0a99244bdbf47d9f4788814da957"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/zivaFetchObjectList.js": {
+    "mtime": 1778965488.5104604,
+    "ast_hash": "2d19dc8ffbdce7b39aa86ff586e00ea8",
+    "semantic_hash": "2d19dc8ffbdce7b39aa86ff586e00ea8"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/zivaFieldAttributes.js": {
+    "mtime": 1779120106.3962312,
+    "ast_hash": "9d5e15111eceb18da93f193a5d61baf2",
+    "semantic_hash": "9d5e15111eceb18da93f193a5d61baf2"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/zivaGroqFields.js": {
+    "mtime": 1779108381.2962246,
+    "ast_hash": "b6bd7611bab35060a3c743a77c5db1cf",
+    "semantic_hash": "b6bd7611bab35060a3c743a77c5db1cf"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/zivaKnowledge.js": {
+    "mtime": 1779132985.4897642,
+    "ast_hash": "0143df71b87506b80396c822d06c8d21",
+    "semantic_hash": "0143df71b87506b80396c822d06c8d21"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/zivaLlmOrchestrate.js": {
+    "mtime": 1779138244.4343996,
+    "ast_hash": "5081700d21ad08856b1394cce1fd5e37",
+    "semantic_hash": "5081700d21ad08856b1394cce1fd5e37"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/zivaModels.js": {
+    "mtime": 1779133383.0647562,
+    "ast_hash": "09d234a5b5ec99b57403974b9df26ccb",
+    "semantic_hash": "09d234a5b5ec99b57403974b9df26ccb"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/zivaMultiCommand.js": {
+    "mtime": 1779132963.8621328,
+    "ast_hash": "120e9bf09b1773e5803a935157a1ec17",
+    "semantic_hash": "120e9bf09b1773e5803a935157a1ec17"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/zivaNavStack.js": {
+    "mtime": 1779110565.7285814,
+    "ast_hash": "19c1c7ac2f650eb38a3de7cfe678a287",
+    "semantic_hash": "19c1c7ac2f650eb38a3de7cfe678a287"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/zivaProcessWorkflowMessage.js": {
+    "mtime": 1779120067.2607727,
+    "ast_hash": "02540970dfa07b93d2e365cb4eef9907",
+    "semantic_hash": "02540970dfa07b93d2e365cb4eef9907"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/zivaRelatedControls.js": {
+    "mtime": 1779113871.7421227,
+    "ast_hash": "9267e8ebf8dceebaeedf05247f4a6876",
+    "semantic_hash": "9267e8ebf8dceebaeedf05247f4a6876"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/zivaServiceConfig.js": {
+    "mtime": 1778956645.0688698,
+    "ast_hash": "a8fa8a91a5c26631c4070cdd1b58a59c",
+    "semantic_hash": "a8fa8a91a5c26631c4070cdd1b58a59c"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/src/zivaWorkflow.js": {
+    "mtime": 1779139959.518231,
+    "ast_hash": "80047bb12868c2f56f9697ce0538d1a5",
+    "semantic_hash": "80047bb12868c2f56f9697ce0538d1a5"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/ziva.config.example.json": {
+    "mtime": 1778956645.2688677,
+    "ast_hash": "c2448b1337e6892be60208bae76fd70e",
+    "semantic_hash": "c2448b1337e6892be60208bae76fd70e"
+  },
+  "briselle-lightining.client/src/pages/Dashboard.tsx": {
+    "mtime": 1768491618.4763098,
+    "ast_hash": "0818835a9ad54e74f972530d793da1af",
+    "semantic_hash": "0818835a9ad54e74f972530d793da1af"
+  },
+  "briselle-lightining.client/src/pages/auth/Login.tsx": {
+    "mtime": 1768491618.4803495,
+    "ast_hash": "fc85e99df4019cec7d5f01b1b2263015",
+    "semantic_hash": "fc85e99df4019cec7d5f01b1b2263015"
+  },
+  "briselle-lightining.client/src/pages/entity/EntityDetail.tsx": {
+    "mtime": 1768491618.481308,
+    "ast_hash": "08f4fd34124853ed05e6e3b3409a80bf",
+    "semantic_hash": "08f4fd34124853ed05e6e3b3409a80bf"
+  },
+  "briselle-lightining.client/src/pages/entity/EntityList.tsx": {
+    "mtime": 1768491618.4823048,
+    "ast_hash": "81c74d2bd63ba388ec9bd837ebe951bc",
+    "semantic_hash": "81c74d2bd63ba388ec9bd837ebe951bc"
+  },
+  "briselle-lightining.client/src/pages/records/RecordDetail.tsx": {
+    "mtime": 1784495564.1502151,
+    "ast_hash": "85d8e5a84cdec680ffd6c5ec7e95080b",
+    "semantic_hash": "85d8e5a84cdec680ffd6c5ec7e95080b"
+  },
+  "briselle-lightining.client/src/pages/records/RecordsList.tsx": {
+    "mtime": 1784495555.3248744,
+    "ast_hash": "f6b133a9e1fc8c5ae48abd40660ea55b",
+    "semantic_hash": "f6b133a9e1fc8c5ae48abd40660ea55b"
+  },
+  "briselle-lightining.client/src/pages/settings/Settings.tsx": {
+    "mtime": 1768491618.5043025,
+    "ast_hash": "e826ecd3c0a51495bed0225626982b8f",
+    "semantic_hash": "e826ecd3c0a51495bed0225626982b8f"
+  },
+  "briselle-lightining.client/src/pages/users/UserDetail.tsx": {
+    "mtime": 1768491618.5053043,
+    "ast_hash": "a0df34d0b07c41f92ab6e718281a875a",
+    "semantic_hash": "a0df34d0b07c41f92ab6e718281a875a"
+  },
+  "briselle-lightining.client/src/pages/users/UsersList.tsx": {
+    "mtime": 1768491618.5063043,
+    "ast_hash": "7250c563c75bab46e7a3f546a6b4f0fd",
+    "semantic_hash": "7250c563c75bab46e7a3f546a6b4f0fd"
+  },
+  "briselle-lightining.client/src/services/api.ts": {
+    "mtime": 1768491618.510303,
+    "ast_hash": "c17f93774f75f85e0e5a888b10699306",
+    "semantic_hash": "c17f93774f75f85e0e5a888b10699306"
+  },
+  "briselle-lightining.client/src/services/signalRService.ts": {
+    "mtime": 1768491618.510303,
+    "ast_hash": "158d5534ba40a538b6849fab4a9d48cb",
+    "semantic_hash": "158d5534ba40a538b6849fab4a9d48cb"
+  },
+  "briselle-lightining.client/src/stores/authStore.ts": {
+    "mtime": 1768491618.5153024,
+    "ast_hash": "4d230e6cb04bf61c5b3a1c6116e95428",
+    "semantic_hash": "4d230e6cb04bf61c5b3a1c6116e95428"
+  },
+  "briselle-lightining.client/src/types/index.ts": {
+    "mtime": 1768491618.5153024,
+    "ast_hash": "a7b06173bc2c2e0ddb77acc8886fe1c5",
+    "semantic_hash": "a7b06173bc2c2e0ddb77acc8886fe1c5"
+  },
+  "briselle-lightining.client/src/utils/dynamicFieldMappings.ts": {
+    "mtime": 1775328798.036393,
+    "ast_hash": "245d75e4f7add9c88234eb1a392c593f",
+    "semantic_hash": "245d75e4f7add9c88234eb1a392c593f"
+  },
+  "briselle-lightining.client/src/utils/helpers.ts": {
+    "mtime": 1768491618.520301,
+    "ast_hash": "ddeaf13d8a40d2e3b1261330210fc03d",
+    "semantic_hash": "ddeaf13d8a40d2e3b1261330210fc03d"
+  },
+  "briselle-lightining.client/src/utils/supabase.ts": {
+    "mtime": 1768491618.520301,
+    "ast_hash": "916ea502ef354def3306c3d97da7a77d",
+    "semantic_hash": "916ea502ef354def3306c3d97da7a77d"
+  },
+  "briselle-lightining.client/src/utils/tableConfigStorage.ts": {
+    "mtime": 1768491618.520301,
+    "ast_hash": "20ec0cec03679eac2474be620380cce7",
+    "semantic_hash": "20ec0cec03679eac2474be620380cce7"
+  },
+  "briselle-lightining.client/src/utils/uiIconPickerCatalog.tsx": {
+    "mtime": 1779382557.8366923,
+    "ast_hash": "84b195f93c884557b63c85a97d5d3c48",
+    "semantic_hash": "84b195f93c884557b63c85a97d5d3c48"
+  },
+  "briselle-lightining.client/src/vite-env.d.ts": {
+    "mtime": 1768491618.521303,
+    "ast_hash": "8f68c27c3fc38817b2726b20e2d4f1ee",
+    "semantic_hash": "8f68c27c3fc38817b2726b20e2d4f1ee"
+  },
+  "briselle-lightining.client/tailwind.config.js": {
+    "mtime": 1779524663.5688536,
+    "ast_hash": "95dd2d3b053aad458f336e61cf640f7c",
+    "semantic_hash": "95dd2d3b053aad458f336e61cf640f7c"
+  },
+  "briselle-lightining.client/tsconfig.app.json": {
+    "mtime": 1783885523.0040944,
+    "ast_hash": "2f640d8ed2fec9380a7e43f620712672",
+    "semantic_hash": "2f640d8ed2fec9380a7e43f620712672"
+  },
+  "briselle-lightining.client/tsconfig.json": {
+    "mtime": 1768491618.5253024,
+    "ast_hash": "852c3a5df14a4b43ac28e9554ebedf4a",
+    "semantic_hash": "852c3a5df14a4b43ac28e9554ebedf4a"
+  },
+  "briselle-lightining.client/tsconfig.node.json": {
+    "mtime": 1768491618.5263014,
+    "ast_hash": "e980c1dd3d183c0e364644efa7aaf82f",
+    "semantic_hash": "e980c1dd3d183c0e364644efa7aaf82f"
+  },
+  "briselle-lightining.client/vite.config.ts": {
+    "mtime": 1783705922.5669353,
+    "ast_hash": "81bd31f1cfaab01dfb6b8dbdbc97eb60",
+    "semantic_hash": "81bd31f1cfaab01dfb6b8dbdbc97eb60"
+  },
+  "database/001_create_platform_config.sql": {
+    "mtime": 1774640791.3371115,
+    "ast_hash": "0bbe2320b1328ebbef01ba9ef6678312",
+    "semantic_hash": "0bbe2320b1328ebbef01ba9ef6678312"
+  },
+  "database/002_seed_presets.sql": {
+    "mtime": 1774684977.518772,
+    "ast_hash": "94e9890a979162d9fb793b197b5d35d5",
+    "semantic_hash": "94e9890a979162d9fb793b197b5d35d5"
+  },
+  "database/003_align_object_loader_root_optional.sql": {
+    "mtime": 1774685032.5250738,
+    "ast_hash": "74485a5403fb91c5ee89a15aca8dfdb3",
+    "semantic_hash": "74485a5403fb91c5ee89a15aca8dfdb3"
+  },
+  "database/004_seed_crm_style_dobj.sql": {
+    "mtime": 1778186959.049349,
+    "ast_hash": "95dc2433b4f1f9cfa0f421992b284ba6",
+    "semantic_hash": "95dc2433b4f1f9cfa0f421992b284ba6"
+  },
+  "database/005_add_sys_status_dobj.sql": {
+    "mtime": 1775328798.037391,
+    "ast_hash": "a1dced2a1e8d2f7eab19747e73d33f26",
+    "semantic_hash": "a1dced2a1e8d2f7eab19747e73d33f26"
+  },
+  "database/006_dobj_rls_allow_update.sql": {
+    "mtime": 1775328798.036393,
+    "ast_hash": "9566b53e7268e401085a48c09015b1de",
+    "semantic_hash": "9566b53e7268e401085a48c09015b1de"
+  },
+  "database/007_rename_dobj_pk_to_sys_id_generated_dobj_id.sql": {
+    "mtime": 1775328798.036393,
+    "ast_hash": "a3354ab82baadb4209dd1b061e3d0b17",
+    "semantic_hash": "a3354ab82baadb4209dd1b061e3d0b17"
+  },
+  "database/008_rename_dobj_audit_to_sys_with_entity_mirror.sql": {
+    "mtime": 1775328798.036393,
+    "ast_hash": "5bdc1dd24c1bdbdb84767ade0409f313",
+    "semantic_hash": "5bdc1dd24c1bdbdb84767ade0409f313"
+  },
+  "database/009_patch_objectloader_preset_column_order_and_saved_query_state.sql": {
+    "mtime": 1775328798.036393,
+    "ast_hash": "11e3ba060fc8bf4a370e0bab439acf5a",
+    "semantic_hash": "11e3ba060fc8bf4a370e0bab439acf5a"
+  },
+  "database/010_reorder_dobj_columns_select_star.sql": {
+    "mtime": 1775328798.0403924,
+    "ast_hash": "7aa1aa198b642fa3a0fb8b9d7f1ee89a",
+    "semantic_hash": "7aa1aa198b642fa3a0fb8b9d7f1ee89a"
+  },
+  "database/011_drop_legacy_object_autonumber_counters.sql": {
+    "mtime": 1777322450.8822644,
+    "ast_hash": "c7e3d6799d02f86e1b675588fb4f442e",
+    "semantic_hash": "c7e3d6799d02f86e1b675588fb4f442e"
+  },
+  "database/012_object_counter_platform_config.sql": {
+    "mtime": 1777322530.7173762,
+    "ast_hash": "300a8e09441e31364aefd4a669c518aa",
+    "semantic_hash": "300a8e09441e31364aefd4a669c518aa"
+  },
+  "database/013_add_object_type_column.sql": {
+    "mtime": 1777406044.1699493,
+    "ast_hash": "0311d2c50a3f2e11a76dc38193367043",
+    "semantic_hash": "0311d2c50a3f2e11a76dc38193367043"
+  },
+  "database/014_remove_legacy_transaction_flag_from_config.sql": {
+    "mtime": 1777406609.270708,
+    "ast_hash": "7ab8535e9d87961f3d9b86ffa05b3a92",
+    "semantic_hash": "7ab8535e9d87961f3d9b86ffa05b3a92"
+  },
+  "database/015_add_notionnest_object_type.sql": {
+    "mtime": 1779140138.793431,
+    "ast_hash": "fa6d1450e7049eb71c16e32fe0b77b2d",
+    "semantic_hash": "fa6d1450e7049eb71c16e32fe0b77b2d"
+  },
+  "database/016_notionnest_page_field_in_schema.sql": {
+    "mtime": 1780225088.4271417,
+    "ast_hash": "85a3a4a5cda72c78670977b505ad17d1",
+    "semantic_hash": "85a3a4a5cda72c78670977b505ad17d1"
+  },
+  "database/017_reset_notion_record_blank.sql": {
+    "mtime": 1780225435.4485693,
+    "ast_hash": "2d5ab33feaeb199d9c972abc50f4c542",
+    "semantic_hash": "2d5ab33feaeb199d9c972abc50f4c542"
+  },
+  "database/018_notion_page_versions.sql": {
+    "mtime": 1783886215.7040513,
+    "ast_hash": "4c32cf5a2d3d0ac97f10bb8f4f23e690",
+    "semantic_hash": "4c32cf5a2d3d0ac97f10bb8f4f23e690"
+  },
+  ".agents/rules/briselle-enterprise-architecture.md": {
+    "mtime": 1783598768.3996694,
+    "ast_hash": "55ed24f828950c7d300a5e535b88f455",
+    "semantic_hash": "55ed24f828950c7d300a5e535b88f455"
+  },
+  ".agents/rules/briselle-global-rules.md": {
+    "mtime": 1784464811.5608528,
+    "ast_hash": "afe30c82382ba4187d9a4180f9e515f5",
+    "semantic_hash": "afe30c82382ba4187d9a4180f9e515f5"
+  },
+  ".agents/workflows/b-code-review.md": {
+    "mtime": 1783603860.029641,
+    "ast_hash": "38f3ac3209dabab8442b8e0c9615908c",
+    "semantic_hash": "38f3ac3209dabab8442b8e0c9615908c"
+  },
+  ".agents/workflows/b-create-api.md": {
+    "mtime": 1783603911.8363323,
+    "ast_hash": "f3a3e20dc9e29e79526341a91dcf6a93",
+    "semantic_hash": "f3a3e20dc9e29e79526341a91dcf6a93"
+  },
+  ".agents/workflows/b-design-database.md": {
+    "mtime": 1783603992.9980228,
+    "ast_hash": "7e3bc47b1e4e6e317a548d260f274944",
+    "semantic_hash": "7e3bc47b1e4e6e317a548d260f274944"
+  },
+  ".agents/workflows/b-documentation.md": {
+    "mtime": 1783604097.5175045,
+    "ast_hash": "f50527ce7e99aa04fb0a387e97b9d1ca",
+    "semantic_hash": "f50527ce7e99aa04fb0a387e97b9d1ca"
+  },
+  ".agents/workflows/b-fix-bug.md": {
+    "mtime": 1783604135.8842738,
+    "ast_hash": "f0bad2d1e98311d46c70a53cb7d7c1f5",
+    "semantic_hash": "f0bad2d1e98311d46c70a53cb7d7c1f5"
+  },
+  ".agents/workflows/b-implement-features.md": {
+    "mtime": 1783604207.4981127,
+    "ast_hash": "737e1e29543a9e6330a684e58e047f0f",
+    "semantic_hash": "737e1e29543a9e6330a684e58e047f0f"
+  },
+  ".agents/workflows/b-improve-performance.md": {
+    "mtime": 1783604257.7966168,
+    "ast_hash": "2048428e0728e9ef593c1d9a5a16db1b",
+    "semantic_hash": "2048428e0728e9ef593c1d9a5a16db1b"
+  },
+  ".agents/workflows/b-improve-ui.md": {
+    "mtime": 1783604290.797169,
+    "ast_hash": "babeb3fa198cd19411b5de1e7ea1229c",
+    "semantic_hash": "babeb3fa198cd19411b5de1e7ea1229c"
+  },
+  ".agents/workflows/b-plan-features.md": {
+    "mtime": 1783604337.5018034,
+    "ast_hash": "e8a72b218cb9892dcd8232390fa90c08",
+    "semantic_hash": "e8a72b218cb9892dcd8232390fa90c08"
+  },
+  ".agents/workflows/b-refactor-module.md": {
+    "mtime": 1783604400.1739113,
+    "ast_hash": "c6c84797e9ee3ce9b76baab3e7535ea4",
+    "semantic_hash": "c6c84797e9ee3ce9b76baab3e7535ea4"
+  },
+  ".agents/workflows/b-update-memory.md": {
+    "mtime": 1783604433.9924078,
+    "ast_hash": "4d3336cbe8363739f419bbd8d57684eb",
+    "semantic_hash": "4d3336cbe8363739f419bbd8d57684eb"
+  },
+  "briselle-lightining.client/Obsidian For my project.md": {
+    "mtime": 1784468745.5928686,
+    "ast_hash": "d41d8cd98f00b204e9800998ecf8427e",
+    "semantic_hash": "d41d8cd98f00b204e9800998ecf8427e"
+  },
+  "briselle-lightining.client/index.html": {
+    "mtime": 1778756923.3445454,
+    "ast_hash": "60ebfc74b8412f3e249525f27052d093",
+    "semantic_hash": "60ebfc74b8412f3e249525f27052d093"
+  },
+  "briselle-lightining.client/src/components/ui/tabletemplates/ARCHITECTURE.md": {
+    "mtime": 1778186958.3016622,
+    "ast_hash": "8f7cacee75ac32d2a9ad070ffe72e7d4",
+    "semantic_hash": "8f7cacee75ac32d2a9ad070ffe72e7d4"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/README.md": {
+    "mtime": 1778959026.3517277,
+    "ast_hash": "339646b0b1550f2f4dad22ffa6992dc6",
+    "semantic_hash": "339646b0b1550f2f4dad22ffa6992dc6"
+  },
+  "briselle-lightining.client/public/assets/briselle-logo.svg": {
+    "mtime": 1778756915.4578588,
+    "ast_hash": "bcfdcf8e781ffcbb4a094f210b33d567",
+    "semantic_hash": "bcfdcf8e781ffcbb4a094f210b33d567"
+  },
+  "briselle-lightining.client/public/assets/ziva_sparkle_white.svg": {
+    "mtime": 1778756920.261234,
+    "ast_hash": "f32017ded9bfd539167530bba288f57a",
+    "semantic_hash": "f32017ded9bfd539167530bba288f57a"
+  },
+  "briselle-lightining.client/src/assets/logo/logo-black-ct-icon.svg": {
+    "mtime": 1768491618.3589354,
+    "ast_hash": "7fa49a9bc0ce2cc7cf87c9cd4aa8c51e",
+    "semantic_hash": "7fa49a9bc0ce2cc7cf87c9cd4aa8c51e"
+  },
+  "briselle-lightining.client/src/assets/logo/logo-black_sq_icon.svg": {
+    "mtime": 1768491618.3689363,
+    "ast_hash": "c75b276dd18f8091288b53239afc75d3",
+    "semantic_hash": "c75b276dd18f8091288b53239afc75d3"
+  },
+  "briselle-lightining.client/src/assets/logo/logo-white-sq-icon.svg": {
+    "mtime": 1768491618.3769355,
+    "ast_hash": "ed42f7a8e495a70411d18b078bc727ee",
+    "semantic_hash": "ed42f7a8e495a70411d18b078bc727ee"
+  },
+  ".backup/BRIS-MN-TF-004_20260719_202949/notion-nest/blocks.jsx": {
+    "mtime": 1784471435.6759186,
+    "ast_hash": "3be5291a2427723a0ebab4020a8d3682",
+    "semantic_hash": "3be5291a2427723a0ebab4020a8d3682"
+  },
+  ".opencode/opencode.json": {
+    "mtime": 1784487491.0333288,
+    "ast_hash": "1efe24ecf938911d4f23e4b1c6ec91f7",
+    "semantic_hash": "1efe24ecf938911d4f23e4b1c6ec91f7"
+  },
+  ".opencode/plugins/graphify.js": {
+    "mtime": 1784473993.994698,
+    "ast_hash": "b33d000860642c6f4907a877e0387a21",
+    "semantic_hash": "b33d000860642c6f4907a877e0387a21"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/AudioBlock.jsx": {
+    "mtime": 1784999362.9622307,
+    "ast_hash": "d37bd3e8b73b6f97eda24a232723a558",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/BookmarkBlock.jsx": {
+    "mtime": 1784524160.713843,
+    "ast_hash": "8b8f4ab77b67f84c5dadfdfb93e40016",
+    "semantic_hash": "8b8f4ab77b67f84c5dadfdfb93e40016"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/ButtonBlock.jsx": {
+    "mtime": 1784524160.7178814,
+    "ast_hash": "a813769aa95f186bbc99ffde29c832ce",
+    "semantic_hash": "a813769aa95f186bbc99ffde29c832ce"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/CalloutBlock.jsx": {
+    "mtime": 1784524160.7195942,
+    "ast_hash": "ddcc31f4de93cfc73f0510bd3959b007",
+    "semantic_hash": "ddcc31f4de93cfc73f0510bd3959b007"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/CodeBlock.jsx": {
+    "mtime": 1784524573.7026467,
+    "ast_hash": "71d86f872db71bb379f893d683ce7b6d",
+    "semantic_hash": "71d86f872db71bb379f893d683ce7b6d"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/ColumnsBlock.jsx": {
+    "mtime": 1784524160.7212336,
+    "ast_hash": "e980406295674d628d590bb1ee322054",
+    "semantic_hash": "e980406295674d628d590bb1ee322054"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/DividerBlock.jsx": {
+    "mtime": 1784495141.6885145,
+    "ast_hash": "786c3cfc182d31e643055cabfd174f7e",
+    "semantic_hash": "786c3cfc182d31e643055cabfd174f7e"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/EquationBlock.jsx": {
+    "mtime": 1784524160.7225435,
+    "ast_hash": "0d67b18c76e791eba83b5cad0e9ada14",
+    "semantic_hash": "0d67b18c76e791eba83b5cad0e9ada14"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/FileBlock.jsx": {
+    "mtime": 1784981784.5494614,
+    "ast_hash": "45747a5d8e32f7a2232c52c8ed1b70b9",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/ImageBlock.jsx": {
+    "mtime": 1784981772.3443816,
+    "ast_hash": "4979e4e7d01d8b8f1e796a09693cbb3c",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/LinkEmbedBlock.jsx": {
+    "mtime": 1784524160.7261002,
+    "ast_hash": "0f5a872df1fa021330c4e5b4902c68a7",
+    "semantic_hash": "0f5a872df1fa021330c4e5b4902c68a7"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/ListBlock.jsx": {
+    "mtime": 1784524160.7281175,
+    "ast_hash": "29402e7f60aa2fd55608b298c8f39903",
+    "semantic_hash": "29402e7f60aa2fd55608b298c8f39903"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/MeetingNotesBlock.jsx": {
+    "mtime": 1785592132.3832035,
+    "ast_hash": "c99a66a0d948ed490abf9bc7dd891acd",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/QuoteBlock.jsx": {
+    "mtime": 1784524160.730373,
+    "ast_hash": "7362fe37e7cc1fd6eb732b80a614cb89",
+    "semantic_hash": "7362fe37e7cc1fd6eb732b80a614cb89"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/SubPageBlock.jsx": {
+    "mtime": 1784524160.730373,
+    "ast_hash": "e4e818791a1679822f9ed62b113ad2f2",
+    "semantic_hash": "e4e818791a1679822f9ed62b113ad2f2"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/TableBlock.jsx": {
+    "mtime": 1784524160.730373,
+    "ast_hash": "6791ba267be5cc174b2c4ea9f757a627",
+    "semantic_hash": "6791ba267be5cc174b2c4ea9f757a627"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/TextBlock.jsx": {
+    "mtime": 1784495062.4792192,
+    "ast_hash": "abc64432fbc1a7ba983789f4dbf88924",
+    "semantic_hash": "abc64432fbc1a7ba983789f4dbf88924"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/TocBlock.jsx": {
+    "mtime": 1784524160.730373,
+    "ast_hash": "df7b6e5de87335da868dbc7273192a81",
+    "semantic_hash": "df7b6e5de87335da868dbc7273192a81"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/TodoBlock.jsx": {
+    "mtime": 1784524160.740292,
+    "ast_hash": "af9b86f5495fbce55798102753822667",
+    "semantic_hash": "af9b86f5495fbce55798102753822667"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/ToggleBlock.jsx": {
+    "mtime": 1784524160.7408073,
+    "ast_hash": "b3a932c62d3b04e16b159427cf90fa2d",
+    "semantic_hash": "b3a932c62d3b04e16b159427cf90fa2d"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/ToggleHeadingBlock.jsx": {
+    "mtime": 1784524160.7408073,
+    "ast_hash": "c9fdaf9887a5bc02aa8c3b977418e42f",
+    "semantic_hash": "c9fdaf9887a5bc02aa8c3b977418e42f"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/VideoBlock.jsx": {
+    "mtime": 1784981778.680237,
+    "ast_hash": "96d584e7f056cbfb34f42cb14faa3259",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/index.js": {
+    "mtime": 1784495401.8382473,
+    "ast_hash": "cad166770466e78cbd79b369c15ff4cc",
+    "semantic_hash": "cad166770466e78cbd79b369c15ff4cc"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/shared/MediaBlockPicker.jsx": {
+    "mtime": 1784524160.7510376,
+    "ast_hash": "64b3c5a80398e9526da6c12c4aac792c",
+    "semantic_hash": "64b3c5a80398e9526da6c12c4aac792c"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/shared/focusBlock.js": {
+    "mtime": 1784494961.7026615,
+    "ast_hash": "3fa36848df5125799e8c0570ee0d6f7f",
+    "semantic_hash": "3fa36848df5125799e8c0570ee0d6f7f"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/blocks/shared/useEditable.js": {
+    "mtime": 1784524160.7532146,
+    "ast_hash": "90c797eea94815fb570374e2614eae69",
+    "semantic_hash": "90c797eea94815fb570374e2614eae69"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/core/BlockRenderer.jsx": {
+    "mtime": 1785341914.1602886,
+    "ast_hash": "0077430f4a054c81d024f0f52651bb9d",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/src/modules/notion-nest/core/NotionNestPage.jsx": {
+    "mtime": 1785530168.9129264,
+    "ast_hash": "8183e179eb0cbe7621ccdf13b71cd8cb",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/src/modules/notion-nest/core/PageContext.jsx": {
+    "mtime": 1785530193.2019994,
+    "ast_hash": "65e87634e2904999d8ac739949390ba0",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/src/modules/notion-nest/core/notionNestPageDefaults.ts": {
+    "mtime": 1785314460.1080098,
+    "ast_hash": "c02a7451e265721b0c6bb8c80f17654e",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/src/modules/notion-nest/core/notionNestPageStorage.ts": {
+    "mtime": 1784524534.9195762,
+    "ast_hash": "cb9a1ffb23b38871fc76822c12aee14d",
+    "semantic_hash": "cb9a1ffb23b38871fc76822c12aee14d"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/core/types.ts": {
+    "mtime": 1783546739.0637345,
+    "ast_hash": "2f53ce7ae5acd0a39d9b21d28e7a5116",
+    "semantic_hash": "2f53ce7ae5acd0a39d9b21d28e7a5116"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/core/undoHistory.ts": {
+    "mtime": 1783886234.0370533,
+    "ast_hash": "f6394c16b3ff5d5ffa04dc94ed7dd1bd",
+    "semantic_hash": "f6394c16b3ff5d5ffa04dc94ed7dd1bd"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/core/utils.js": {
+    "mtime": 1784400963.581289,
+    "ast_hash": "404e0efa77dbe60efc03ae743926e5ea",
+    "semantic_hash": "404e0efa77dbe60efc03ae743926e5ea"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/layout/layout.jsx": {
+    "mtime": 1784981830.5534475,
+    "ast_hash": "6db71ef07de0fa8c3462c45fd6f33642",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/src/modules/notion-nest/menus/TabBlock.jsx": {
+    "mtime": 1784524568.703346,
+    "ast_hash": "b00e9badef6f38ab458843187f71ffb5",
+    "semantic_hash": "b00e9badef6f38ab458843187f71ffb5"
+  },
+  "briselle-lightining.client/src/modules/notion-nest/menus/menus.jsx": {
+    "mtime": 1784987847.25349,
+    "ast_hash": "854e6fe4773af88c088f3d87447264b5",
+    "semantic_hash": ""
+  },
+  ".opencode/skills/graphify/SKILL.md": {
+    "mtime": 1784473993.9675505,
+    "ast_hash": "5edb8f9b8e1a53719cae49be6aea1f74",
+    "semantic_hash": "5edb8f9b8e1a53719cae49be6aea1f74"
+  },
+  ".opencode/skills/graphify/references/add-watch.md": {
+    "mtime": 1784469803.5666845,
+    "ast_hash": "d59d027fe449f06aa03905a01184e779",
+    "semantic_hash": "d59d027fe449f06aa03905a01184e779"
+  },
+  ".opencode/skills/graphify/references/exports.md": {
+    "mtime": 1784469803.5686865,
+    "ast_hash": "9da2a2152e60a22f07f05fed5158f287",
+    "semantic_hash": "9da2a2152e60a22f07f05fed5158f287"
+  },
+  ".opencode/skills/graphify/references/extraction-spec.md": {
+    "mtime": 1784469803.5696888,
+    "ast_hash": "42fef56a01698118f7fd722acdadea34",
+    "semantic_hash": "42fef56a01698118f7fd722acdadea34"
+  },
+  ".opencode/skills/graphify/references/github-and-merge.md": {
+    "mtime": 1784469803.6273537,
+    "ast_hash": "cde13df085e4c492aeb7ba298a996d0d",
+    "semantic_hash": "cde13df085e4c492aeb7ba298a996d0d"
+  },
+  ".opencode/skills/graphify/references/hooks.md": {
+    "mtime": 1784469803.62946,
+    "ast_hash": "3f545db6ce646650bb9de588f5512a27",
+    "semantic_hash": "3f545db6ce646650bb9de588f5512a27"
+  },
+  ".opencode/skills/graphify/references/query.md": {
+    "mtime": 1784469803.6314788,
+    "ast_hash": "3c46f8ad006874260614ed8657d02307",
+    "semantic_hash": "3c46f8ad006874260614ed8657d02307"
+  },
+  ".opencode/skills/graphify/references/transcribe.md": {
+    "mtime": 1784469803.633177,
+    "ast_hash": "67b6a5fa6c0974e18f60db9f8932fbd8",
+    "semantic_hash": "67b6a5fa6c0974e18f60db9f8932fbd8"
+  },
+  ".opencode/skills/graphify/references/update.md": {
+    "mtime": 1784469803.6490479,
+    "ast_hash": "c698309979460d0f02ba616417844399",
+    "semantic_hash": "c698309979460d0f02ba616417844399"
+  },
+  "AGENTS.md": {
+    "mtime": 1784473200.1084797,
+    "ast_hash": "21ceb6533048be51308e69e7b74a35cf",
+    "semantic_hash": "21ceb6533048be51308e69e7b74a35cf"
+  },
+  "Briselle-Lightining.Server/CHANGELOG.md": {
+    "mtime": 1768491618.3058596,
+    "ast_hash": "65d5f78c36df9f1fbd2dea2e15a3bde6",
+    "semantic_hash": "65d5f78c36df9f1fbd2dea2e15a3bde6"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/assets/README.txt": {
+    "mtime": 1778754758.0,
+    "ast_hash": "c515fb6f022fee6f0c986670b62a1122",
+    "semantic_hash": "c515fb6f022fee6f0c986670b62a1122"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/example.env.ziva.txt": {
+    "mtime": 1780818708.5008252,
+    "ast_hash": "603eb242a5235c09f6db735a8425b696",
+    "semantic_hash": "603eb242a5235c09f6db735a8425b696"
+  },
+  "briselle-lightining.client/src/assets/logo/logo-black-full.svg": {
+    "mtime": 1768491618.3609407,
+    "ast_hash": "888665fa8119e8dc1e432fc79e26841a",
+    "semantic_hash": "888665fa8119e8dc1e432fc79e26841a"
+  },
+  "briselle-lightining.client/src/assets/logo/logo-white-ct-icon.svg": {
+    "mtime": 1768491618.3709402,
+    "ast_hash": "ed42f7a8e495a70411d18b078bc727ee",
+    "semantic_hash": "ed42f7a8e495a70411d18b078bc727ee"
+  },
+  "briselle-lightining.client/src/modules/ziva-chat-module/assets/briselle-logo.png": {
+    "mtime": 1778757252.6137085,
+    "ast_hash": "3504bd4dae4daa7ed870dd0f7efd6256",
+    "semantic_hash": "3504bd4dae4daa7ed870dd0f7efd6256"
+  },
+  "briselle-lightining.client/scripts/alter_enterprise_files_source_info.sql": {
+    "mtime": 1785532766.6102216,
+    "ast_hash": "fe03df55826d06b4341c9a787598de94",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/scripts/enterprise_files_v2_schema.sql": {
+    "mtime": 1784980586.857409,
+    "ast_hash": "183086ca9515b3ca6cc76831f8aeae22",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/scripts/supabase_storage_setup.sql": {
+    "mtime": 1784979947.251948,
+    "ast_hash": "08351747c9c28e9b73c86b841261fd5d",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/scripts/update_enterprise_files_rls.sql": {
+    "mtime": 1784980783.0314398,
+    "ast_hash": "2f78860578c3455ec51e9a7106855ee8",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/scripts/update_supabase_bucket_5gb.sql": {
+    "mtime": 1784988211.0283153,
+    "ast_hash": "b5c6c83ba55bea6223af32c9aa82a18a",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/src/modules/utility-modules/audio-controller/AudioController.jsx": {
+    "mtime": 1785088948.4157834,
+    "ast_hash": "503cf221808084ca1af76ed0ffadd2bf",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/src/modules/utility-modules/audio-controller/index.js": {
+    "mtime": 1784964841.0249078,
+    "ast_hash": "d64bf9694bc2c9ee9a6f3cc09c0aa25b",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/src/modules/utility-modules/upload-module/FileService.ts": {
+    "mtime": 1785533416.5432296,
+    "ast_hash": "bfcf50c3e8bafb7f7e0d066422662465",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/src/modules/utility-modules/upload-module/UploadProgressModal.jsx": {
+    "mtime": 1784989323.4785273,
+    "ast_hash": "19f9d85e8f7b27b551eb8351f71e8935",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/src/modules/utility-modules/upload-module/index.ts": {
+    "mtime": 1784984350.2245314,
+    "ast_hash": "e4cc5340ef3dde2a3100b1146d2a11cb",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/src/modules/utility-modules/upload-module/metadataExtractors.ts": {
+    "mtime": 1784984309.1201732,
+    "ast_hash": "f72ec18a741a6053e349c470a11072f9",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/src/modules/utility-modules/upload-module/useEnterpriseFile.ts": {
+    "mtime": 1784991976.404222,
+    "ast_hash": "2e850dafc45b18e6c5b7492884b3c404",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/reference_files/Enterprise_Audio_Transcript_UX_Implementation_Guide.md": {
+    "mtime": 1785314969.3454597,
+    "ast_hash": "9070fa18ae5ae2e152fcfbdc06e229eb",
+    "semantic_hash": ""
+  },
+  "briselle-lightining.client/reference_files/Upload Audio File Transcript.mp4": {
+    "mtime": 1785314686.9597096,
+    "ast_hash": "d4096b4da3df2180eeeffc902f4b7758",
+    "semantic_hash": ""
+  }
+}

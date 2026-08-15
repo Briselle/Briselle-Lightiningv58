@@ -1,0 +1,1697 @@
+/* Scoped styles for NotionNest — BlockNote + page chrome */
+.notion-nest-shell {
+    --notion-sf-brand: rgb(1, 118, 211);
+    /* Lightest Salesforce highlight (blue-gray), not neutral grey */
+    --notion-sf-brand-hover-bg: #eef4fb;
+    --notion-sf-brand-hover-bg-mantine: rgba(1, 118, 211, 0.12);
+}
+
+.notion-nest-shell .bn-container {
+    font-family: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+}
+
+/* Six-dot / + side menu — SF blue icon + light SF hover fill */
+.notion-nest-shell .bn-side-menu button,
+.notion-nest-shell .bn-side-menu [role='button'],
+.notion-nest-shell .bn-side-menu .bn-button,
+.notion-nest-shell .bn-side-menu .mantine-UnstyledButton-root,
+.notion-nest-shell .bn-side-menu .mantine-ActionIcon-root,
+.notion-nest-shell [data-notion-side-menu-safe] button,
+.notion-nest-shell [data-notion-side-menu-safe] [role='button'] {
+    border-radius: 0.25rem;
+    transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+.notion-nest-shell .bn-side-menu button:hover,
+.notion-nest-shell .bn-side-menu button[data-hovered],
+.notion-nest-shell .bn-side-menu [role='button']:hover,
+.notion-nest-shell .bn-side-menu .bn-button:hover,
+.notion-nest-shell .bn-side-menu .mantine-UnstyledButton-root:hover,
+.notion-nest-shell .bn-side-menu .mantine-UnstyledButton-root[data-hovered],
+.notion-nest-shell .bn-side-menu .mantine-ActionIcon-root:hover,
+.notion-nest-shell .bn-side-menu .mantine-ActionIcon-root[data-hovered],
+.notion-nest-shell [data-notion-side-menu-safe] button:hover,
+.notion-nest-shell [data-notion-side-menu-safe] [role='button']:hover {
+    background-color: var(--notion-sf-brand-hover-bg) !important;
+    background: var(--notion-sf-brand-hover-bg) !important;
+    color: var(--notion-sf-brand) !important;
+}
+
+.notion-nest-shell .bn-side-menu button:hover svg,
+.notion-nest-shell .bn-side-menu [role='button']:hover svg,
+.notion-nest-shell .bn-side-menu .mantine-ActionIcon-root:hover svg,
+.notion-nest-shell [data-notion-side-menu-safe] button:hover svg,
+.notion-nest-shell [data-notion-side-menu-safe] [role='button']:hover svg {
+    color: var(--notion-sf-brand) !important;
+    fill: var(--notion-sf-brand) !important;
+    stroke: var(--notion-sf-brand) !important;
+}
+
+.notion-side-menu-safe {
+    display: contents;
+}
+
+.notion-nest-shell .notion-page-title:focus {
+    outline: none;
+}
+
+.notion-editor-standard .bn-editor {
+    max-width: 100%;
+}
+
+.notion-editor-full .bn-editor {
+    max-width: 100%;
+}
+
+.notion-nest-shell .bn-block-outer {
+    margin: 0.15em 0;
+}
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .bn-block-outer {
+    margin: 0.08em 0 !important;
+}
+
+/* Mantine popovers above app chrome */
+.notion-nest-shell .mantine-Menu-dropdown,
+.notion-nest-shell .mantine-Popover-dropdown {
+    z-index: 2000;
+}
+
+/* Custom Notion-style blocks */
+/* Divider — visible line + optional color picker */
+.notion-divider-block {
+    position: relative;
+}
+.notion-divider-line {
+    border: 0;
+    border-top: 1px solid #d1d5db;
+    margin: 0.5rem 0;
+}
+.notion-divider-color-input {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 1.25rem;
+    height: 1.25rem;
+    opacity: 0;
+    cursor: pointer;
+    border: none;
+    padding: 0;
+}
+.notion-divider-block:hover .notion-divider-color-input,
+.notion-divider-block:focus-within .notion-divider-color-input {
+    opacity: 1;
+}
+
+/* Quote — full row-height accent bar */
+.notion-quote-block {
+    border-left: 3px solid #d1d5db;
+    padding-left: 1rem;
+    margin: 0.15rem 0;
+    min-height: 1.5em;
+}
+
+/* Code block — light grey, vertically centered */
+.notion-nest-shell [data-content-type='codeBlock'] {
+    background: #f3f4f6 !important;
+    border-radius: 0.375rem;
+}
+.notion-nest-shell [data-content-type='codeBlock'] pre,
+.notion-nest-shell [data-content-type='codeBlock'] code {
+    background: transparent !important;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.875rem;
+    line-height: 1.5;
+    display: flex;
+    align-items: center;
+    min-height: 2.5rem;
+    padding: 0.5rem 0.75rem !important;
+}
+
+/* Toggle — hide nested children when collapsed */
+.notion-nest-shell .bn-block-outer:has(.notion-toggle-block[data-open='false']) > .bn-block-group {
+    display: none;
+}
+.notion-toggle-block {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.35rem;
+}
+
+.notion-callout {
+    display: flex;
+    gap: 0.75rem;
+    align-items: center;
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(0, 0, 0, 0.06);
+}
+.notion-callout--gray { background: #f1f1ef; }
+.notion-callout--blue { background: #e7f3ff; }
+.notion-callout--green { background: #edfbf3; }
+.notion-callout--yellow { background: #fef9e7; }
+.notion-callout--red { background: #fdebec; }
+.notion-callout--purple { background: #f6f3f9; }
+.notion-callout-icon {
+    font-size: 1.25rem;
+    line-height: 1;
+    border: none;
+    background: transparent;
+    cursor: pointer;
+}
+.notion-callout-color-select {
+    font-size: 0.65rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.25rem;
+    padding: 0.1rem 0.25rem;
+}
+.notion-toggle-block {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.35rem;
+}
+.notion-toggle-chevron {
+    border: none;
+    background: transparent;
+    padding: 0.15rem;
+    cursor: pointer;
+    color: #6b7280;
+}
+.notion-bookmark-card {
+    display: block;
+    padding: 0.75rem 1rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    background: #fafafa;
+    text-decoration: none;
+}
+.notion-bookmark-card:hover {
+    background: #f3f4f6;
+}
+.notion-embed-frame-wrap {
+    position: relative;
+    padding-bottom: 56.25%;
+    height: 0;
+    overflow: hidden;
+    border-radius: 0.5rem;
+    border: 1px solid #e5e7eb;
+}
+.notion-embed-iframe {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: 0;
+}
+.notion-columns-block {
+    display: grid;
+    gap: 1rem;
+    padding: 0.5rem 0;
+}
+.notion-database-block {
+    margin: 0.25rem 0;
+}
+.notion-insert-toolbar {
+    position: sticky;
+    top: 3.25rem;
+    z-index: 10;
+}
+
+/* Slash / suggestion + drag-handle menus — light Salesforce panel (no dark grey) */
+.notion-nest-shell .bn-container {
+    --bn-colors-menu-text: #181818;
+    --bn-colors-menu-background: #ffffff;
+    --bn-colors-hovered-text: var(--notion-sf-brand);
+    --bn-colors-hovered-background: var(--notion-sf-brand-hover-bg);
+    --bn-colors-selected-text: var(--notion-sf-brand);
+    --bn-colors-selected-background: var(--notion-sf-brand-hover-bg);
+    --bn-colors-border: #e5e7eb;
+    --bn-colors-disabled-text: #9ca3af;
+    --bn-colors-disabled-background: #ffffff;
+    --bn-colors-shadow: rgba(15, 23, 42, 0.12);
+}
+
+.notion-nest-shell .mantine-Combobox-dropdown,
+.notion-nest-shell .mantine-Menu-dropdown,
+.notion-nest-shell .mantine-Popover-dropdown,
+.notion-nest-shell .bn-drag-handle-menu .mantine-Menu-dropdown {
+    background-color: #ffffff !important;
+    color: #181818 !important;
+    border: 1px solid #e5e7eb !important;
+    border-radius: 10px !important;
+    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12) !important;
+}
+
+.notion-nest-shell .mantine-Combobox-option,
+.notion-nest-shell .mantine-Menu-item {
+    color: #181818 !important;
+}
+
+.notion-nest-shell .mantine-Combobox-option[data-combobox-selected],
+.notion-nest-shell .mantine-Combobox-option[data-combobox-active],
+.notion-nest-shell .mantine-Menu-item:hover,
+.notion-nest-shell .mantine-Combobox-option:hover,
+.notion-nest-shell .mantine-Menu-item[data-hovered] {
+    background-color: var(--notion-sf-brand-hover-bg) !important;
+    color: var(--notion-sf-brand) !important;
+}
+
+.notion-nest-shell .mantine-Combobox-groupLabel,
+.notion-nest-shell .mantine-Menu-label {
+    color: #6b7280 !important;
+    font-size: 11px !important;
+    font-weight: 500 !important;
+    padding: 8px 12px 4px !important;
+}
+
+.notion-nest-shell .mantine-Combobox-option[data-disabled],
+.notion-nest-shell .mantine-Menu-item[data-disabled] {
+    color: #9ca3af !important;
+}
+
+.notion-nest-shell .mantine-Combobox-option .mantine-Text-root[data-size='xs'],
+.notion-nest-shell .mantine-Combobox-option [class*='subtext'],
+.notion-nest-shell .mantine-Combobox-option [class*='badge'] {
+    color: #6b7280 !important;
+}
+
+.notion-nest-shell .mantine-Combobox-option svg,
+.notion-nest-shell .mantine-Menu-item svg {
+    color: #374151 !important;
+}
+
+.notion-nest-shell .mantine-Menu-item:hover svg,
+.notion-nest-shell .mantine-Menu-item[data-hovered] svg {
+    color: var(--notion-sf-brand) !important;
+}
+
+/* Text selection formatting toolbar */
+.notion-formatting-toolbar-wrap {
+    pointer-events: auto;
+}
+
+.notion-nest-shell .bn-formatting-toolbar,
+.notion-nest-shell .bn-toolbar.bn-formatting-toolbar {
+    z-index: 3500 !important;
+    pointer-events: auto !important;
+    background: #ffffff !important;
+    color: #181818 !important;
+    border: 1px solid #e5e7eb !important;
+    border-radius: 8px !important;
+    box-shadow: 0 4px 16px rgba(15, 23, 42, 0.12) !important;
+}
+
+.notion-nest-shell .bn-formatting-toolbar .mantine-ActionIcon-root,
+.notion-nest-shell .bn-formatting-toolbar .mantine-Button-root {
+    pointer-events: auto !important;
+    color: #374151 !important;
+}
+
+.notion-nest-shell .bn-formatting-toolbar .mantine-ActionIcon-root:hover,
+.notion-nest-shell .bn-formatting-toolbar .mantine-ActionIcon-root[data-selected],
+.notion-nest-shell .bn-formatting-toolbar .mantine-Button-root:hover {
+    background: var(--notion-sf-brand-hover-bg) !important;
+    color: var(--notion-sf-brand) !important;
+}
+
+/* Insert block toolbar dropdown — light panel, dark readable text */
+.notion-insert-toolbar__menu {
+    background: #ffffff !important;
+    color: #111827 !important;
+    border: 1px solid #e5e7eb !important;
+}
+
+.notion-insert-toolbar__menu button {
+    color: #111827 !important;
+}
+
+.notion-insert-toolbar__menu button:hover {
+    background: #f3f4f6 !important;
+}
+
+.notion-insert-toolbar__menu .notion-insert-item-desc {
+    color: #6b7280 !important;
+}
+
+/* Tabs block — one bordered card on top-level tabs only (not nested / in-panel ghosts) */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer:not(.notion-tabs-outer--nested),
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']):not(.notion-tabs-outer--nested) {
+    border: 1px solid rgba(55, 53, 47, 0.16) !important;
+    border-radius: 0.5rem !important;
+    background: #fff !important;
+    padding: 0 !important;
+    margin: 0.35rem 0 0.75rem !important;
+    box-shadow: 0 1px 2px rgba(15, 15, 15, 0.04) !important;
+    outline: none !important;
+}
+
+/* Nested tabs inside a tab panel: no second card chrome (outer card only). */
+.notion-nest-shell .notion-tabs-outer .notion-tab-panel-outer .notion-tabs-outer,
+.notion-nest-shell .notion-tabs-outer .notion-tab-panel-outer .bn-block-outer:has([data-content-type='notionTabs']),
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer .notion-tabs-outer,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer .bn-block-outer:has([data-content-type='notionTabs']) {
+    border: none !important;
+    box-shadow: none !important;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+}
+.notion-nest-shell .notion-tabs-outer .notion-tab-panel-outer .notion-tabs-outer:focus-within,
+.notion-nest-shell .notion-tabs-outer .notion-tab-panel-outer .bn-block-outer:has([data-content-type='notionTabs']):focus-within {
+    box-shadow: none !important;
+    outline: none !important;
+}
+
+/* Wider hit target between block text and floating drag handle (must not block menu clicks). */
+.notion-nest-shell .bn-mantine .bn-side-menu {
+    position: relative;
+}
+.notion-nest-shell .bn-mantine .bn-side-menu::before {
+    content: '';
+    position: absolute;
+    top: -6px;
+    bottom: -6px;
+    left: -6px;
+    right: -20px;
+    z-index: 0;
+    pointer-events: none;
+}
+.notion-nest-shell .bn-mantine .bn-side-menu > * {
+    position: relative;
+    z-index: 1;
+}
+.notion-nest-shell .bn-block-outer.notion-tabs-outer:focus,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer:focus-within,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer:focus-visible,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']):focus-within {
+    outline: none !important;
+    box-shadow: 0 1px 2px rgba(15, 15, 15, 0.04) !important;
+}
+
+/* Nested tabs — one card border on the live mount (React adds .notion-tabs-outer--nested) */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer.notion-tabs-outer--nested,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer > .bn-block > .bn-block-group > .bn-block-outer.notion-tabs-outer--nested {
+    border: 1px solid rgba(55, 53, 47, 0.16) !important;
+    border-radius: 0.5rem !important;
+    background: #fff !important;
+    box-shadow: 0 1px 2px rgba(15, 15, 15, 0.04) !important;
+    margin-top: 0.12rem !important;
+    margin-bottom: 0.25rem !important;
+    outline: none !important;
+}
+
+/* BlockNote duplicate in-panel shell (no React chrome) — hide so only one border shows */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer .bn-block-outer:has([data-content-type='notionTabs']):not(.notion-tabs-outer) {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    max-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    box-shadow: none !important;
+    overflow: hidden !important;
+    pointer-events: none !important;
+}
+.notion-nest-shell .bn-block-outer.notion-tabs-outer > .bn-block,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer > .bn-block:focus,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer > .bn-block:focus-within,
+.notion-nest-shell .bn-block-outer.notion-tab-block > .bn-block,
+.notion-nest-shell .bn-block-outer.notion-tab-block > .bn-block:focus,
+.notion-nest-shell .bn-block-outer.notion-tab-block > .bn-block:focus-within {
+    outline: none !important;
+    box-shadow: none !important;
+}
+/* Tab card chrome (4-side border) lives on [data-notion-tab-card] > .bn-block — see notion-tabs-indent-fix.css */
+.notion-nest-shell .bn-block-outer[data-notion-tab-card='true'] > .bn-block,
+.notion-nest-shell .bn-block-outer[data-notion-tab-card='true'] > .bn-block:focus,
+.notion-nest-shell .bn-block-outer[data-notion-tab-card='true'] > .bn-block:focus-within {
+    outline: none !important;
+}
+/* Padding inside content so block side-menu hover covers the full card incl. border inset */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer > .bn-block > .bn-block-content {
+    margin-bottom: 0;
+    min-height: 0;
+    position: relative;
+    z-index: 4;
+    /* Let BlockNote pass pointer events through to the tab bar UI */
+    pointer-events: none;
+    grid-template-columns: 0 minmax(0, 1fr) !important;
+}
+.notion-nest-shell .bn-block-outer.notion-tabs-outer > .bn-block > .bn-block-content .bn-side-menu,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer > .bn-block > .bn-block-content .bn-drag-handle-menu,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer > .bn-block > .bn-block-content [class*='side-menu'] {
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    overflow: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+.notion-tabs-root {
+    padding: 0.35rem 0.5rem 0 0.5rem;
+    margin: 0;
+    width: 100%;
+    box-sizing: border-box;
+    position: relative;
+    z-index: 5;
+    pointer-events: auto;
+    overflow: visible;
+}
+#notion-tab-settings-host {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 0;
+    height: 0;
+    overflow: visible;
+    z-index: 10050;
+    pointer-events: none;
+}
+#notion-tab-settings-host > * {
+    pointer-events: auto;
+}
+.notion-tabs-style-popover--fixed {
+    margin: 0;
+    isolation: isolate;
+}
+.notion-tabs-style-popover--fixed,
+.notion-tabs-style-popover--fixed * {
+    pointer-events: auto;
+}
+.notion-tabs-bar,
+.notion-tabs-bar * {
+    pointer-events: auto;
+}
+.notion-nest-shell .bn-block-outer.notion-tabs-outer > .bn-block > .bn-block-group {
+    margin: 0 !important;
+    min-height: 0 !important;
+}
+.notion-nest-shell .bn-block-outer.notion-tabs-outer > .bn-block > .bn-block-group > .bn-block-outer.notion-tab-panel-outer {
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: 0 !important;
+}
+.notion-nest-shell .bn-block-outer.notion-tabs-outer > .bn-block > .bn-block-group > .bn-block-outer.notion-tab-panel-outer.is-active-tab-panel[data-tab-empty='true'] {
+    min-height: 0 !important;
+}
+.notion-tabs-bar {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    border-bottom: none;
+    padding: 0;
+    margin-bottom: 0;
+    min-height: 1.75rem;
+    position: relative;
+    overflow: visible;
+}
+.notion-tabs-bar--top-rounded {
+    padding-top: 0;
+}
+.notion-tabs-bar__strip {
+    min-width: 0;
+}
+
+.notion-tabs-bar__strip--pill {
+    flex-wrap: nowrap;
+    max-width: 100%;
+    overflow-x: auto;
+    scrollbar-width: thin;
+}
+
+.notion-tabs-bar__strip--pill .notion-tabs-bar__tab-wrap {
+    padding: 0;
+    margin: 0;
+}
+
+.notion-tabs-bar__strip--pill .notion-tabs-bar__tab-wrap:hover {
+    background: transparent;
+}
+
+.notion-tabs-bar__strip--pill button[role='tab'] {
+    border: none;
+    box-shadow: none;
+}
+.notion-tabs-bar__tab-wrap {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    padding: 0;
+    margin: 0;
+    border-radius: 0.35rem;
+}
+.notion-tabs-bar__tab-delete {
+    position: absolute;
+    top: -4px;
+    right: -2px;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    width: 1.1rem;
+    height: 1.1rem;
+    border: none;
+    border-radius: 999px;
+    background: #ef4444;
+    color: #fff;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+    z-index: 2;
+}
+.notion-tabs-bar__tab-wrap:hover .notion-tabs-bar__tab-delete,
+.notion-tabs-bar__tab-wrap:focus-within .notion-tabs-bar__tab-delete {
+    display: inline-flex;
+}
+.notion-tabs-bar__tab-delete:hover {
+    background: #dc2626;
+}
+.notion-tabs-style-anchor {
+    position: relative;
+    z-index: 6;
+    padding: 0;
+    margin: 0;
+    border-radius: 0.35rem;
+    pointer-events: auto;
+    isolation: isolate;
+}
+.notion-tabs-style-anchor svg {
+    display: block;
+    flex-shrink: 0;
+}
+
+.notion-tabs-bar__add,
+.notion-tabs-bar__icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: none;
+    background: transparent;
+    color: #6b7280;
+    cursor: pointer;
+    border-radius: 0.35rem;
+    padding: 0.35rem 0.5rem;
+    margin-bottom: 0.15rem;
+    flex-shrink: 0;
+    transition: none;
+    -webkit-tap-highlight-color: transparent;
+}
+.notion-tabs-bar__add:hover,
+.notion-tabs-bar__icon-btn:hover,
+.notion-tabs-bar__icon-btn.is-open {
+    background: #f3f4f6;
+    color: #111827;
+}
+.notion-tab-context-menu {
+    pointer-events: auto;
+    transform-origin: bottom left;
+    border-radius: 8px;
+    border: 1px solid #e5e7eb;
+    background: #fff;
+    box-shadow: 0 4px 24px rgba(15, 23, 42, 0.12);
+    padding: 4px 0;
+    font-size: 14px;
+    color: #37352f;
+}
+.notion-tab-context-menu--icon {
+    padding: 0;
+    overflow: hidden;
+    border-radius: 10px;
+}
+/* Notion-style tab icon / emoji picker (screenshot #1 layout, light theme) */
+.notion-tab-icon-picker {
+    display: flex;
+    flex-direction: column;
+    width: 360px;
+    max-width: min(360px, calc(100vw - 16px));
+    max-height: min(400px, 70vh);
+    background: #fff;
+    color: #37352f;
+    font-size: 13px;
+}
+.notion-tab-icon-picker__tabs {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 10px 12px 6px;
+    border-bottom: 1px solid #f0f0f0;
+}
+.notion-tab-icon-picker__tab-list {
+    display: flex;
+    gap: 14px;
+}
+.notion-tab-icon-picker__tab {
+    border: none;
+    background: transparent;
+    color: #9ca3af;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 0 0 6px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+}
+.notion-tab-icon-picker__tab.is-active {
+    color: #111827;
+    border-bottom-color: #111827;
+}
+.notion-tab-icon-picker__remove {
+    border: none;
+    background: transparent;
+    color: #9ca3af;
+    font-size: 13px;
+    cursor: pointer;
+    padding: 0 0 6px;
+}
+.notion-tab-icon-picker__remove:hover {
+    color: #374151;
+}
+.notion-tab-icon-picker__toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 10px;
+}
+.notion-tab-icon-picker__search {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: #f3f4f6;
+    border-radius: 8px;
+    padding: 6px 10px;
+    min-width: 0;
+}
+.notion-tab-icon-picker__search input {
+    flex: 1;
+    border: none;
+    background: transparent;
+    outline: none;
+    font-size: 13px;
+    min-width: 0;
+}
+.notion-tab-icon-picker__tool-btn,
+.notion-tab-icon-picker__preview {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: none;
+    background: #f3f4f6;
+    border-radius: 8px;
+    color: #6b7280;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.notion-tab-icon-picker__tool-btn:hover {
+    background: #e5e7eb;
+}
+.notion-tab-icon-picker__body {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    padding: 0 10px 8px;
+}
+.notion-tab-icon-picker__section-label {
+    font-size: 11px;
+    color: #9ca3af;
+    margin: 4px 0 8px;
+}
+.notion-tab-icon-picker__emoji-grid {
+    display: grid;
+    grid-template-columns: repeat(12, 1fr);
+    gap: 2px;
+}
+.notion-tab-icon-picker__emoji-cell {
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    font-size: 20px;
+    line-height: 1.2;
+    padding: 4px 2px;
+    cursor: pointer;
+}
+.notion-tab-icon-picker__emoji-cell:hover,
+.notion-tab-icon-picker__emoji-cell.is-selected {
+    background: #f3f4f6;
+}
+.notion-tab-icon-picker__icon-grid {
+    display: grid;
+    grid-template-columns: repeat(10, 1fr);
+    gap: 4px;
+}
+.notion-tab-icon-picker__icon-cell {
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    padding: 8px;
+    color: #374151;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+}
+.notion-tab-icon-picker__icon-cell:hover,
+.notion-tab-icon-picker__icon-cell.is-selected {
+    background: #f3f4f6;
+    color: #111827;
+}
+.notion-tab-icon-picker__categories {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding: 6px 8px 8px;
+    border-top: 1px solid #f0f0f0;
+    overflow-x: auto;
+}
+.notion-tab-icon-picker__cat {
+    border: none;
+    background: transparent;
+    border-radius: 6px;
+    padding: 6px 8px;
+    color: #9ca3af;
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.notion-tab-icon-picker__cat:hover,
+.notion-tab-icon-picker__cat.is-active {
+    background: #f3f4f6;
+    color: #111827;
+}
+
+.notion-tab-icon-picker__upload {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 10px;
+    padding: 24px 16px;
+    text-align: center;
+}
+.notion-tab-icon-picker__upload-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    background: #fff;
+    color: #374151;
+    font-size: 13px;
+    cursor: pointer;
+}
+.notion-tab-icon-picker__upload-btn:hover:not(:disabled) {
+    background: #f9fafb;
+}
+.notion-tab-icon-picker__upload-btn:disabled {
+    opacity: 0.6;
+    cursor: wait;
+}
+.notion-tab-icon-picker__upload-hint {
+    margin: 0;
+    font-size: 12px;
+    color: #9ca3af;
+}
+.notion-tab-icon-picker__upload-error {
+    margin: 0;
+    font-size: 12px;
+    color: #dc2626;
+}
+.notion-tab-icon-picker__upload-preview {
+    width: 48px;
+    height: 48px;
+    border-radius: 8px;
+    object-fit: cover;
+    border: 1px solid #e5e7eb;
+}
+.notion-tab-context-menu__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 10px;
+    font-weight: 600;
+    font-size: 13px;
+    border-bottom: 1px solid #f0f0f0;
+}
+.notion-tab-context-menu__close {
+    border: none;
+    background: transparent;
+    font-size: 18px;
+    line-height: 1;
+    color: #6b7280;
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+.notion-tab-context-menu__close:hover {
+    background: #f3f4f6;
+}
+.notion-tab-context-menu__item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    border: none;
+    background: transparent;
+    padding: 8px 12px;
+    text-align: left;
+    cursor: pointer;
+    color: inherit;
+}
+.notion-tab-context-menu__item:hover {
+    background: #f3f4f6;
+}
+.notion-tab-context-menu__item--danger {
+    color: #dc2626;
+}
+.notion-tab-context-menu__item--danger:hover {
+    background: #fef2f2;
+}
+.notion-tab-context-menu__divider {
+    height: 1px;
+    margin: 4px 0;
+    background: #f0f0f0;
+}
+.notion-tab-context-menu__emoji-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 8px 10px;
+    font-size: 12px;
+    color: #6b7280;
+}
+.notion-tab-context-menu__emoji-field input {
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 18px;
+}
+.notion-tabs-bar__tab-icon {
+    display: inline-flex;
+    align-items: center;
+    margin-right: 4px;
+}
+.notion-tab-dialog-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 10060;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(15, 23, 42, 0.35);
+    padding: 16px;
+}
+.notion-tab-dialog {
+    width: min(100%, 360px);
+    border-radius: 10px;
+    border: 1px solid #e5e7eb;
+    background: #fff;
+    box-shadow: 0 12px 40px rgba(15, 23, 42, 0.18);
+    padding: 16px 18px;
+    pointer-events: auto;
+}
+.notion-tab-dialog__title {
+    margin: 0 0 8px;
+    font-size: 16px;
+    font-weight: 600;
+    color: #111827;
+}
+.notion-tab-dialog__body {
+    margin: 0 0 16px;
+    font-size: 14px;
+    line-height: 1.45;
+    color: #4b5563;
+}
+.notion-tab-dialog__actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+.notion-tab-dialog__btn {
+    border: 1px solid #e5e7eb;
+    border-radius: 6px;
+    background: #fff;
+    padding: 6px 12px;
+    font-size: 13px;
+    cursor: pointer;
+}
+.notion-tab-dialog__btn:hover {
+    background: #f9fafb;
+}
+.notion-tab-dialog__btn--danger {
+    border-color: #fecaca;
+    background: #fef2f2;
+    color: #b91c1c;
+}
+.notion-tab-dialog__btn--danger:hover {
+    background: #fee2e2;
+}
+.notion-tab-link-toast {
+    position: fixed;
+    bottom: 24px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 10070;
+    padding: 10px 16px;
+    border-radius: 8px;
+    background: #1f2937;
+    color: #fff;
+    font-size: 13px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.2);
+    pointer-events: none;
+}
+.notion-tabs-bar__rename {
+    font-size: 0.875rem;
+    border: 1px solid #3b82f6;
+    border-radius: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    margin-bottom: 0.15rem;
+    min-width: 5rem;
+    outline: none;
+}
+.notion-tabs-style-popover {
+    z-index: 10050;
+    pointer-events: auto;
+    width: 15rem;
+    max-width: min(15rem, calc(100vw - 1rem));
+    padding: 0;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    box-shadow:
+        0 4px 6px -1px rgba(0, 0, 0, 0.08),
+        0 12px 28px -4px rgba(15, 23, 42, 0.14);
+    overflow: visible;
+}
+.notion-tabs-style-popover--fixed {
+    margin: 0;
+}
+.notion-tabs-style-popover__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.4rem 0.65rem;
+    border-bottom: 1px solid #f3f4f6;
+}
+.notion-tabs-style-popover__close {
+    border: none;
+    background: transparent;
+    color: #6b7280;
+    font-size: 1.1rem;
+    line-height: 1;
+    cursor: pointer;
+    padding: 0 0.2rem;
+}
+.notion-tabs-style-popover__close:hover {
+    color: #111827;
+}
+.notion-tabs-style-popover__select-native {
+    width: 100%;
+    max-width: 9.5rem;
+    font-size: 0.75rem;
+    color: #111827;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.375rem;
+    padding: 0.3rem 0.45rem;
+    background: #fff;
+    cursor: pointer;
+    pointer-events: auto;
+}
+.notion-tabs-style-popover__select-native:focus {
+    outline: 2px solid #93c5fd;
+    outline-offset: 1px;
+}
+.notion-tabs-style-popover__heading {
+    margin: 0;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: #4b5563;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+}
+.notion-tabs-style-popover__control-cluster {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 0.45rem;
+    flex-wrap: nowrap;
+    min-width: 0;
+}
+.notion-tabs-style-popover__highlight-colors {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0 0.75rem 0.45rem;
+    margin-top: -0.1rem;
+}
+.notion-tabs-style-popover__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.4rem 0.75rem;
+}
+.notion-tabs-style-popover__label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #374151;
+    flex-shrink: 0;
+}
+.notion-tabs-style-popover__control {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    justify-content: flex-end;
+}
+.notion-tabs-style-popover__menu-select {
+    position: relative;
+    width: 100%;
+    max-width: 9.5rem;
+}
+.notion-tabs-style-popover__select-trigger {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.35rem;
+    width: 100%;
+    font-size: 0.75rem;
+    color: #111827;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.375rem;
+    padding: 0.3rem 0.45rem;
+    background: #fff;
+    cursor: pointer;
+    text-align: left;
+}
+.notion-tabs-style-popover__select-trigger:hover {
+    border-color: #d1d5db;
+    background: #f9fafb;
+}
+.notion-tabs-style-popover__select-menu {
+    position: absolute;
+    right: 0;
+    top: calc(100% + 2px);
+    z-index: 2500;
+    min-width: 100%;
+    max-width: 12rem;
+    max-height: 10rem;
+    overflow-y: auto;
+    margin: 0;
+    padding: 0.2rem;
+    list-style: none;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.375rem;
+    box-shadow: 0 8px 20px rgba(15, 23, 42, 0.12);
+}
+.notion-tabs-style-popover__select-option {
+    display: block;
+    width: 100%;
+    text-align: left;
+    font-size: 0.72rem;
+    padding: 0.35rem 0.5rem;
+    border: none;
+    border-radius: 0.25rem;
+    background: transparent;
+    color: #374151;
+    cursor: pointer;
+}
+.notion-tabs-style-popover__select-option:hover {
+    background: #f3f4f6;
+}
+.notion-tabs-style-popover__select-option.is-active {
+    background: #eff6ff;
+    color: #1d4ed8;
+    font-weight: 500;
+}
+
+.notion-tabs-style-popover__toggle {
+    position: relative;
+    display: inline-flex;
+    width: 2.125rem;
+    height: 1.25rem;
+    flex-shrink: 0;
+    border: none;
+    border-radius: 999px;
+    background: #e5e7eb;
+    cursor: pointer;
+    padding: 0;
+    transition: background-color 0.15s ease;
+}
+.notion-tabs-style-popover__toggle::after {
+    content: '';
+    position: absolute;
+    top: 0.125rem;
+    left: 0.125rem;
+    width: 1rem;
+    height: 1rem;
+    border-radius: 999px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
+    transition: transform 0.15s ease;
+}
+.notion-tabs-style-popover__toggle.is-on {
+    background: #2563eb;
+}
+.notion-tabs-style-popover__toggle.is-on::after {
+    transform: translateX(0.875rem);
+}
+.notion-tabs-style-popover__divider {
+    height: 1px;
+    margin: 0.15rem 0;
+    background: #f3f4f6;
+}
+.notion-tabs-style-popover__stepper {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.375rem;
+    overflow: hidden;
+    background: #f9fafb;
+}
+.notion-tabs-style-popover__step-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.75rem;
+    height: 1.75rem;
+    border: none;
+    background: transparent;
+    color: #374151;
+    font-size: 0.9rem;
+    cursor: pointer;
+}
+.notion-tabs-style-popover__step-btn:hover {
+    background: #f3f4f6;
+}
+.notion-tabs-style-popover__step-val {
+    min-width: 2.5rem;
+    text-align: center;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #111827;
+}
+
+/* Panel anchor hidden via .notion-tab-panel-content-anchor in notion-tabs-indent-fix.css */
+.notion-tab-panel-anchor {
+    display: none !important;
+}
+.notion-nest-shell .bn-block-outer.notion-tab-panel-outer {
+    margin: 0 !important;
+    padding: 0 !important;
+    border: none !important;
+    background: transparent !important;
+    box-shadow: none !important;
+}
+.notion-nest-shell .bn-block-outer.notion-tab-panel-outer > .bn-block > .bn-block-group {
+    margin-top: 0 !important;
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+    padding-top: 0 !important;
+}
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .bn-block .bn-block-group > .bn-block-outer.notion-tab-panel-outer {
+    margin-top: 0 !important;
+    margin-left: 0 !important;
+}
+/* Tab content: no extra BlockNote nest indent inside the card */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .bn-block-group {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+}
+/* BlockNote default: nested groups get margin-left:1.5em + ::before vertical guide on block-outer */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .bn-block-group .bn-block-group {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+}
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .bn-block-outer::before {
+    content: none !important;
+    display: none !important;
+    width: 0 !important;
+    height: 0 !important;
+}
+/* BlockNote default: nested .bn-block-group { margin-left: 1.5em } + ::before vertical guide */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .bn-block-group .bn-block-group {
+    margin-left: 0 !important;
+}
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .bn-block-group .bn-block-group > .bn-block-outer::before {
+    content: none !important;
+    display: none !important;
+}
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .bn-block-outer.notion-tab-panel-outer .bn-block-group {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+}
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .bn-block-outer.notion-tab-panel-outer.is-active-tab-panel .bn-block-outer {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+}
+.notion-nest-shell .bn-block-outer.notion-tabs-outer [data-content-type='heading'] {
+    margin-top: 0 !important;
+    margin-bottom: 0.15rem !important;
+}
+/* Tab panel: zero nest margin on groups only (do not zero padding on .bn-block-content — collapses row) */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel .bn-block-group,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel .bn-block-group > .bn-block-outer {
+    margin-left: 0 !important;
+    margin-inline-start: 0 !important;
+    padding-left: 0 !important;
+    padding-inline-start: 0 !important;
+}
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel > .bn-block > .bn-block-group {
+    margin: 0 !important;
+    padding: 0.25rem 0.5rem 0.5rem 0 !important;
+}
+/* First row in tab content flush to card left edge (no nested block indent) */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel > .bn-block > .bn-block-group > .bn-block-outer:first-child {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+}
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel > .bn-block > .bn-block-group > .bn-block-outer:first-child .bn-block-content {
+    padding-left: 0 !important;
+    margin-left: 0 !important;
+}
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel .bn-block-content {
+    gap: 0 !important;
+    column-gap: 0 !important;
+}
+/* Collapse BlockNote side-menu gutter so content aligns with tab card left edge */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel .bn-block-content {
+    grid-template-columns: 0 minmax(0, 1fr) !important;
+}
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel .bn-block {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+}
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel .ProseMirror {
+    padding-left: 0 !important;
+    margin-left: 0 !important;
+}
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel .bn-block-group .bn-block-group {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+}
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel .bn-side-menu,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel .bn-drag-handle-menu,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel [class*='side-menu'] {
+    width: 0 !important;
+    min-width: 0 !important;
+    max-width: 0 !important;
+    overflow: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+/* Notion-style empty tab: static hint only until the user clicks (no L2 blocks yet). */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel[data-tab-empty='true'] > .bn-block > .bn-block-group::before {
+    content: 'Empty tab. Click or drop blocks inside.';
+    display: block;
+    color: rgba(55, 53, 47, 0.45);
+    font-size: 14px;
+    line-height: 1.5;
+    padding: 0.15rem 0 0.35rem;
+    pointer-events: none;
+    user-select: none;
+}
+
+/* Collapse empty panel shells while React empty hint is shown (no L2 blocks yet) */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer[data-tab-empty='true'] {
+    height: 0 !important;
+    min-height: 0 !important;
+    max-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    visibility: hidden !important;
+    pointer-events: none !important;
+    opacity: 0 !important;
+}
+
+/* Active tab with blocks: ensure L2 content is visible */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel:not([data-tab-empty='true']) {
+    display: block !important;
+    visibility: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+    overflow: visible !important;
+}
+
+/* Hide inactive panel shells entirely (multi-mount). */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer:not(.is-active-tab-panel) {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    pointer-events: none !important;
+    opacity: 0 !important;
+}
+
+/* Active panel shell must stay visible when JS stamped is-active (guards missing data-tab-index). */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .bn-block-outer.notion-tab-panel-outer.is-active-tab-panel {
+    display: block !important;
+    visibility: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+
+/* Show only the active tab index (L1 hoisted blocks + nested content) */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='0'] .bn-block-outer[data-tab-index='0'],
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='1'] .bn-block-outer[data-tab-index='1'],
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='2'] .bn-block-outer[data-tab-index='2'],
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='3'] .bn-block-outer[data-tab-index='3'],
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='4'] .bn-block-outer[data-tab-index='4'],
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='5'] .bn-block-outer[data-tab-index='5'],
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='6'] .bn-block-outer[data-tab-index='6'],
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='7'] .bn-block-outer[data-tab-index='7'],
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='8'] .bn-block-outer[data-tab-index='8'],
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='9'] .bn-block-outer[data-tab-index='9'],
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='10'] .bn-block-outer[data-tab-index='10'],
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='11'] .bn-block-outer[data-tab-index='11'],
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='12'] .bn-block-outer[data-tab-index='12'],
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='13'] .bn-block-outer[data-tab-index='13'],
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='14'] .bn-block-outer[data-tab-index='14'],
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='15'] .bn-block-outer[data-tab-index='15'] {
+    display: block !important;
+    visibility: visible !important;
+    height: auto !important;
+    max-height: none !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+
+/* Hide every stamped block outer that belongs to a non-active tab (panels + hoisted content). */
+/* :not([data-tab-index='N']) also hides unstamped outers (missing attribute) */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='0'] .bn-block-outer:not([data-tab-index='0']),
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='1'] .bn-block-outer:not([data-tab-index='1']),
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='2'] .bn-block-outer:not([data-tab-index='2']),
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='3'] .bn-block-outer:not([data-tab-index='3']),
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='4'] .bn-block-outer:not([data-tab-index='4']),
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='5'] .bn-block-outer:not([data-tab-index='5']),
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='6'] .bn-block-outer:not([data-tab-index='6']),
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='7'] .bn-block-outer:not([data-tab-index='7']),
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='8'] .bn-block-outer:not([data-tab-index='8']),
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='9'] .bn-block-outer:not([data-tab-index='9']),
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='10'] .bn-block-outer:not([data-tab-index='10']),
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='11'] .bn-block-outer:not([data-tab-index='11']),
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='12'] .bn-block-outer:not([data-tab-index='12']),
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='13'] .bn-block-outer:not([data-tab-index='13']),
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='14'] .bn-block-outer:not([data-tab-index='14']),
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='15'] .bn-block-outer:not([data-tab-index='15']) {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    pointer-events: none !important;
+    opacity: 0 !important;
+}
+
+/* Hide editable content inside inactive tab sections (hoisted .bn-block-content). */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='0'] .bn-block-outer:not([data-tab-index='0']) .bn-block-content,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='1'] .bn-block-outer:not([data-tab-index='1']) .bn-block-content,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='2'] .bn-block-outer:not([data-tab-index='2']) .bn-block-content,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='3'] .bn-block-outer:not([data-tab-index='3']) .bn-block-content,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='4'] .bn-block-outer:not([data-tab-index='4']) .bn-block-content,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='5'] .bn-block-outer:not([data-tab-index='5']) .bn-block-content,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='6'] .bn-block-outer:not([data-tab-index='6']) .bn-block-content,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='7'] .bn-block-outer:not([data-tab-index='7']) .bn-block-content,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='8'] .bn-block-outer:not([data-tab-index='8']) .bn-block-content,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='9'] .bn-block-outer:not([data-tab-index='9']) .bn-block-content,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='10'] .bn-block-outer:not([data-tab-index='10']) .bn-block-content,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='11'] .bn-block-outer:not([data-tab-index='11']) .bn-block-content,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='12'] .bn-block-outer:not([data-tab-index='12']) .bn-block-content,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='13'] .bn-block-outer:not([data-tab-index='13']) .bn-block-content,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='14'] .bn-block-outer:not([data-tab-index='14']) .bn-block-content,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer[data-active-tab='15'] .bn-block-outer:not([data-tab-index='15']) .bn-block-content {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
+    pointer-events: none !important;
+    opacity: 0 !important;
+}
+
+/* Hide hoisted panel content rows that BlockNote rendered outside the panel shell. */
+.notion-nest-shell .bn-block-outer.notion-tab-owned-block:not(.notion-tab-owned-block--visible) {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    max-height: 0 !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    pointer-events: none !important;
+    opacity: 0 !important;
+}
+
+/* Hover-to-switch ring during drag */
+.notion-tabs-bar__tab-wrap--drag-hover {
+    background: rgba(37, 99, 235, 0.12);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.35);
+    border-radius: 0.35rem;
+}
+.notion-nest-shell .bn-block-outer.notion-tab-panel--hidden {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    overflow: hidden !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    pointer-events: none !important;
+    opacity: 0 !important;
+}
+
+.notion-nest-shell--small-text .bn-editor,
+.notion-nest-shell--small-text .notion-page-title {
+    font-size: 0.9rem;
+}
+
+.notion-nest-shell--small-text .notion-page-title {
+    font-size: 2rem !important;
+}
+
+/* Page editor — Notion-like centered column */
+.notion-nest-shell .bn-editor {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 0 4px 4rem;
+    background: #fff;
+    min-height: 50vh;
+}
+
+/*
+ * Block-level text colors (drag handle → Colors → Text).
+ * BlockNote sets data-text-color on .bn-block-outer; apply to editable content so
+ * .bn-editor { color: … } and custom block wrappers do not mask the highlight.
+ */
+.notion-nest-shell .bn-editor .bn-block-outer[data-text-color='gray'] .bn-inline-content {
+    color: var(--bn-colors-highlights-gray-text, #9b9a97);
+}
+.notion-nest-shell .bn-editor .bn-block-outer[data-text-color='brown'] .bn-inline-content {
+    color: var(--bn-colors-highlights-brown-text, #64473a);
+}
+.notion-nest-shell .bn-editor .bn-block-outer[data-text-color='red'] .bn-inline-content {
+    color: var(--bn-colors-highlights-red-text, #e03e3e);
+}
+.notion-nest-shell .bn-editor .bn-block-outer[data-text-color='orange'] .bn-inline-content {
+    color: var(--bn-colors-highlights-orange-text, #d9730d);
+}
+.notion-nest-shell .bn-editor .bn-block-outer[data-text-color='yellow'] .bn-inline-content {
+    color: var(--bn-colors-highlights-yellow-text, #dfab01);
+}
+.notion-nest-shell .bn-editor .bn-block-outer[data-text-color='green'] .bn-inline-content {
+    color: var(--bn-colors-highlights-green-text, #4d6461);
+}
+.notion-nest-shell .bn-editor .bn-block-outer[data-text-color='blue'] .bn-inline-content {
+    color: var(--bn-colors-highlights-blue-text, #0b6e99);
+}
+.notion-nest-shell .bn-editor .bn-block-outer[data-text-color='purple'] .bn-inline-content {
+    color: var(--bn-colors-highlights-purple-text, #6940a5);
+}
+.notion-nest-shell .bn-editor .bn-block-outer[data-text-color='pink'] .bn-inline-content {
+    color: var(--bn-colors-highlights-pink-text, #ad1a72);
+}
+.notion-nest-shell .notion-quote-block,
+.notion-nest-shell .notion-toggle-title {
+    color: inherit;
+}
+
+/* Custom slash menu — scroll on .bn-suggestion-menu (required by BlockNote Mantine) */
+.notion-slash-menu,
+.bn-suggestion-menu.notion-slash-menu {
+    display: flex;
+    flex-direction: column;
+    max-height: min(404px, 70vh);
+    min-width: 300px;
+    overflow: hidden;
+    border-radius: 10px;
+}
+.notion-slash-menu__body,
+.notion-slash-menu__scroll {
+    flex: 1;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    min-height: 0;
+    padding: 4px 0;
+}
+.notion-slash-menu__section-rule {
+    height: 1px;
+    background: #e5e7eb;
+    margin: 6px 12px;
+}
+.notion-slash-menu__section-label {
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+.notion-slash-menu__footer {
+    border-top: 1px solid #e5e7eb;
+    padding: 6px 8px;
+    flex-shrink: 0;
+}
+.notion-slash-menu__close {
+    width: 100%;
+    text-align: left;
+    padding: 8px 12px;
+    font-size: 13px;
+    color: #6b7280;
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+}
+.notion-slash-menu__close:hover {
+    background: var(--notion-sf-brand-hover-bg);
+    color: var(--notion-sf-brand);
+}
+
+/* URL capture (bookmark / embed) */
+.notion-url-capture--empty {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.65rem 0.85rem;
+    border: 1px dashed #d1d5db;
+    border-radius: 0.5rem;
+    background: #fafafa;
+    color: #6b7280;
+    font-size: 0.875rem;
+    cursor: text;
+}
+.notion-url-capture--edit {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+    padding: 0.35rem 0;
+}
+.notion-url-capture__input {
+    flex: 1;
+    border: none;
+    outline: none;
+    font-size: 0.875rem;
+    background: transparent;
+}
+.notion-bookmark-card {
+    display: flex;
+    gap: 0.75rem;
+    align-items: flex-start;
+}
+.notion-bookmark-card__icon {
+    font-size: 1.25rem;
+    line-height: 1;
+}
+
+/* File viewer modal */
+.notion-file-viewer-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 5000;
+    background: rgba(0, 0, 0, 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+}
+.notion-file-viewer {
+    background: #fff;
+    border-radius: 0.5rem;
+    max-width: 90vw;
+    max-height: 90vh;
+    width: 800px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.25);
+}
+.notion-file-viewer__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.75rem 1rem;
+    border-bottom: 1px solid #e5e7eb;
+}
+.notion-file-viewer__body {
+    flex: 1;
+    min-height: 320px;
+    overflow: auto;
+}
+.notion-file-viewer__iframe {
+    width: 100%;
+    height: 70vh;
+    border: 0;
+}
+.notion-file-viewer__img {
+    max-width: 100%;
+    max-height: 70vh;
+    margin: 0 auto;
+    display: block;
+}
+
+/* Nested numbered lists — 1, 1.1, 1.1.1 style */
+.notion-nest-shell .bn-block-outer[data-content-type='numberedListItem'] {
+    counter-reset: notion-nested;
+}
+.notion-nest-shell .bn-block-group .bn-block-outer[data-content-type='numberedListItem'] {
+    counter-increment: notion-nested;
+}
+.notion-nest-shell .bn-block-group .bn-block-outer[data-content-type='numberedListItem']::before {
+    content: counters(notion-nested, '.') '. ';
+    position: absolute;
+    left: -1.5rem;
+    color: #6b7280;
+    font-size: 0.9em;
+}
+
+/* Equation block */
+.notion-equation-block {
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.5rem;
+    padding: 0.75rem 1rem;
+}
+.notion-equation-preview {
+    padding: 0.5rem;
+    background: #fff;
+    border-radius: 0.25rem;
+}
+
+/* File / video blocks — pointer on preview */
+.notion-nest-shell [data-content-type='file'] a,
+.notion-nest-shell [data-content-type='video'] a,
+.notion-nest-shell [data-content-type='file'] [role='button'],
+.notion-nest-shell [data-content-type='video'] .bn-file-block-content-wrapper {
+    cursor: pointer;
+}

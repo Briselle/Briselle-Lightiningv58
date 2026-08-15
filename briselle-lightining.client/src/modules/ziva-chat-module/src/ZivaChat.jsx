@@ -82,6 +82,7 @@ import {
 } from './zivaAssistantModes.js';
 import { buildExploreContextForSession } from './zivaExploreContext.js';
 import ZivaPlanChecklist from './components/ZivaPlanChecklist.jsx';
+import ZivaApiSettingsModal from './components/ZivaApiSettingsModal.jsx';
 import { resolveZivaApiBaseUrl } from './zivaServiceConfig.js';
 import SimpleZivaContactForm from './SimpleZivaContactForm.jsx';
 import { mergeZivaConfig } from './defaultConfig.js';
@@ -257,6 +258,7 @@ export default function ZivaChat({ config: userConfig, contactFormComponent: Con
   }
 
   const [open, setOpen] = useState(false);
+  const [showApiSettingsModal, setShowApiSettingsModal] = useState(false);
   const [wizard, setWizard] = useState(() => {
     const cache = loadChatCache();
     if (cache?.wizard && typeof cache.wizard === 'object') {
@@ -2122,6 +2124,16 @@ export default function ZivaChat({ config: userConfig, contactFormComponent: Con
             </Link>
             <button
               type="button"
+              className="ziva-chat-settings-btn"
+              onClick={() => setShowApiSettingsModal(true)}
+              aria-label="AI API Configuration"
+              title="AI API Configuration & Provider Routing"
+              style={{ background: 'none', border: 'none', color: '#54698d', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '14px', marginRight: '4px' }}
+            >
+              <i className="fas fa-cog" />
+            </button>
+            <button
+              type="button"
               className="ziva-chat-close"
               onClick={() => setOpen(false)}
               aria-label={cfg.strings.closePanelAria}
@@ -2130,6 +2142,11 @@ export default function ZivaChat({ config: userConfig, contactFormComponent: Con
             </button>
           </div>
         </div>
+
+        <ZivaApiSettingsModal
+          isOpen={showApiSettingsModal}
+          onClose={() => setShowApiSettingsModal(false)}
+        />
 
         <div className="ziva-chat-body">
           {showWelcome && (

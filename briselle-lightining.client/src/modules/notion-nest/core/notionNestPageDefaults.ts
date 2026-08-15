@@ -213,6 +213,20 @@ export function sanitizeNotionBlocks(blocks: unknown): any[] {
             ...(block.selectedLanguage !== undefined ? { selectedLanguage: String(block.selectedLanguage) } : {}),
             ...(block.selectedInstruction !== undefined ? { selectedInstruction: String(block.selectedInstruction) } : {}),
             ...(block.showCaption !== undefined ? { showCaption: !!block.showCaption } : {}),
+            /* BRIS-NN-MNB-H12: MeetingNotesBlock header date-tag state.
+               Additive only — these were previously stripped, so the selected
+               tag and its Current/Last mode never survived a sanitize pass. */
+            ...(block.calendarEvent !== undefined ? { calendarEvent: String(block.calendarEvent) } : {}),
+            ...(block.calendarEventMode !== undefined ? { calendarEventMode: String(block.calendarEventMode) } : {}),
+            ...(block.calendarSource !== undefined ? { calendarSource: String(block.calendarSource) } : {}),
+            /* BRIS-NN-MNB-T24: pinned transcript insights shown on the
+               collapsed Insights header. Without this the pins were
+               stripped on every sanitize pass and never persisted. */
+            ...(block.pinnedInsights !== undefined ? { pinnedInsights: block.pinnedInsights } : {}),
+            /* BRIS-NN-MNB-T27: summary-instruction menu preferences. */
+            ...(block.defaultInstruction !== undefined ? { defaultInstruction: String(block.defaultInstruction) } : {}),
+            ...(block.hiddenInstructions !== undefined ? { hiddenInstructions: block.hiddenInstructions } : {}),
+            ...(block.instructionIcons !== undefined ? { instructionIcons: block.instructionIcons } : {}),
         };
     }).filter(Boolean);
 }

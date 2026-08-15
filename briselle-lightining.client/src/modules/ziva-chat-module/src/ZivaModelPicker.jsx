@@ -6,9 +6,9 @@
 import { useState, useRef, useEffect, useCallback, useLayoutEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { ZIVA_CHAT_MODELS } from './zivaModels.js';
+import { ZivaApiRouterService } from './zivaApiRouterService.js';
 
-const ACTIVE_MODELS = ZIVA_CHAT_MODELS.filter((m) => !m.disabled);
-const ALL_MODELS = ZIVA_CHAT_MODELS;
+const DEFAULT_MODELS = ZIVA_CHAT_MODELS;
 const POPOVER_MIN_W = 232;
 const POPOVER_MAX_W = 280;
 const GAP_PX = 8;
@@ -16,17 +16,17 @@ const GAP_PX = 8;
 function getGroups(list) {
   const map = new Map();
   for (const m of list) {
-    const g = m.group || 'Models';
+    const g = m.group || m.providerName || 'Models';
     if (!map.has(g)) map.set(g, []);
     map.get(g).push(m);
   }
   return [...map.entries()].map(([label, items]) => ({ label, items }));
 }
 
-function filterModels(query) {
-  if (!query.trim()) return ALL_MODELS;
+function filterModels(list, query) {
+  if (!query.trim()) return list;
   const q = query.toLowerCase();
-  return ALL_MODELS.filter((m) => m.label.toLowerCase().includes(q) || m.id.toLowerCase().includes(q));
+  return list.filter((m) => (m.label || m.name || '').toLowerCase().includes(q) || (m.id || '').toLowerCase().includes(q));
 }
 
 function computePopoverStyle(pillEl) {
@@ -145,8 +145,20 @@ function PopoverContent({
 }
 
 export default function ZivaModelPicker({ selectedModel, onChange }) {
+  const dynamicApiModels = ZivaApiRouterService.getAllAvailableModels().map(m => ({
+    id: m.id,
+    label: m.name,
+    group: m.providerName || 'Configured APIs',
+    type: m.type
+  }));
+
+  const allAvailableModels = [
+    ...DEFAULT_MODELS.map(m => ({ ...m, group: m.group || 'Standard Models' })),
+    ...dynamicApiModels
+  ];
+
   const isAuto = selectedModel === 'auto';
-  const currentModel = ACTIVE_MODELS.find((m) => m.id === selectedModel) || null;
+  const currentModel = allAvailableModels.find((m) => m.id === selectedModel) || null;
   const pillLabel = isAuto ? 'Auto' : (currentModel?.label ?? selectedModel);
 
   const [open, setOpen] = useState(false);
@@ -227,7 +239,7 @@ export default function ZivaModelPicker({ selectedModel, onChange }) {
     [onChange],
   );
 
-  const displayedModels = filterModels(query);
+  const displayedModels = filterModels(allAvailableModels, query);
   const groups = getGroups(displayedModels);
 
   const fixedStyle = popoverStyle

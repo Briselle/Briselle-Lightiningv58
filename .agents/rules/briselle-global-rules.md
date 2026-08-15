@@ -153,6 +153,13 @@ Business
 - Always add proper comments
 - Every Change Udpated the Created Date and Last Modified Dates in the comments. 
 - Always paste the previous version back url right next to comment
+- Always back the files modified last 5 version locally in the brain, and in parallel delete any backfiles that are greater than 5 version. So When we ask to restore last 2 change in the chat, you restore the file directly instead of thinking too much.
+---
+
+# CODE LOCAL SAVE OR LOCAL COMMIT RULES
+- If the IDE has review option do not commit the code locally example Antigravity shows files changed review with accept or reject option by files. 
+- let the user choose to accept or reject only then commit the code locally.
+- 
 ---
 
 # TOKEN RULES
@@ -189,6 +196,7 @@ Before deleting more than 100 lines provide:
 - Affected modules
 - Regression risks
 - Rollback strategy
+- Always back the files modified last 5 version locally in the brain, and in parallel delete any backfiles that are greater than 5 version. So When we ask to restore last 2 change in the chat, you restore the file directly instead of thinking too much.
 
 ---
 
@@ -208,7 +216,7 @@ Before deleting more than 100 lines provide:
 - Never restore Git files unless explicitly instructed.
 - Never replace Git files unless instructed.
 - Never delete Git files unless instructed.
-
+- Never restore from Git to local unless explicity states "Briselle Restore Mode" keyword is used.
 ---
 
 # AI MEMORY

@@ -1,0 +1,283 @@
+/* ============================================================
+   Briselle Enterprise Platform — Common Utility Modules
+   AudioController.css — Dynamic Thin-Line Skin-Wave Audio Player
+   ============================================================ */
+
+.briselle-audio-controller {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 100%;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 10px 14px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.04);
+  box-sizing: border-box;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  transition: all 0.2s ease;
+  user-select: none;
+  overflow: hidden;
+}
+
+.briselle-audio-controller.bac-sticky {
+  position: fixed;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 90%;
+  max-width: 720px;
+  z-index: 9999;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+  border-color: #cbd5e1;
+}
+
+/* Line 1: Header Row with Title, Branding Badge, Speaker Selector, Volume Slider & Close Button */
+.bac-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 6px;
+  gap: 8px;
+}
+
+.bac-title-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.bac-icon-badge {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.bac-track-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1e293b;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 50%;
+}
+
+.bac-brand-badge {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  letter-spacing: 0.2px;
+}
+
+/* Line 1 Right Controls: Speaker + Volume Slider + Close */
+.bac-header-right-controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.bac-volume-inline-group {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.bac-volume-slider-inline {
+  width: 60px;
+  height: 4px;
+  accent-color: #2383e2;
+  cursor: pointer;
+  vertical-align: middle;
+}
+
+/* Line 2: Playback Controls & Dynamic Waveform Row */
+.bac-controls-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 10px;
+  box-sizing: border-box;
+}
+
+.bac-main-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.bac-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  padding: 0;
+  border-radius: 50%;
+  transition: all 0.15s ease;
+}
+
+.bac-btn:hover {
+  color: #1e293b;
+  background: #f1f5f9;
+}
+
+.bac-btn-main {
+  width: 32px;
+  height: 32px;
+  color: #ffffff !important;
+  box-shadow: 0 2px 6px rgba(35, 131, 226, 0.3);
+}
+
+.bac-btn-main:hover {
+  transform: scale(1.06);
+  box-shadow: 0 4px 10px rgba(35, 131, 226, 0.4);
+}
+
+.bac-play-icon {
+  margin-left: 2px;
+}
+
+.bac-btn-prev,
+.bac-btn-next {
+  width: 24px;
+  height: 24px;
+}
+
+/* Dynamic Thin-Line Skin-Wave Waveform Equalizer (4x Height Expansion) */
+.bac-waveform-container {
+  position: relative;
+  flex: 1;
+  height: 48px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  border-radius: 6px;
+  padding: 0 2px;
+  overflow: hidden;
+  min-width: 100px;
+}
+
+.bac-waveform-bars {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  height: 100%;
+  gap: 2px;
+  z-index: 2;
+}
+
+/* Thin 2px cursor-like lines */
+.bac-wave-bar {
+  flex: 0 0 2px;
+  width: 2px;
+  min-height: 4px;
+  background: #cbd5e1;
+  border-radius: 1px;
+  transition: height 0.12s ease, background-color 0.15s ease;
+  transform-origin: center center;
+}
+
+.bac-wave-bar.active {
+  background: #2383e2;
+}
+
+.bac-wave-bar.animating {
+  animation: bac-thin-skin-wave 1.2s ease-in-out infinite;
+}
+
+@keyframes bac-thin-skin-wave {
+  0%, 100% { transform: scaleY(0.3); }
+  50% { transform: scaleY(1.0); }
+}
+
+.bac-progress-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  border-radius: 4px;
+  pointer-events: none;
+  z-index: 1;
+  transition: width 0.1s linear;
+}
+
+/* Time Display */
+.bac-time-display {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: var(--font-mono, monospace), monospace;
+  color: #475569;
+  flex-shrink: 0;
+}
+
+.bac-time-divider {
+  color: #94a3b8;
+}
+
+.bac-time-left {
+  color: #94a3b8;
+  font-size: 10px;
+  margin-left: 2px;
+}
+
+.bac-device-wrap {
+  position: relative;
+}
+
+.bac-btn-vol,
+.bac-btn-speaker,
+.bac-btn-close {
+  width: 24px;
+  height: 24px;
+}
+
+.bac-speaker-dropdown {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+  padding: 4px 0;
+  min-width: 140px;
+  z-index: 100;
+}
+
+.bac-speaker-item {
+  padding: 6px 12px;
+  font-size: 11px;
+  color: #334155;
+  cursor: pointer;
+}
+
+.bac-speaker-item:hover {
+  background: #f1f5f9;
+}
+
+.bac-speaker-item.active {
+  color: #2383e2;
+  font-weight: 600;
+}
