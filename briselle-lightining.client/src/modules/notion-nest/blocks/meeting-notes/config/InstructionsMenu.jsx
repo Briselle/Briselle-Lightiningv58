@@ -121,18 +121,19 @@ export function InstructionsMenu({ onDone }) {
         {isSelected && !isDefault && <Check size={13} className="nnr-instr-check" />}
 
         <span className="nnr-instr-actions">
-          {/* Auto is built in and has no editable prompt of its own */}
-          {inst !== 'Auto' && (
-            <button
-              type="button"
-              className="nnr-flyout-action"
-              onClick={(e) => edit(e, inst)}
-              aria-label={`Edit ${inst}`}
-              title="Edit instructions"
-            >
-              <Edit3 size={13} />
-            </button>
-          )}
+          {/* BRIS-NN-MNB-T99: every instruction is editable, Auto included.
+              Its prompt is a row in the platform_config document like any
+              other, and a built-in can be reset from inside the editor, so
+              there is nothing to protect it from. */}
+          <button
+            type="button"
+            className="nnr-flyout-action"
+            onClick={(e) => edit(e, inst)}
+            aria-label={`Edit ${inst}`}
+            title="Edit instructions"
+          >
+            <Edit3 size={13} />
+          </button>
           <button
             type="button"
             className="nnr-flyout-action"

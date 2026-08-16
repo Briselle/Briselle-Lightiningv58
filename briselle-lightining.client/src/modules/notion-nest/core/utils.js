@@ -448,6 +448,38 @@ export const markdownShortcuts = [
   { pattern: /^le $/, type: 'link_preview' },
 ];
 
+/* ══════════════════════════════════════════════════════════════════
+   BRIS-NN-T97 — block-type exclusion helpers.
+
+   A host can embed the page editor with part of the registry switched
+   off (see PageProvider's `excludedBlockTypes`). A type is reachable
+   from three places, so all three are filtered through these helpers
+   rather than each consumer rolling its own check:
+
+     • the slash menu           → filterSlashSections
+     • the markdown shortcuts   → filterBlockShortcuts  (e.g. "mt ")
+     • already-stored content   → BlockRenderer
+
+   Both return the ORIGINAL array when nothing is excluded, so the
+   common case allocates nothing and memo identity is preserved.
+   ══════════════════════════════════════════════════════════════════ */
+
+/** @param {Array} sections @param {string[]} excluded */
+export function filterSlashSections(sections, excluded) {
+  if (!excluded || !excluded.length) return sections;
+  const drop = new Set(excluded);
+  return sections
+    .map(section => ({ ...section, items: section.items.filter(i => !drop.has(i.type)) }))
+    .filter(section => section.items.length > 0);
+}
+
+/** @param {Array} shortcuts @param {string[]} excluded */
+export function filterBlockShortcuts(shortcuts, excluded) {
+  if (!excluded || !excluded.length) return shortcuts;
+  const drop = new Set(excluded);
+  return shortcuts.filter(s => !drop.has(s.type));
+}
+
 // ---- Recent blocks tracking ----
 const RECENT_KEY = 'nn_recent';
 export function getRecentBlocks() {

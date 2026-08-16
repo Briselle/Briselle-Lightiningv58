@@ -10,7 +10,7 @@ import {
   MessageSquare, Minus, ChevronDown, ChevronUp, Sparkles, Plus
 } from 'lucide-react';
 import { usePageContext } from '../core/PageContext';
-import { slashMenuSections, calculateInitials, obfuscateText, deobfuscateText, obfuscateTextSecure, deobfuscateTextSecure, getRecentBlocks, trackBlockUsage } from '../core/utils';
+import { slashMenuSections, filterSlashSections, calculateInitials, obfuscateText, deobfuscateText, obfuscateTextSecure, deobfuscateTextSecure, getRecentBlocks, trackBlockUsage } from '../core/utils';
 import UploadZone from '../components/UploadZone';
 import { FontSettingsPanel, POPULAR_FONTS } from '../pages/NotionNestPage';
 import { listNotionPages } from '../core/notionNestPageStorage';
@@ -337,7 +337,15 @@ export const SVG_ICONS = [
 ];
 
 export const SlashMenu = memo(function SlashMenu() {
-  const { slashMenu, hideSlashMenu, changeBlockType, updateBlockContent } = usePageContext();
+  const { slashMenu, hideSlashMenu, changeBlockType, updateBlockContent, excludedBlockTypes } = usePageContext();
+
+  /* BRIS-NN-T97: the menu offers only what this page instance allows.
+     Memoised so the identity is stable — the helper returns the original
+     array untouched when nothing is excluded. */
+  const sections = useMemo(
+    () => filterSlashSections(slashMenuSections, excludedBlockTypes),
+    [excludedBlockTypes]
+  );
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [coords, setCoords] = useState({ left: 0, top: 0 });
   const [recentTypes, setRecentTypes] = useState([]);
@@ -350,7 +358,7 @@ export const SlashMenu = memo(function SlashMenu() {
 
   const getVisibleItems = useCallback(() => {
     const items = [];
-    slashMenuSections.forEach(section => {
+    sections.forEach(section => {
       const q = (slashMenu.filter || '').toLowerCase();
       section.items.forEach(item => {
         const nameMatch = item.name.toLowerCase().includes(q);
@@ -491,7 +499,7 @@ export const SlashMenu = memo(function SlashMenu() {
   let itemIndex = 0;
 
   const allItems = [];
-  slashMenuSections.forEach(s => s.items.forEach(i => allItems.push(i)));
+  sections.forEach(s => s.items.forEach(i => allItems.push(i)));
 
   const recentItems = !slashMenu.filter ? recentTypes.map(t => allItems.find(i => i.type === t)).filter(Boolean) : [];
 
@@ -529,7 +537,7 @@ export const SlashMenu = memo(function SlashMenu() {
           <div className="slash-menu-divider" />
         </div>
       )}
-      {slashMenuSections.map(section => {
+      {sections.map(section => {
         const q = slashMenu.filter.toLowerCase();
         const sectionItems = section.items.filter(item => {
           const nameMatch = item.name.toLowerCase().includes(q);

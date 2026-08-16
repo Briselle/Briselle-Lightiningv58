@@ -33,7 +33,21 @@ export function usePageContext() {
   if (!ctx) throw new Error('usePageContext must be used within PageProvider');
   return ctx;
 }
-export function PageProvider({ children, initialBlocks, initialTitle, initialIcon, initialCover, initialCoverPosition, initialComments, initialAuditData, onChange, imperativeRef, restrictedDeletion = false }) {
+
+/* Module-level so the default prop is referentially stable — a fresh []
+   on every render would invalidate every memo that depends on it. */
+const EMPTY_EXCLUSIONS = [];
+/* BRIS-NN-T97: `excludedBlockTypes` lets a host embed the page editor with
+   part of the block registry switched off. It exists so the Meeting Notes
+   instruction editor can reuse THIS editor while refusing to nest a Meeting
+   Notes block inside itself, which would recurse.
+
+   Additive and optional: the default empty array reproduces the previous
+   behaviour exactly, so every existing NotionNest page is unaffected.
+   Filtering happens at three places — the slash menu, the markdown
+   shortcuts, and BlockRenderer — because a type can be inserted from any
+   of them. */
+export function PageProvider({ children, initialBlocks, initialTitle, initialIcon, initialCover, initialCoverPosition, initialComments, initialAuditData, onChange, imperativeRef, restrictedDeletion = false, excludedBlockTypes = EMPTY_EXCLUSIONS }) {
   const [pageState, setPageState] = useState(() => {
     const blocks = initialBlocks || buildDefaultBlocks();
     fixTabDefaults(blocks);
@@ -1436,6 +1450,8 @@ export function PageProvider({ children, initialBlocks, initialTitle, initialIco
     undoPopover, showUndoPopover, hideUndoPopover,
     aiRephrase, openAiRephrase, closeAiRephrase,
     restrictedDeletion,
+    /* BRIS-NN-T97 */
+    excludedBlockTypes,
     storeRedactedContent, getRedactedContent, clearRedactedContent, clearAllRedactedContent,
     undo, redo, canUndo, canRedo, restoreFromCheckpoint, historyManager: historyManagerRef,
   };

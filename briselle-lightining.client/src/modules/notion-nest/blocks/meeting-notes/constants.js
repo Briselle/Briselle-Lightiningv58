@@ -1,11 +1,64 @@
 /* ============================================================
    NotionNest — meeting-notes/constants.js
-   Created At: 2026-08-15 | Last Modified: 2026-08-15
-   Previous Version Back URL: blocks/MeetingNotesBlock.jsx#L26-L150,L205-L234
+   Created At: 2026-08-15 | Last Modified: 2026-08-16
+   Previous Version Back URL: meeting-notes/constants.js@2026-08-15
+                              (10 prompts, 4 menu presets with none)
 
-   Task: BRIS-NN-MNB-R06
+   Task: BRIS-NN-MNB-R06 / T92
    Purpose: Instruction prompt presets and language maps. No React.
-   ============================================================ */
+
+   ════════════════════════════════════════════════════════════
+   BRIS-NN-MNB-T92 — every preset now has a prompt.
+
+   The menu used to offer ['Auto','Meeting','Interview','Call',
+   'Stand-up','Workshop'] while this file defined prompts under
+   different names. Four of those six resolved to nothing and fell
+   back to Auto, so selecting them changed nothing at all.
+
+   The two lists are now ONE list. INSTRUCTION_PRESET_ORDER below is
+   the single source for both the menu order and the seeded database
+   document, so they cannot drift apart again.
+
+   Renamed to match the menu: 'Candidate Interview' → 'Interview',
+   'Team Standup' → 'Stand-up'. Newly written: 'Call', 'Workshop'.
+
+   NOTE: at runtime these are the SEED only. Once the
+   `AIMeetingNotesPrompt` row exists in platform_config, that row is
+   the source of truth — see services/aiPromptConfigService.ts.
+   ════════════════════════════════════════════════════════════ */
+
+/** Menu order and the order seeded into platform_config. */
+export const INSTRUCTION_PRESET_ORDER = [
+  'Auto',
+  'Meeting',
+  'Interview',
+  'Call',
+  'Stand-up',
+  'Workshop',
+  '1-on-1',
+  'Technical Discussion',
+  'Product Planning',
+  'Brainstorming',
+  'Client Review',
+  'Sales',
+];
+
+/** Default glyph per preset. Keys must exist in CUSTOM_ICON_CHOICES. */
+export const INSTRUCTION_PRESET_ICONS = {
+  'Auto': 'Sparkles',
+  'Meeting': 'Users',
+  'Interview': 'Signpost',
+  'Call': 'Headphones',
+  'Stand-up': 'Users',
+  'Workshop': 'Presentation',
+  '1-on-1': 'Users',
+  'Technical Discussion': 'FileText',
+  'Product Planning': 'Presentation',
+  'Brainstorming': 'Sparkles',
+  'Client Review': 'Signpost',
+  'Sales': 'Headphones',
+};
+
 export const DEFAULT_INSTRUCTION_PROMPTS = {
   'Auto': `Analyze the following interaction transcript and manual notes. Automatically detect the interaction type and generate a comprehensive summary.
 Use markdown formatting: headers (##), bullet points (-), bold (**text**) for emphasis, and checkboxes (- [ ]) for action items.
@@ -62,7 +115,8 @@ Other solutions being considered.
 ## Next Steps
 Follow-up demo or commercial negotiation call.`,
 
-  'Candidate Interview': `Analyze the following interview transcript. Evaluate candidate background, technical skills, behavioral responses, culture fit, and overall recommendation.
+  /* T92: renamed from 'Candidate Interview' so the menu entry resolves. */
+  'Interview': `Analyze the following interview transcript. Evaluate candidate background, technical skills, behavioral responses, culture fit, and overall recommendation.
 Structure:
 ## Candidate Profile
 Candidate name, role applied for, years of experience.
@@ -97,7 +151,8 @@ Items explicitly deferred.
 ## Milestones & Target Release
 Proposed release timeline.`,
 
-  'Team Standup': `Analyze the following daily standup transcript. Summarize what each person completed yesterday, what they plan to do today, and all blockers.
+  /* T92: renamed from 'Team Standup' so the menu entry resolves. */
+  'Stand-up': `Analyze the following daily standup transcript. Summarize what each person completed yesterday, what they plan to do today, and all blockers.
 Structure:
 ## Standup Summary
 Brief overview of team progress.
@@ -105,6 +160,40 @@ Brief overview of team progress.
 Per-person yesterday/today updates.
 ## Blockers & Escalations
 Items requiring immediate attention.`,
+
+  /* T92: new — the menu offered "Call" with no prompt behind it. */
+  'Call': `Analyze the following call transcript and notes. This is a general
+conversation rather than a structured meeting, so lead with what was actually
+agreed rather than an agenda.
+Structure:
+## Call Summary
+Who was on the call, why it happened, and the outcome in two or three sentences.
+## What Was Discussed
+The substance of the conversation, grouped by topic.
+## Commitments Made
+Anything either side promised to do, with the person who owns it.
+## Open Questions
+Points raised but not resolved on the call.
+## Action Items & Next Steps
+- [ ] Action item with owner and due date if mentioned.`,
+
+  /* T92: new — the menu offered "Workshop" with no prompt behind it. */
+  'Workshop': `Analyze the following workshop transcript and notes. A workshop
+produces material rather than decisions, so capture what the group built and
+where it landed, not just who spoke.
+Structure:
+## Workshop Purpose & Participants
+The objective of the session and who took part.
+## Activities & Exercises
+What the group actually worked through, in order.
+## Outputs & Artefacts
+Concrete material produced — frameworks, lists, diagrams, drafts.
+## Themes & Insights
+Patterns that emerged across the exercises.
+## Points of Disagreement
+Where the group did not converge, and the positions held.
+## Follow-up Actions
+- [ ] Action item with owner.`,
 
   'Client Review': `Analyze the following client review meeting transcript. Summarize client satisfaction, deliverables status, feedback, risks, and next steps.
 Structure:

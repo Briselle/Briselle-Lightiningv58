@@ -10,20 +10,15 @@
    ============================================================ */
 import { useMeetingNotes } from '../context/MeetingNotesContext';
 import { Info, Loader2 } from 'lucide-react';
-import { EditPromptModal } from './EditPromptModal';
+import { InstructionEditorModal } from './InstructionEditorModal';
 import ZivaApiSettingsModal from '../../../../ziva-chat-module/src/components/ZivaApiSettingsModal.jsx';
 
 export function MeetingModals() {
   const {
-    customInstructions,
     dynamicConfirmModalConfig,
     isTranslating,
     mode,
-    saveProp,
-    selectedInstruction,
-    setCustomInstructions,
     setDynamicConfirmModalConfig,
-    setSelectedInstruction,
     setShowZivaApiSettingsModal,
     setUnifiedModalOpen,
     showZivaApiSettingsModal,
@@ -33,32 +28,28 @@ export function MeetingModals() {
     unifiedModalInstruction,
     unifiedModalMode,
     unifiedModalOpen,
-    unifiedModalPrompt,
+    activePromptDoc,
+    promptSaving,
+    saveInstructionPrompt,
+    resetInstructionPrompt,
   } = useMeetingNotes();
   return (
     <>
-    {/* TASK-MN-EDITOR-003: Unified NotionNest Instruction Editor Modal */}
+    {/* BRIS-NN-MNB-T98: the instruction editor is now the real NotionNest
+        page editor. Persistence goes through aiPromptConfigService into
+        platform_config — the old handler wrote a per-block
+        `customInstructions` array, which is why prompts never survived
+        beyond the block that created them. */}
     {unifiedModalOpen && (
-      <EditPromptModal
+      <InstructionEditorModal
         isOpen={unifiedModalOpen}
         mode={unifiedModalMode}
-        instructionName={unifiedModalInstruction}
-        initialPrompt={unifiedModalPrompt}
+        instructionKey={unifiedModalInstruction}
+        entry={activePromptDoc?.instructions?.[unifiedModalInstruction] || null}
+        isSaving={promptSaving}
+        onSave={saveInstructionPrompt}
+        onReset={resetInstructionPrompt}
         onClose={() => setUnifiedModalOpen(false)}
-        onSave={(name, prompt) => {
-          if (unifiedModalMode === 'add') {
-            const updated = [...customInstructions, { name, prompt }];
-            setCustomInstructions(updated);
-            setSelectedInstruction(name);
-            saveProp('customInstructions', updated);
-            saveProp('selectedInstruction', name);
-          } else {
-            const updated = customInstructions.map(ci => ci.name === name ? { ...ci, prompt } : ci);
-            setCustomInstructions(updated);
-            saveProp('customInstructions', updated);
-          }
-          setUnifiedModalOpen(false);
-        }}
       />
     )}
 

@@ -23,6 +23,9 @@ export default function NotionNestPage({
   commentsAutoHideDelay = 30,
   commentsHoverMode = 'text',
   restrictedDeletion = false,
+  /* BRIS-NN-T97: block types this instance must not offer or render.
+     Default [] = unchanged behaviour for every existing page. */
+  excludedBlockTypes,
   imperativeRef
 }) {
   return (
@@ -37,6 +40,7 @@ export default function NotionNestPage({
       onChange={onChange}
       imperativeRef={imperativeRef}
       restrictedDeletion={restrictedDeletion}
+      excludedBlockTypes={excludedBlockTypes}
     >
       <NotionPageInner
         showSidebarProp={showSidebar}

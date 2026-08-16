@@ -230,6 +230,10 @@ export function sanitizeNotionBlocks(blocks: unknown): any[] {
             /* BRIS-NN-MNB-T29b: keeps the Transcript tab visible after reload
                once transcription has been started at least once. */
             ...(block.transcriptStarted !== undefined ? { transcriptStarted: !!block.transcriptStarted } : {}),
+            /* BRIS-NN-MNB-T76: chosen Briselle Audio Controller layout
+               ('simple' | 'full'). Whitelisted here or the user's choice
+               is stripped on the next save and silently reverts. */
+            ...(block.audioPlayerVariant !== undefined ? { audioPlayerVariant: String(block.audioPlayerVariant) } : {}),
         };
     }).filter(Boolean);
 }

@@ -6,7 +6,7 @@
    ============================================================ */
 import { useRef, useCallback, useEffect } from 'react';
 import { usePageContext } from '../../core/PageContext';
-import { getCaretPosition, markdownShortcuts, slashMenuSections, isCaretOnFirstLine, isCaretOnLastLine, getCaretCoordinates } from '../../core/utils';
+import { getCaretPosition, markdownShortcuts, slashMenuSections, filterSlashSections, filterBlockShortcuts, isCaretOnFirstLine, isCaretOnLastLine, getCaretCoordinates } from '../../core/utils';
 import { focusBlock } from './focusBlock';
 
 /**
@@ -33,7 +33,9 @@ export function useEditable(block, opts = {}) {
     else ctx.hideSlashMenu();
     // Markdown shortcuts (e.g. # → heading, - → bullet)
     if (!isCode && block.type === 'paragraph') {
-      for (const shortcut of markdownShortcuts) {
+      /* BRIS-NN-T97: an excluded type must not be reachable by typing its
+         shortcut either (e.g. "mt " for a Meeting Notes block). */
+      for (const shortcut of filterBlockShortcuts(markdownShortcuts, ctx.excludedBlockTypes)) {
         if (shortcut.pattern.test(text)) {
           ctx.changeBlockType(block.id, shortcut.type);
           requestAnimationFrame(() => {
@@ -195,7 +197,8 @@ export function useEditable(block, opts = {}) {
         if (text.startsWith('/')) {
           const cmd = text.slice(1).toLowerCase();
           let matchedType = null;
-          for (const section of slashMenuSections) {
+          /* T97: and not by typing its slash name. */
+          for (const section of filterSlashSections(slashMenuSections, ctx.excludedBlockTypes)) {
             for (const item of section.items) {
               if (item.type === cmd || item.name.toLowerCase() === cmd || (item.keywords && item.keywords.includes(cmd))) {
                 matchedType = item.type;

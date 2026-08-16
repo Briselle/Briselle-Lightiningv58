@@ -28,7 +28,9 @@ import {
 import { NotionDatePicker } from '../shared/NotionDatePicker';
 import { ZivaApiRouterService } from '../../../ziva-chat-module/src/zivaApiRouterService.js';
 import ZivaApiSettingsModal from '../../../ziva-chat-module/src/components/ZivaApiSettingsModal.jsx';
-import AudioController from '../../../utility-modules/audio-controller/AudioController.jsx';
+/* BRIS-NN-MNB-T70: the AudioController import that was here is gone —
+   the Base never rendered it. The one playback surface is
+   transcript/MeetingAudioPlayer.jsx. */
 import { supabase } from '../../../../utils/supabase';
 
 /* BRIS-NN-MNB-R01..R06: extracted collaborators */
@@ -43,10 +45,15 @@ import { TranscriptInsights } from './transcript/TranscriptInsights';
 import { InstructionsMenu } from './config/InstructionsMenu';
 import { useDismissOnOutside } from './hooks/useDismissOnOutside';
 import { TranscriptToolbar } from './transcript/TranscriptToolbar';
+import { RecordingOverlays } from './transcript/RecordingOverlays';
 import { MeetingFooter } from './footer/MeetingFooter';
 import { SummaryActions } from './summary/SummaryActions';
 import { MeetingModals } from './config/MeetingModals';
-import { EditPromptModal } from './config/EditPromptModal';
+import { InstructionEditorModal } from './config/InstructionEditorModal';
+import {
+  loadPromptDocument, buildDefaultPromptDocument, upsertInstruction,
+  deleteInstruction, resetInstructionToDefault,
+} from '../../services/aiPromptConfigService';
 import { DEFAULT_INSTRUCTION_PROMPTS, LANGUAGE_CODE_MAP, NATIVE_LANGUAGE_DISPLAY, getNativeLangDisplay, resolveRecognitionLang, LANGUAGE_AUTO, INDIAN_LANGUAGES } from './constants';
 /* BRIS-NN-MNB-T01/T02: canonical transcript line shape + hidden prefix */
 import { FileService } from '../../../utility-modules/upload-module/FileService';
@@ -67,8 +74,18 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
 
   const [showCalendarPopover, setShowCalendarPopover] = useState(false);
   const [showTranscribeMenu, setShowTranscribeMenu] = useState(false);
-  /* BRIS-NN-MNB-T57: files handed to the audio player bar. */
+  /* BRIS-NN-MNB-T57: files handed to the audio player.
+     BRIS-NN-MNB-T70: the player is now the shared Briselle Audio
+     Controller, which is a CONTROLLED component — it plays what
+     `isPlaying` says. So the queue, its cursor and its play state all
+     live here rather than inside the player. */
   const [playQueue, setPlayQueue] = useState([]);
+  const [playQueueIndex, setPlayQueueIndex] = useState(0);
+  const [queuePlaying, setQueuePlaying] = useState(false);
+  const [playerError, setPlayerError] = useState('');
+  /* BRIS-NN-MNB-T77: a failed soft delete is reported in the audio-files
+     list rather than swallowed. */
+  const [audioFilesError, setAudioFilesError] = useState('');
   /* BRIS-NN-MNB-T39: mode submenu under Resume transcription. */
   const [showResumeSubmenu, setShowResumeSubmenu] = useState(false);
   const calendarWrapRef = useRef(null);
@@ -76,6 +93,13 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
   const moreMenuWrapRef = useRef(null);
   /* BRIS-NN-MNB-T42: anchors the split-button mode menu for dismiss. */
   const transcribeWrapRef = useRef(null);
+  /* BRIS-NN-MNB-T73: the live recording controls, so RecordingPill can
+     observe whether they are still visible and only surface the floating
+     pill once they are not. */
+  const recControlsRef = useRef(null);
+  /* BRIS-NN-MNB-T90: the block root, so "Go to meeting note" can bring
+     the note back into view from wherever the user has scrolled to. */
+  const meetingRootRef = useRef(null);
   const translateWrapRef = useRef(null);
   const [BR, setBR] = useState(null);
   useEffect(() => { import('../../core/BlockRenderer').then(m => setBR(() => m.default)); }, []);
@@ -131,6 +155,38 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
   /* TASK-MN-ZIVA-021B: Ziva API Settings Modal & Generation Status */
   const [showZivaApiSettingsModal, setShowZivaApiSettingsModal] = useState(false);
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
+
+  /* ──────────────────────────────────────────────────────────────────
+     BRIS-NN-MNB-T82 — summary progress checklist.
+
+     Each entry is a step the pipeline ACTUALLY performed:
+       { id, label, status: 'active' | 'done' | 'failed', detail? }
+
+     Nothing here is decorative. A step is only added when its work
+     starts and only marked done when that work returns, so the list is
+     a report rather than an animation — the section rows come from
+     headings streamed back by the model, not from a fixed script.
+     ────────────────────────────────────────────────────────────────── */
+  const [summarySteps, setSummarySteps] = useState([]);
+
+  const setSummaryStep = useCallback((id, label, status, detail) => {
+    setSummarySteps(prev => {
+      const idx = prev.findIndex(s => s.id === id);
+      const entry = { id, label, status, ...(detail !== undefined ? { detail } : {}) };
+      if (idx === -1) return [...prev, entry];
+      const next = [...prev];
+      next[idx] = { ...next[idx], ...entry };
+      return next;
+    });
+  }, []);
+
+  /* Any step still 'active' when the run ends did finish — the run only
+     reaches here once every awaited call has returned. */
+  const settleSummarySteps = useCallback(() => {
+    setSummarySteps(prev => prev.map(s => s.status === 'active' ? { ...s, status: 'done' } : s));
+  }, []);
+
+  const resetSummarySteps = useCallback(() => setSummarySteps([]), []);
   const [dynamicConfirmModalConfig, setDynamicConfirmModalConfig] = useState(null);
   const [currentSpeaker, setCurrentSpeaker] = useState('');
   const [processing, setProcessing] = useState(false);
@@ -158,76 +214,141 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
           .select('*')
           .eq('source_info->>blockId', block.id);
         const { data, error } = await query;
-        if (!error && data && data.length > 0 && isMounted) {
+        if (!error && Array.isArray(data) && isMounted) {
           const dbFiles = [];
           data.forEach(row => {
             const sourceInfo = row.source_info || {};
             const custom = row.custom_metadata?.properties || {};
+            /* The query already scopes to this block server-side. This is a
+               defensive second pass for rows written by an older path. */
             const isBlockMatch =
-              row.data_entity_id === block.id ||
-              row.data_object_id === block.id ||
               sourceInfo.blockId === block.id ||
               custom.blockId === block.id ||
               custom.objectId === block.id;
             if (!isBlockMatch) return;
+
+            /* enterprise_files is the source of truth: a soft-deleted or
+               failed row is simply not a file, as far as this block is
+               concerned. */
             const status = row.status_information || {};
-            if (!status.isDeleted && status.status !== 'Deleted' && status.status !== 'FailedStorage') {
-              const fileInfo = row.file_information || {};
-              const phys = row.physical_metadata || {};
-              dbFiles.push({
-                id: row.id,
-                name: fileInfo.name || row.original_filename || 'Audio Recording',
-                url: phys.file_url || row.file_url || row.cdn_url || '',
-                type: fileInfo.mime_type || 'audio/webm',
-                size: phys.size_bytes || row.file_size || 0,
-                /* BRIS-NN-MNB-T59: duration_seconds is not written by the
-                   upload path — it lives in custom metadata. Reading only
-                   the column is why every DAM file showed 0:00. */
-                duration: Number(
-                  row.duration_seconds
-                  ?? phys.duration_seconds
-                  ?? custom.durationSeconds
-                  ?? row.custom_metadata?.durationSeconds
-                  ?? 0
-                ) || 0,
-                fileId: row.id,
-                timestamp: row.created_at,
-                createdAt: row.created_at
-              });
-            }
-          });
-          if (dbFiles.length > 0) {
-            /* BRIS-NN-MNB-T60: a recording exists twice — once as the local
-               record written at stop time, once as its enterprise_files row.
-               Their ids differ, so matching on id alone counted both and the
-               total drifted on every refresh. Match on fileId (the DAM id
-               the local record stores) and fall back to name, then enrich
-               the local record rather than appending a duplicate. */
-            setAudioFiles(prev => {
-              const merged = prev.map(local => {
-                const match = dbFiles.find(db =>
-                  (local.fileId && db.fileId === local.fileId) ||
-                  (local.name && db.name === local.name) ||
-                  /* T68: last resort — same block, created within 60s of
-                     each other is the same recording seen twice. */
-                  (local.timestamp && db.timestamp &&
-                   Math.abs(new Date(local.timestamp) - new Date(db.timestamp)) < 60000)
-                );
-                return match
-                  ? { ...local, ...match, id: local.id, data: local.data, url: local.url || match.url }
-                  : local;
-              });
-              const claimed = new Set(
-                merged.map(m => m.fileId).filter(Boolean)
-              );
-              dbFiles.forEach(db => {
-                if (!claimed.has(db.fileId)) merged.push(db);
-              });
-              return merged;
+            if (status.isDeleted || status.status === 'Deleted'
+              || status.status === 'FailedStorage' || status.isActive === false) return;
+
+            const fileInfo = row.file_information || {};
+            const phys = row.physical_metadata || {};
+            const audit = row.audit_information || {};
+
+            /* ══════════════════════════════════════════════════════════════
+               BRIS-NN-MNB-T77 — read the columns that actually exist.
+
+               This mapping previously read row.id, row.original_filename,
+               row.file_url, row.cdn_url, row.file_size and
+               row.duration_seconds. NONE of those columns exist.
+               enterprise_files has file_id as its primary key and keeps
+               everything else inside the file_information /
+               physical_metadata JSONB documents — see
+               scripts/enterprise_files_v2_schema.sql line 13.
+
+               Every one of those reads produced undefined, which is the
+               single root cause of all four reported symptoms:
+
+                 • Every file showed the 'Audio Recording' fallback,
+                   because fileInfo.name does not exist — FileService
+                   writes the name as displayName / originalFileName.
+                 • id and fileId were undefined, so ticking one row ticked
+                   every row (selectedAudioFileIds.includes(undefined) is
+                   true for all of them) and React had no stable key.
+                 • FileService.delete(undefined) bailed out before touching
+                   the database, so "deleted" recordings returned on the
+                   next refresh — and the .catch(() => {}) around it hid
+                   that completely.
+                 • FileService.getSignedUrl(undefined) returned '', so
+                   playback had no source: the reported play error.
+               ══════════════════════════════════════════════════════════════ */
+            const damId = row.file_id;
+            if (!damId) return;   /* unusable without its primary key */
+
+            dbFiles.push({
+              id: damId,
+              fileId: damId,
+              name: fileInfo.displayName || fileInfo.originalFileName || 'Recording',
+              /* Deliberately empty. The bucket is private, so publicUrl is
+                 not fetchable; the signed-URL pass (BRIS-NN-MNB-T75)
+                 resolves a usable one, and getSignedUrl itself falls back
+                 to publicUrl when the bucket is public. */
+              url: '',
+              type: fileInfo.mimeType || fileInfo.contentType || 'audio/webm',
+              size: Number(phys.fileSize) || 0,
+              /* BRIS-NN-MNB-T59/T77: duration lives in physical_metadata as
+                 `duration`; the upload's own metadata copy is the fallback. */
+              duration: Number(
+                phys.duration
+                ?? custom.durationSeconds
+                ?? custom.duration_seconds
+                ?? 0
+              ) || 0,
+              storagePath: fileInfo.storagePath || null,
+              damStatus: 'uploaded',
+              timestamp: row.created_at || audit.createdOn || null,
+              createdAt: row.created_at || audit.createdOn || null,
             });
-            if (!audioUrl && dbFiles[0]?.url) {
-              setAudioUrl(dbFiles[0].url);
-            }
+          });
+
+          /* ══════════════════════════════════════════════════════════════
+             BRIS-NN-MNB-T77 — reconcile against the DB, do not merge into
+             whatever the block/localStorage happens to hold.
+
+             The old merge only ever ADDED rows. Because db.fileId was
+             undefined it never matched a local record, so every refresh
+             appended the same recordings again — the reported "I deleted
+             my files and now there are 5".
+
+             The DB is authoritative, so the rule is now:
+               • every active DAM row is present;
+               • a local record still holds playable bytes (data, or a blob
+                 URL from this session) and has no DAM row yet — keep it,
+                 it has not been uploaded;
+               • a local record claims a fileId that the DB does not return
+                 — it was soft-deleted elsewhere, so drop it;
+               • a local record with no fileId, no data and no url is a
+                 ghost from the broken mapping — drop it.
+
+             GRACE WINDOW: a recording uploaded moments ago can be missing
+             from a query that was already in flight. Records younger than
+             UPLOAD_GRACE_MS are never pruned, so a fresh recording is
+             never deleted by a stale read.
+             ══════════════════════════════════════════════════════════════ */
+          const UPLOAD_GRACE_MS = 120000;
+          const damIds = new Set(dbFiles.map(f => f.fileId));
+          const now = Date.now();
+
+          /* Computed here and only RETURNED by the updater — writing to
+             localStorage inside the updater would be I/O during the render
+             phase, run twice under StrictMode. */
+          let reconciled = null;
+          setAudioFiles(prev => {
+            const localOnly = (prev || []).filter(local => {
+              if (!local) return false;
+              if (local.fileId && damIds.has(local.fileId)) return false; /* DAM row wins */
+
+              const age = local.timestamp ? now - new Date(local.timestamp).getTime() : Infinity;
+              if (Number.isFinite(age) && age < UPLOAD_GRACE_MS) return true;
+
+              if (local.fileId) return false;          /* soft-deleted in the DAM */
+              return !!(local.data || local.url);      /* never uploaded — still ours */
+            });
+
+            reconciled = [...dbFiles, ...localOnly];
+            return reconciled;
+          });
+
+          /* Keep the offline cache in step, or the pruned ghosts are simply
+             reloaded from localStorage on the next mount and the deleted
+             files reappear all over again. */
+          if (reconciled) {
+            try {
+              localStorage.setItem(`nn_audio_files_${block.id}`, JSON.stringify(reconciled));
+            } catch (e) { /* quota — the DB row remains the source of truth */ }
           }
         }
       } catch (err) {
@@ -236,13 +357,22 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
     }
     loadAudioFromDam();
     return () => { isMounted = false; };
-  }, [block.id, audioUrl]);
+    /* BRIS-NN-MNB-T77: audioUrl removed from the deps. It made this effect
+       re-run every time a recording finished (stopRecording sets audioUrl),
+       which raced the row it had just inserted and is how a just-saved
+       recording could be pruned. Block identity is the only real input. */
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [block.id]);
   const [currentPlaybackTime, setCurrentPlaybackTime] = useState(0);
   const [showSettingsPopover, setShowSettingsPopover] = useState(false);
   const [showLanguageSubmenu, setShowLanguageSubmenu] = useState(false);
   const [showInstructionsSubmenu, setShowInstructionsSubmenu] = useState(false);
   const [showConsentSubmenu, setShowConsentSubmenu] = useState(false);
-  const [customInstructions, setCustomInstructions] = useState([]);
+  /* BRIS-NN-MNB-T93: was useState([]) and never loaded from anywhere, so
+     no custom instruction could ever appear and handleGenerateSummary's
+     lookup against it was always undefined. Derived from the prompt
+     document below (see promptDoc) — declared here only to keep the
+     existing setter contract for legacy call sites. */
   const [showBulbInfo, setShowBulbInfo] = useState(false);
   const [showConfirmClear, setShowConfirmClear] = useState(false);
   const [isReadingAloud, setIsReadingAloud] = useState(false);
@@ -264,6 +394,65 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
   const [selectedAudioFileIds, setSelectedAudioFileIds] = useState([]);
   const [currentPlayingAudioId, setCurrentPlayingAudioId] = useState(null);
 
+  /* ──────────────────────────────────────────────────────────────────
+     BRIS-NN-MNB-T75 — pre-resolve playable URLs.
+
+     Root cause of "Playback blocked by the browser": DAM rows land in
+     state with url: '' whenever the bucket is private (see the
+     `phys.file_url || row.file_url || row.cdn_url || ''` fallback in the
+     loader above). Every Play click therefore had to await a signed-URL
+     round-trip BEFORE it could call play(), and the browser had already
+     withdrawn the click's transient activation by the time it did.
+
+     Moving that await inside the click handler does not help — the await
+     IS the round-trip. The fix is to not have one on the click path at
+     all: resolve the URLs as soon as the files are known, so by the time
+     the user clicks, `url` is already populated and play() is reached
+     synchronously.
+
+     Signed URLs expire (FileService default: 1 hour), so they are held in
+     component state only and deliberately NOT written back to the block
+     via saveProp — a persisted URL would be dead on the next session.
+
+     The ref guards against two things: re-entering this effect from its
+     own setAudioFiles, and hammering the API for a file that keeps
+     failing to resolve.
+     ────────────────────────────────────────────────────────────────── */
+  const signedUrlAttemptedRef = useRef(new Set());
+  useEffect(() => {
+    const pending = (audioFiles || []).filter(f =>
+      f && f.fileId && !f.url && !f.data && !signedUrlAttemptedRef.current.has(f.fileId)
+    );
+    if (!pending.length) return undefined;
+
+    let cancelled = false;
+    pending.forEach(f => signedUrlAttemptedRef.current.add(f.fileId));
+
+    (async () => {
+      const resolved = await Promise.all(pending.map(async (f) => {
+        try {
+          return { fileId: f.fileId, url: await FileService.getSignedUrl(f.fileId) };
+        } catch (e) {
+          /* Left unresolved on purpose: playAudioFile retries on demand
+             and reports the failure to the user rather than hiding it. */
+          return { fileId: f.fileId, url: '' };
+        }
+      }));
+
+      if (cancelled) return;
+      const byFileId = new Map(resolved.filter(r => r.url).map(r => [r.fileId, r.url]));
+      if (!byFileId.size) return;
+
+      setAudioFiles(prev => (prev || []).map(f =>
+        (f.fileId && !f.url && byFileId.has(f.fileId))
+          ? { ...f, url: byFileId.get(f.fileId) }
+          : f
+      ));
+    })();
+
+    return () => { cancelled = true; };
+  }, [audioFiles]);
+
   /* ── Full Enterprise States (Restored from 7,000-Line Master Suite) ── */
   const [isLastModifier, setIsLastModifier] = useState(true);
   const [audioSttTeaserText, setAudioSttTeaserText] = useState('');
@@ -274,15 +463,52 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
   const [consentWizardStep, setConsentWizardStep] = useState('consent');
   const [customInstructionName, setCustomInstructionName] = useState('');
   const [customInstructionPrompt, setCustomInstructionPrompt] = useState('');
-  const [instructionPrompts, setInstructionPrompts] = useState(() => {
-    return block.instructionPrompts || block.properties?.instructionPrompts || {
-      'Auto': 'You are Ziva AI Meeting Notes Architect. Generate a comprehensive, high-quality structured meeting summary in clean markdown.',
-      'Executive': 'Generate an executive summary focusing on strategic decisions, leadership takeaways, and high-level KPIs.',
-      'Action Items': 'Extract all direct action items, task assignees, due dates, and follow-up deliverables.',
-      'Detailed': 'Provide a comprehensive breakdown with extensive section-by-section details, technical notes, and discussions.',
-      'Technical': 'Focus on technical architecture, systems, code decisions, engineering blockers, and APIs.'
-    };
-  });
+  /* ══════════════════════════════════════════════════════════════════
+     BRIS-NN-MNB-T93/T94 — the prompt library.
+
+     `promptDoc` is the platform_config document (config_type 8,
+     'AIMeetingNotesPrompt', entity 1000000000). It is the SINGLE source
+     for both the menu list and the prompt text, which is what stops the
+     two drifting: the old code kept a hardcoded INSTRUCTION_PRESETS
+     array here and the prompts in constants.js under different names, so
+     four of the six menu entries resolved to nothing and silently fell
+     back to Auto.
+
+     A block-local `instructionPrompts` map used to live here as well,
+     seeded with five names that appeared nowhere in the UI. It is gone —
+     prompts are org-level now.
+     ══════════════════════════════════════════════════════════════════ */
+  const [promptDoc, setPromptDoc] = useState(null);
+  const [promptDocLoading, setPromptDocLoading] = useState(true);
+
+  useEffect(() => {
+    let alive = true;
+    loadPromptDocument()
+      .then(doc => { if (alive) { setPromptDoc(doc); setPromptDocLoading(false); } })
+      .catch(() => { if (alive) setPromptDocLoading(false); });
+    return () => { alive = false; };
+  }, []);
+
+  /* Never let the menu be empty while the document loads. */
+  const activePromptDoc = promptDoc || buildDefaultPromptDocument();
+
+  /** name -> prompt text, for the summary call. */
+  const instructionPrompts = useMemo(() => {
+    const map = {};
+    Object.keys(activePromptDoc.instructions).forEach(k => {
+      map[k] = activePromptDoc.instructions[k].promptText || '';
+    });
+    return map;
+  }, [activePromptDoc]);
+
+  /* User-created instructions, as NAMES. InstructionsMenu and the slider
+     flyout both treat these as strings; the only place that treated them
+     as {name, prompt} objects was the summary lookup, which now reads
+     instructionPrompts instead. One shape, one meaning. */
+  const customInstructions = useMemo(
+    () => activePromptDoc.order.filter(k => !activePromptDoc.instructions[k]?.isSystem),
+    [activePromptDoc]
+  );
   const [showFooterInstructionPopover, setShowFooterInstructionPopover] = useState(false);
   const footerInstructionWrapRef = useRef(null);
   const [summaryDataState, setSummaryDataState] = useState(null);
@@ -354,6 +580,76 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
     transcriptLinesRef.current = block.transcriptLines || [];
   }, [block.transcriptLines]);
 
+  /* ══════════════════════════════════════════════════════════════════
+     BRIS-NN-MNB-T90 — "Still there?" idle prompt.
+
+     A recording left running on an empty room keeps the microphone open
+     and keeps writing nothing. After SILENCE_NOTICE_MS with no
+     transcription activity the block offers the two useful actions:
+     open the note, or stop.
+
+     Silence is measured from REAL activity — a committed line or an
+     interim result — not from a timer started at record time, so a
+     continuously-talking meeting never sees it.
+
+     Dismissing hides it for the current silence only: the moment speech
+     resumes the flag clears, so a second silence re-arms it.
+     ══════════════════════════════════════════════════════════════════ */
+  const SILENCE_NOTICE_MS = 15000;
+  const lastSpeechAtRef = useRef(Date.now());
+  const silenceDismissedRef = useRef(false);
+  const [showSilenceNotice, setShowSilenceNotice] = useState(false);
+
+  /* Speech resets the window. */
+  useEffect(() => {
+    lastSpeechAtRef.current = Date.now();
+    silenceDismissedRef.current = false;
+    setShowSilenceNotice(false);
+  }, [interimText, displayTranscriptLines.length]);
+
+  useEffect(() => {
+    /* Paused is a deliberate silence — the user knows the state. */
+    if (!recording || isPaused) {
+      setShowSilenceNotice(false);
+      return undefined;
+    }
+
+    /* ────────────────────────────────────────────────────────────────
+       BRIS-NN-MNB-T91: the window restarts HERE, when recording starts
+       or resumes.
+
+       lastSpeechAtRef was seeded at component mount and only re-stamped
+       by speech. A block that had been open for longer than
+       SILENCE_NOTICE_MS before Record was pressed was therefore already
+       "silent" by that measure, and the notice appeared on the first
+       one-second tick instead of after fifteen seconds of quiet.
+
+       The effect above cannot cover this: with no speech yet, neither
+       interimText nor the line count changes when recording begins, so
+       it never re-runs.
+       ──────────────────────────────────────────────────────────────── */
+    lastSpeechAtRef.current = Date.now();
+    silenceDismissedRef.current = false;
+    setShowSilenceNotice(false);
+
+    const id = setInterval(() => {
+      if (silenceDismissedRef.current) return;
+      setShowSilenceNotice(Date.now() - lastSpeechAtRef.current >= SILENCE_NOTICE_MS);
+    }, 1000);
+    return () => clearInterval(id);
+  }, [recording, isPaused]);
+
+  const dismissSilenceNotice = useCallback(() => {
+    silenceDismissedRef.current = true;
+    setShowSilenceNotice(false);
+  }, []);
+
+  const goToMeetingNote = useCallback(() => {
+    setViewMode('transcript');
+    setShowSilenceNotice(false);
+    meetingRootRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, []);
+
   /* TASK-ZIVA-003: Keep audioFiles in sync with block properties & localStorage */
   useEffect(() => {
     if (block.audioFiles && Array.isArray(block.audioFiles) && block.audioFiles.length > 0) {
@@ -421,7 +717,27 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
   const audioSource = block.audioSource || 'both';
   const selectedOutputDevice = block.selectedOutputDevice || 'default';
   const selectedLanguage = block.selectedLanguage || 'English (US)';
-  const [selectedInstruction, setSelectedInstruction] = useState(block.selectedInstruction || 'Auto');
+  /* ══════════════════════════════════════════════════════════════════
+     BRIS-NN-MNB-T93 — one source of truth for the selected instruction.
+
+     This was `useState(block.selectedInstruction || 'Auto')` with no sync
+     effect, running alongside `block.selectedInstruction` written by
+     saveProp. Two stores for one value, and nothing kept them in step:
+     whichever a consumer happened to read decided what it displayed, so
+     the slider menu and the footer could disagree.
+
+     Derived now, so drift is not expressible. `setSelectedInstruction`
+     stays as a saveProp wrapper — every existing call site keeps working
+     and there is no second store for it to update.
+     ══════════════════════════════════════════════════════════════════ */
+  const selectedInstruction = block.selectedInstruction
+    || block.defaultInstruction
+    || 'Auto';
+  const setSelectedInstruction = useCallback(
+    (name) => saveProp('selectedInstruction', name),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [block.id, updateBlockProperty]
+  );
   const [selectedWizardInstruction, setSelectedWizardInstruction] = useState('Auto');
   const [consentMode, setConsentMode] = useState(block.consentMode || 'manual');
 
@@ -462,6 +778,24 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
   };
 
   const saveProp = useCallback((key, val) => updateBlockProperty(block.id, key, val), [block.id, updateBlockProperty]);
+
+  /* BRIS-NN-MNB-T76: which Briselle Audio Controller layout this block
+     shows. 'simple' is the default compact single line; 'full' is the
+     two-line player with the brand badge and speaker selector. The user
+     switches between them from the player itself and the choice persists
+     per block — `audioPlayerVariant` is whitelisted in
+     core/notionNestPageDefaults.ts, without which it would be silently
+     stripped on every save. */
+  /* BRIS-NN-MNB-T79: defaults to 'full'. The two-line controller IS the
+     audio controller; 'simple' is the minimal one-line mode the user opts
+     into with the toggle. Defaulting to 'simple' meant the full layout
+     never rendered unless the toggle was clicked, which is why the T78
+     repositioning looked like it had not been applied at all. */
+  const playerVariant = block.audioPlayerVariant === 'simple' ? 'simple' : 'full';
+  const setPlayerVariant = useCallback(
+    (v) => saveProp('audioPlayerVariant', v === 'full' ? 'full' : 'simple'),
+    [saveProp]
+  );
 
   /* ── Speech Recognition + MediaRecorder ── */
   /* BRIS-NN-MNB-T16: transcription modes offered by the split button.
@@ -681,6 +1015,11 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
 
   const startTranscribe = useCallback((mode) => {
     setShowTranscribeMenu(false);
+    /* BRIS-NN-MNB-T81: every start mode reveals the Transcript panel.
+       Starting from the Summary or Notes tab used to leave the user
+       looking at a static page while lines were being captured out of
+       sight. Set before the mode branch so the upload path gets it too. */
+    setViewMode('transcript');
     if (mode === TRANSCRIBE_MODES.UPLOAD) {
       captureAudioRef.current = false;
       setCaptureAudio(false);
@@ -720,9 +1059,19 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
       clearInterval(playbackTimerRef.current);
     }
 
+    /* BRIS-NN-MNB-T78: releasing the microphone tracks while MediaRecorder
+       is still flushing can truncate — or empty — the final chunk. The
+       release is therefore deferred until onstop has the data. */
+    const releaseMicrophone = () => {
+      if (audioStreamRef.current) {
+        audioStreamRef.current.getTracks().forEach(t => t.stop());
+        audioStreamRef.current = null;
+      }
+    };
+
     // Only save audio if it was a LIVE recording (not uploaded file transcription)
     if (!isTranscribingAudioFile && mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
+      const recorder = mediaRecorderRef.current;
 
       /* ═══════════════════════════════════════════════════════════════
          BRIS-NN-MNB-T06: persist the recording through the DAM.
@@ -733,87 +1082,172 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
          reference instead of a base64 blob; base64 is written only if the
          upload fails, so a network problem never loses a recording.
          ═══════════════════════════════════════════════════════════════ */
-      const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-      const stamp = new Date();
-      const fileName = `Recording_${stamp.toISOString().slice(0, 19).replace(/[:T]/g, '')}.webm`;
-      const localUrl = URL.createObjectURL(audioBlob);
+      const persistRecording = (audioBlob) => {
+        const stamp = new Date();
+        /* BRIS-NN-MNB-T77: "Recording <timestamp>", local time, per the
+           agreed naming rule. Every recording therefore has a unique,
+           human-readable name — which matters because this string is what
+           file_information.displayName stores and what the audio-files
+           list shows. The stored object itself is named <fileId>.webm, so
+           the spaces here never reach the storage path. */
+        const pad = (n) => String(n).padStart(2, '0');
+        const fileName = `Recording ${stamp.getFullYear()}-${pad(stamp.getMonth() + 1)}-${pad(stamp.getDate())}`
+          + ` ${pad(stamp.getHours())}-${pad(stamp.getMinutes())}-${pad(stamp.getSeconds())}.webm`;
+        const localUrl = URL.createObjectURL(audioBlob);
 
-      setAudioUrl(localUrl);
-      setAudioDuration(timer);
-      saveProp('audioDuration', timer);
+        setAudioUrl(localUrl);
+        setAudioDuration(timer);
+        saveProp('audioDuration', timer);
 
-      const baseRecord = {
-        id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
-        name: fileName,
-        duration: timer,
-        timestamp: stamp.toISOString(),
-        source: TRANSCRIPT_SOURCE.LIVE,
-        size: audioBlob.size,
-        url: localUrl,
-      };
+        const baseRecord = {
+          id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
+          name: fileName,
+          duration: timer,
+          timestamp: stamp.toISOString(),
+          source: TRANSCRIPT_SOURCE.LIVE,
+          size: audioBlob.size,
+          url: localUrl,
+        };
 
-      const commit = (record) => {
-        const updatedAudioFiles = [...(audioFiles || []), record];
-        setAudioFiles(updatedAudioFiles);
-        saveProp('audioFiles', updatedAudioFiles);
-        try {
-          localStorage.setItem(`nn_audio_files_${block.id}`, JSON.stringify(updatedAudioFiles));
-        } catch (e) { /* quota — the DB row remains the source of truth */ }
-      };
-
-      FileService.upload({
-        file: audioBlob,
-        fileName,   /* T68: same name the local record uses, so dedupe matches */
-        entityType: 'MeetingNotesBlock',
-        moduleName: 'NotionNest',
-        entityId: block.id,
-        blockId: block.id,
-        blockTypeId: 'MeetingNotesBlock',
-        metadata: {
-          /* BRIS-NN-MNB-T59: written under several keys because the loader
-             and the schema disagree on where duration lives. Belt and
-             braces until the column is authoritative everywhere. */
-          durationSeconds: timer,
-          duration_seconds: timer,
-          transcriptSource: TRANSCRIPT_SOURCE.LIVE,
-          language: selectedLanguage,
-          recordedAt: stamp.toISOString(),
-        },
-      })
-        .then((res) => {
-          commit({
-            ...baseRecord,
-            fileId: res?.fileId || res?.id || null,
-            storagePath: res?.storagePath || null,
-            damStatus: 'uploaded',
+        const commit = (record) => {
+          setAudioFiles(prev => {
+            const next = [...(prev || []), record];
+            try {
+              localStorage.setItem(`nn_audio_files_${block.id}`, JSON.stringify(next));
+            } catch (e) { /* quota — the DB row remains the source of truth */ }
+            saveProp('audioFiles', next);
+            return next;
           });
+        };
+
+        FileService.upload({
+          file: audioBlob,
+          fileName,   /* T68: same name the local record uses, so dedupe matches */
+          entityType: 'MeetingNotesBlock',
+          moduleName: 'NotionNest',
+          entityId: block.id,
+          blockId: block.id,
+          blockTypeId: 'MeetingNotesBlock',
+          metadata: {
+            /* BRIS-NN-MNB-T59: MediaRecorder webm carries no duration
+               header, so the browser reports Infinity and physical
+               metadata stores null. The recorded timer is the only
+               reliable duration, which is why it is written here too. */
+            durationSeconds: timer,
+            duration_seconds: timer,
+            transcriptSource: TRANSCRIPT_SOURCE.LIVE,
+            language: selectedLanguage,
+            recordedAt: stamp.toISOString(),
+          },
         })
-        .catch((err) => {
-          /* Keep the audio locally so nothing is lost, and flag it so a
-             retry can push it to the DAM later. */
-          const reader = new FileReader();
-          reader.onload = () => commit({
-            ...baseRecord,
-            data: reader.result,
-            damStatus: 'pending',
-            damError: String(err?.message || err),
+          .then((res) => {
+            commit({
+              ...baseRecord,
+              fileId: res?.fileId || null,
+              storagePath: res?.storagePath || null,
+              damStatus: 'uploaded',
+            });
+            /* T82: the capture row only turns green once the DAM upload
+               has genuinely returned. */
+            setSummaryStep('capture', 'Saving audio recording', 'done');
+          })
+          .catch((err) => {
+            /* Keep the audio locally so nothing is lost, and flag it so a
+               retry can push it to the DAM later. */
+            console.error('Recording upload failed:', err);
+            setAudioFilesError('That recording could not be uploaded — it is kept on this device only.');
+            setSummaryStep('capture', 'Saving audio recording', 'failed',
+              'Kept on this device only.');
+            const reader = new FileReader();
+            reader.onload = () => commit({
+              ...baseRecord,
+              data: reader.result,
+              damStatus: 'pending',
+              damError: String(err?.message || err),
+            });
+            reader.onerror = () => commit({ ...baseRecord, damStatus: 'failed' });
+            reader.readAsDataURL(audioBlob);
           });
-          reader.onerror = () => commit({ ...baseRecord, damStatus: 'failed' });
-          reader.readAsDataURL(audioBlob);
-        });
+      };
+
+      /* ───────────────────────────────────────────────────────────────
+         BRIS-NN-MNB-T78 — build the blob in onstop, NOT after stop().
+
+         MediaRecorder.stop() is asynchronous: it flushes the recording
+         through a final `dataavailable` event and only then fires
+         `onstop`. startRecording() calls mr.start() with no timeslice,
+         so `dataavailable` fires EXACTLY ONCE — during that flush.
+
+         This code used to call stop() and build the Blob on the very
+         next line, while audioChunksRef was still empty. Every single
+         recording was therefore uploaded as a ZERO-BYTE audio/webm file.
+         A 0-byte object uploads cleanly, gets a valid signed URL and
+         reports duration 0, so nothing failed anywhere in the DAM chain
+         and the only visible symptom was the player refusing to play:
+         "This audio could not be played" at 00:00 / 00:00.
+         ─────────────────────────────────────────────────────────────── */
+      let finalized = false;
+      const finalize = () => {
+        if (finalized) return;          /* onstop must not upload twice */
+        finalized = true;
+
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        releaseMicrophone();
+
+        /* Never persist an empty recording: a 0-byte row and object can
+           never play, and is exactly the state this task cleaned up. */
+        if (!audioBlob.size) {
+          console.error('Recording produced no audio data — nothing was saved.');
+          setAudioFilesError('That recording captured no audio and was not saved.');
+          return;
+        }
+
+        persistRecording(audioBlob);
+      };
+
+      recorder.onstop = finalize;
+      recorder.stop();
+    } else {
+      /* No recorder ran (transcript-only, or an uploaded file), so there
+         is no flush to wait for. */
+      releaseMicrophone();
     }
 
     // Final save of transcript data
     saveProp('transcription', transcriptionRef.current);
     saveProp('transcriptLines', transcriptLinesRef.current);
 
-    if (audioStreamRef.current) {
-      audioStreamRef.current.getTracks().forEach(t => t.stop());
-      audioStreamRef.current = null;
-    }
-
     setIsTranscribingAudioFile(false);
-  }, [recognition, timer, saveProp, audioFiles, isTranscribingAudioFile]);
+
+    /* ══════════════════════════════════════════════════════════════════
+       BRIS-NN-MNB-T82 — stopping ALWAYS produces a summary.
+
+       The transcript text is read from transcriptLinesRef rather than
+       from displayTranscriptLines: the state setters above have not
+       flushed yet at this point, so the closure's copy would be one
+       render behind and the final lines would be missing from the
+       summary input. The ref is written synchronously as lines commit.
+       ══════════════════════════════════════════════════════════════════ */
+    const finalTranscript = (transcriptLinesRef.current || [])
+      .map(l => (typeof l === 'string' ? l : l?.content || ''))
+      .filter(Boolean)
+      .join('\n') || transcriptionRef.current || '';
+
+    /* Guarded on the transcript alone. extractTextFromBlocks is declared
+       ~600 lines below this point; referencing it here would work only
+       because stopRecording runs after render, and that is precisely the
+       forward-reference pattern that has bitten this file before.
+       handleGenerateSummary folds the notes in anyway. */
+    if (finalTranscript.trim()) {
+      resetSummarySteps();
+      /* Only claim a capture step when audio was actually captured. */
+      if (!isTranscribingAudioFile && captureAudioRef.current) {
+        setSummaryStep('capture', 'Saving audio recording', 'active');
+      }
+      setSummaryStep('transcribe', 'Transcribing', 'done');
+      generateSummaryRef.current?.(finalTranscript, { keepSteps: true });
+    }
+  }, [recognition, timer, saveProp, audioFiles, isTranscribingAudioFile, setSummaryStep, resetSummarySteps]);
 
   /* ── Keep refs updated for wake word detection ── */
   startRecRef.current = startRecording;
@@ -827,6 +1261,8 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
   }, [recognition]);
 
   const resumeRecording = useCallback(() => {
+    /* BRIS-NN-MNB-T81: resuming shows the transcript too. */
+    setViewMode('transcript');
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (SR) {
       const recog = new SR();
@@ -1086,13 +1522,46 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
   }, [audioUrl, timer]);
 
   /* ── Audio Files Management ── */
-  /* BRIS-NN-MNB-T57: hand the file to the player bar instead of poking an
-     <audio> element that was never rendered. */
+  /* BRIS-NN-MNB-T57: hand the file to the player instead of poking an
+     <audio> element that was never rendered.
+     BRIS-NN-MNB-T75: the queue holds IDS, not copies of the records.
+     Copies went stale the moment the pre-resolve effect above patched a
+     signed URL into audioFiles — the queue kept the url-less snapshot and
+     the track stayed unplayable. Deriving the track from audioFiles on
+     every render means it always sees the latest resolved URL. */
+  const startPlayQueue = useCallback((files) => {
+    const list = (files || []).filter(Boolean);
+    if (!list.length) return;
+    setPlayerError('');
+    setPlayQueue(list.map(f => f.id));
+    setPlayQueueIndex(0);
+    setCurrentPlayingAudioId(list[0].id || null);
+    setQueuePlaying(true);
+    setShowAudioFilesDropdown(false);
+
+    /* Fallback for a record the pre-resolve pass has not reached yet (a
+       recording saved seconds ago, or one whose first attempt failed).
+       Playback starts by itself as soon as the src lands, so this stays
+       off the click path. */
+    const unresolved = list.filter(f => f.fileId && !f.url && !f.data);
+    if (!unresolved.length) return;
+
+    unresolved.forEach(async (f) => {
+      try {
+        const url = await FileService.getSignedUrl(f.fileId);
+        if (!url) throw new Error('empty url');
+        setAudioFiles(prev => (prev || []).map(x =>
+          x.id === f.id && !x.url ? { ...x, url } : x
+        ));
+      } catch (e) {
+        setPlayerError('Could not load this recording');
+      }
+    });
+  }, []);
+
   const playAudioFile = useCallback((file) => {
-    if (file) { setPlayQueue([file]); setCurrentPlayingAudioId(file.id); setShowAudioFilesDropdown(false); }
-    return;
-    // eslint-disable-next-line no-unreachable
-  }, [setCurrentPlayingAudioId]);
+    if (file) startPlayQueue([file]);
+  }, [startPlayQueue]);
 
   const legacyPlayAudioFile = useCallback((file) => {
     if (audioRef.current) {
@@ -1126,46 +1595,135 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
   /* BRIS-NN-MNB-T57: batch delete. Calling removeAudioFile in a loop made
      every call filter the SAME captured array, so only the last write
      survived and just one file disappeared. One pass, one state write. */
-  const removeAudioFiles = useCallback((fileIds) => {
+  /* BRIS-NN-MNB-T77: the soft delete is now AWAITED and its result checked.
+     It used to be fire-and-forget behind `.catch(() => {})`, so when
+     FileService.delete bailed out on an undefined fileId — which it always
+     did, because the loader never read file_id — the row stayed Active
+     while the UI removed it anyway. The file came back on the next
+     refresh and nothing anywhere said why.
+
+     The row is the source of truth, so the UI now only forgets a file once
+     the database has actually marked it deleted. A failure keeps the file
+     visible and reports it, rather than pretending. */
+  const removeAudioFiles = useCallback(async (fileIds) => {
     const ids = Array.isArray(fileIds) ? fileIds : [fileIds];
     if (!ids.length) return;
     const idSet = new Set(ids);
 
-    (audioFiles || [])
-      .filter(f => idSet.has(f.id) && f.fileId)
-      .forEach(f => { FileService.delete(f.fileId, false).catch(() => {}); });
+    const targets = (audioFiles || []).filter(f => idSet.has(f.id));
+    if (!targets.length) return;
 
-    const updatedAudioFiles = (audioFiles || []).filter(f => !idSet.has(f.id));
-    setAudioFiles(updatedAudioFiles);
-    saveProp('audioFiles', updatedAudioFiles);
-    try {
-      localStorage.setItem(`nn_audio_files_${block.id}`, JSON.stringify(updatedAudioFiles));
-    } catch (e) { /* quota — the DB row remains the source of truth */ }
-    setSelectedAudioFileIds(prev => prev.filter(id => !idSet.has(id)));
-  }, [audioFiles, block.id, saveProp]);
+    setAudioFilesError('');
 
-  const removeAudioFile = useCallback((fileId) => {
-    const target = (audioFiles || []).find(f => f.id === fileId);
-    if (target?.fileId) {
-      FileService.delete(target.fileId, false).catch(() => {
-        /* Non-blocking: the UI removal still proceeds. The row stays
-           active and will be reconciled rather than silently lost. */
-      });
+    const results = await Promise.all(targets.map(async (f) => {
+      /* No fileId means it never reached the DAM (a pending or failed
+         upload), so there is nothing to soft-delete — dropping it locally
+         is the whole operation. */
+      if (!f.fileId) return { id: f.id, ok: true };
+      try {
+        const ok = await FileService.delete(f.fileId, false);
+        return { id: f.id, ok: ok !== false };
+      } catch (e) {
+        return { id: f.id, ok: false, error: e };
+      }
+    }));
+
+    const deleted = new Set(results.filter(r => r.ok).map(r => r.id));
+    const failed = results.filter(r => !r.ok);
+
+    if (deleted.size) {
+      const updatedAudioFiles = (audioFiles || []).filter(f => !deleted.has(f.id));
+      setAudioFiles(updatedAudioFiles);
+      saveProp('audioFiles', updatedAudioFiles);
+      try {
+        localStorage.setItem(`nn_audio_files_${block.id}`, JSON.stringify(updatedAudioFiles));
+      } catch (e) { /* quota — the DB row remains the source of truth */ }
+      setSelectedAudioFileIds(prev => prev.filter(id => !deleted.has(id)));
     }
-    const updatedAudioFiles = audioFiles.filter(f => f.id !== fileId);
-    setAudioFiles(updatedAudioFiles);
-    saveProp('audioFiles', updatedAudioFiles);
-    try { localStorage.setItem(`nn_audio_files_${block.id}`, JSON.stringify(updatedAudioFiles)); } catch (e) {}
-    setSelectedAudioFileIds(prev => prev.filter(id => id !== fileId));
+
+    if (failed.length) {
+      setAudioFilesError(
+        failed.length === 1
+          ? 'That recording could not be deleted — it is still on the server.'
+          : `${failed.length} recordings could not be deleted — they are still on the server.`
+      );
+    }
   }, [audioFiles, block.id, saveProp]);
+
+  /* Single delete is the batch path with one id — one implementation. */
+  const removeAudioFile = useCallback(
+    (fileId) => removeAudioFiles([fileId]),
+    [removeAudioFiles]
+  );
 
   const playSelectedAudioFiles = useCallback(() => {
     const chosen = (audioFiles || []).filter(f => selectedAudioFileIds.includes(f.id));
-    if (!chosen.length) return;
-    setPlayQueue(chosen);
-    setCurrentPlayingAudioId(chosen[0].id);
-    setShowAudioFilesDropdown(false);
-  }, [audioFiles, selectedAudioFileIds]);
+    startPlayQueue(chosen);
+  }, [audioFiles, selectedAudioFileIds, startPlayQueue]);
+
+  /* ──────────────────────────────────────────────────────────────────
+     BRIS-NN-MNB-T70 — play-queue transport.
+
+     The Briselle Audio Controller is a controlled component: it plays
+     whatever `queuePlaying` says and reports back through these
+     handlers. Keeping the queue here (rather than inside the player) is
+     what lets the floating mini-player in T74 show the same track and
+     the same transport state without a second copy of this logic.
+     ────────────────────────────────────────────────────────────────── */
+  const playQueueTracks = useMemo(
+    () => (playQueue || [])
+      .map(id => (audioFiles || []).find(f => f.id === id))
+      .filter(Boolean),
+    [playQueue, audioFiles]
+  );
+
+  const currentQueueTrack = playQueueTracks[playQueueIndex] || null;
+  /* Both storage shapes: DAM records carry url, local ones carry base64. */
+  const currentQueueSrc = currentQueueTrack
+    ? (currentQueueTrack.url || currentQueueTrack.data || '')
+    : '';
+
+  const queueHasPrev = playQueueIndex > 0;
+  const queueHasNext = playQueueIndex < playQueueTracks.length - 1;
+
+  const queuePlay = useCallback(() => { setPlayerError(''); setQueuePlaying(true); }, []);
+  const queuePause = useCallback(() => setQueuePlaying(false), []);
+
+  const queueStop = useCallback(() => {
+    setQueuePlaying(false);
+    setPlayQueue([]);
+    setPlayQueueIndex(0);
+    setCurrentPlayingAudioId(null);
+    setPlayerError('');
+  }, []);
+
+  /* The next index is computed from the current one rather than inside a
+     setPlayQueueIndex updater: an updater runs during the render phase,
+     so calling setCurrentPlayingAudioId from inside it would be a state
+     update during render, and React would run it twice under StrictMode. */
+  const queueStep = useCallback((delta) => {
+    const next = Math.max(0, Math.min(playQueueTracks.length - 1, playQueueIndex + delta));
+    if (next === playQueueIndex) return;
+    setPlayQueueIndex(next);
+    setCurrentPlayingAudioId(playQueueTracks[next]?.id || null);
+    setPlayerError('');
+    setQueuePlaying(true);
+  }, [playQueueIndex, playQueueTracks]);
+
+  const queuePrev = useCallback(() => queueStep(-1), [queueStep]);
+  const queueNext = useCallback(() => queueStep(1), [queueStep]);
+
+  /* End of a track: advance, or close the player on the last one. */
+  const queueEnded = useCallback(() => {
+    if (playQueueIndex < playQueueTracks.length - 1) queueNext();
+    else queueStop();
+  }, [playQueueIndex, playQueueTracks.length, queueNext, queueStop]);
+
+  /* A failed play() must not leave the transport claiming it is playing. */
+  const queueError = useCallback((message) => {
+    setPlayerError(message || 'This audio could not be played');
+    setQueuePlaying(false);
+  }, []);
 
   /* BUG-009: currentPlayingAudioId moved to L47 to fix temporal dead zone */
 
@@ -1319,43 +1877,178 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
   }, [pinnedInsights, saveProp]);
 
   /* TASK-MN-ZIVA-021B: 5-Tier Ziva API Key & Router Resolver */
+  /* ══════════════════════════════════════════════════════════════════
+     BRIS-NN-MNB-T83 — resolve the Ziva pipe for a module scope.
+
+     This function used to call ZivaApiRouterService.getProviderForScope()
+     and .getActiveProvider(). NEITHER METHOD EXISTS on that service. Both
+     calls sat behind `typeof … === 'function'` guards, so both were
+     silently skipped, and the code fell through to reading localStorage
+     keys 'ziva_api_key_groq' / 'ziva_groq_api_key' / 'groq_api_key' —
+     none of which the router writes either (it uses 'briselle_groq_key',
+     and normally the provider registry itself).
+
+     The API key was therefore ALWAYS empty, which is why every summary
+     fell through to the local template.
+
+     It now goes through the real routing contract: query providers,
+     filter to those enabled for this module, take pipe #1 of the
+     resulting sequence. No guessing at storage keys, and no hardcoded
+     provider URL — the pipe carries its own baseUrl and model.
+     ══════════════════════════════════════════════════════════════════ */
   const getZivaApiConfig = useCallback((scope = 'summarization') => {
-    const defaultGroqKey = ''; // Default router key
-    let key = '';
-    let provider = 'groq';
-    let model = 'llama-3.3-70b-versatile';
-
     try {
-      if (ZivaApiRouterService && typeof ZivaApiRouterService.getProviderForScope === 'function') {
-        const scopeProv = ZivaApiRouterService.getProviderForScope(scope);
-        if (scopeProv && scopeProv.apiKey) {
-          key = scopeProv.apiKey;
-          provider = scopeProv.provider || 'groq';
-          model = scopeProv.model || 'llama-3.3-70b-versatile';
-        }
+      const pipes = ZivaApiRouterService.getPipesForScope(scope);
+      if (pipes && pipes.length) {
+        const pipe = pipes[0];
+        return {
+          apiKey: pipe.apiKey,
+          provider: pipe.providerId,
+          providerName: pipe.providerName,
+          model: pipe.model,
+          baseUrl: pipe.baseUrl,
+          pipeCount: pipes.length,
+        };
       }
-      if (!key && ZivaApiRouterService && typeof ZivaApiRouterService.getActiveProvider === 'function') {
-        const activeProv = ZivaApiRouterService.getActiveProvider();
-        if (activeProv && activeProv.apiKey) {
-          key = activeProv.apiKey;
-          provider = activeProv.provider || 'groq';
-          model = activeProv.model || 'llama-3.3-70b-versatile';
-        }
-      }
-      if (!key) {
-        key = localStorage.getItem('ziva_api_key_groq') ||
-              localStorage.getItem('ziva_groq_api_key') ||
-              localStorage.getItem('groq_api_key') ||
-              defaultGroqKey;
-      }
-    } catch (e) {}
-
-    return { apiKey: key, provider, model };
+    } catch (e) {
+      console.error('[Ziva] Provider routing failed for scope', scope, e);
+    }
+    /* No pipe. Reported to the user by the caller — never papered over. */
+    return { apiKey: '', provider: '', providerName: '', model: '', baseUrl: '', pipeCount: 0 };
   }, []);
 
   /* TASK-MN-BTN-009A / TASK-MN-PIPELINE-006: Non-blocking Generate Summary Workflow */
-  const handleGenerateSummary = useCallback(async (textToSummarize = null) => {
+  /* ══════════════════════════════════════════════════════════════════
+     BRIS-NN-MNB-T100 — staying inside the provider's token budget.
+
+     Groq counts `max_tokens` (the RESERVED completion) toward the
+     per-minute limit, not just the prompt. A 12k TPM tier with
+     max_tokens 4096 therefore leaves ~8k for input — and a one-hour
+     meeting transcript is comfortably 16k tokens on its own. The
+     instruction prompt is ~155 tokens, under 1% of the request; the
+     transcript is effectively all of it.
+
+     So: try the whole thing in one call, and only if the provider
+     refuses it on size do we split. Normal meetings keep costing one
+     request; long ones are summarised in parts and then synthesised,
+     which loses far less than truncating would.
+     ══════════════════════════════════════════════════════════════════ */
+
+  /** Rough token estimate. ~4 chars/token is the usual English ratio. */
+  const estimateTokens = useCallback((text) => Math.ceil((text || '').length / 4), []);
+
+  /** Does this failure mean "too big / too fast" rather than "broken"? */
+  const isCapacityError = useCallback((message, status) => {
+    const m = String(message || '').toLowerCase();
+    return status === 413 || status === 429
+      || m.includes('too large') || m.includes('tokens per minute')
+      || m.includes('rate limit') || m.includes('context length')
+      || m.includes('reduce your message');
+  }, []);
+
+  /** The provider often states its own ceiling — use it rather than guess. */
+  const parseTokenLimit = useCallback((message) => {
+    const m = String(message || '').match(/limit\s+(\d[\d,]*)/i);
+    if (!m) return null;
+    const n = Number(m[1].replace(/,/g, ''));
+    return Number.isFinite(n) && n > 0 ? n : null;
+  }, []);
+
+  /**
+   * One chat request against a resolved pipe.
+   * Streams when onDelta is supplied; returns the full text either way.
+   * Throws Error with `.status` set so callers can classify the failure.
+   */
+  const callZivaChat = useCallback(async (pipe, { system, user, maxTokens = 2048, onDelta }) => {
+    const response = await fetch(`${pipe.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${pipe.apiKey}` },
+      body: JSON.stringify({
+        model: pipe.model || 'llama-3.3-70b-versatile',
+        messages: [
+          { role: 'system', content: system },
+          { role: 'user', content: user },
+        ],
+        temperature: 0.3,
+        max_tokens: maxTokens,
+        stream: !!onDelta,
+      }),
+    });
+
+    if (!response.ok) {
+      let reason = `${response.status} ${response.statusText}`;
+      try {
+        const body = await response.json();
+        reason = body?.error?.message || reason;
+      } catch (e) { /* non-JSON error body — the status is enough */ }
+      const err = new Error(`${pipe.providerName}: ${reason}`);
+      err.status = response.status;
+      err.providerMessage = reason;
+      throw err;
+    }
+
+    if (!onDelta) {
+      const data = await response.json();
+      return data?.choices?.[0]?.message?.content || '';
+    }
+
+    if (!response.body?.getReader) throw new Error('This browser cannot read a streamed response.');
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let full = '';
+
+    /* eslint-disable no-constant-condition */
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        const payload = trimmed.slice(5).trim();
+        if (!payload || payload === '[DONE]') continue;
+        try {
+          const delta = JSON.parse(payload).choices?.[0]?.delta?.content || '';
+          if (delta) { full += delta; onDelta(full); }
+        } catch (e) { /* a partial SSE frame — the next chunk completes it */ }
+      }
+    }
+    /* eslint-enable no-constant-condition */
+
+    return full;
+  }, []);
+
+  /** Split on line boundaries so a chunk never cuts mid-sentence. */
+  const splitForBudget = useCallback((text, budgetChars) => {
+    const lines = String(text).split('\n');
+    const chunks = [];
+    let current = '';
+    lines.forEach((line) => {
+      /* A single line longer than the budget is hard-split — rare, but it
+         must not produce a chunk that can never be sent. */
+      if (line.length > budgetChars) {
+        if (current) { chunks.push(current); current = ''; }
+        for (let i = 0; i < line.length; i += budgetChars) chunks.push(line.slice(i, i + budgetChars));
+        return;
+      }
+      if ((current.length + line.length + 1) > budgetChars) { chunks.push(current); current = line; }
+      else current = current ? `${current}\n${line}` : line;
+    });
+    if (current.trim()) chunks.push(current);
+    return chunks.filter(c => c.trim());
+  }, []);
+
+  const handleGenerateSummary = useCallback(async (textToSummarize = null, options = {}) => {
     if (isGeneratingSummary || processing) return;
+
+    /* BRIS-NN-MNB-T82: stopRecording has already recorded the capture and
+       transcription steps, so a run started from there keeps them. */
+    const { keepSteps = false } = options;
+    if (!keepSteps) resetSummarySteps();
 
     /* 1. Extract input text from Transcript + Notes */
     const rawTranscriptText = textToSummarize ||
@@ -1387,63 +2080,242 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
     setIsGeneratingSummary(true);
     setProcessing(true);
 
+    /* Collating is already done by the time this renders, hence 'done'. */
+    setSummaryStep('read', 'Reading transcript and notes', 'done');
+
+    /* BRIS-NN-MNB-T93: resolved from the prompt document, which holds both
+       presets and custom instructions. The old lookup searched
+       customInstructions (permanently empty) and then a constants map whose
+       keys did not match four of the six menu entries, so those four
+       silently produced the Auto prompt. DEFAULT_INSTRUCTION_PROMPTS remains
+       only as the last-resort fallback if the document failed to load. */
     const instructionKey = selectedInstruction || 'Auto';
-    const instructionPrompt = customInstructions.find(ci => ci.name === instructionKey)?.prompt ||
-      DEFAULT_INSTRUCTION_PROMPTS[instructionKey] ||
-      DEFAULT_INSTRUCTION_PROMPTS['Auto'];
+    const instructionPrompt = instructionPrompts[instructionKey]
+      || DEFAULT_INSTRUCTION_PROMPTS[instructionKey]
+      || DEFAULT_INSTRUCTION_PROMPTS['Auto'];
 
-    try {
-      const { apiKey, model } = getZivaApiConfig('summarization');
+    /* T83: resolve the Ziva pipe BEFORE claiming any analysis is running,
+       and name the provider that will actually serve the request. */
+    const { apiKey, model, baseUrl, providerName, pipeCount } = getZivaApiConfig('summarization');
 
-      if (apiKey) {
-        const response = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${apiKey}`
-          },
-          body: JSON.stringify({
-            model: model || 'llama-3.3-70b-versatile',
-            messages: [
-              {
-                role: 'system',
-                content: `You are ZIVA AI Enterprise Meeting Assistant. ${instructionPrompt}`
-              },
-              {
-                role: 'user',
-                content: combinedInput
-              }
-            ],
-            temperature: 0.3,
-            max_tokens: 4096
-          })
-        });
+    if (!apiKey || !baseUrl) {
+      /* T84: say which of the four possible causes it actually is. A
+         single "unavailable" message is what made the previous routing
+         bug take three rounds to find. */
+      let reason = 'No Ziva AI provider is enabled for Meeting Notes Summarization. '
+        + 'Open Ziva API settings, add a provider with an API key, and tick '
+        + '"Meeting Notes Summarization".';
+      try {
+        const d = ZivaApiRouterService.getScopeDiagnostics('summarization');
+        console.warn('[Ziva] summarization routing diagnostics', d);
+        if (!d.totalProviders) {
+          reason = 'No Ziva AI providers are configured. Add one in Ziva API settings.';
+        } else if (!d.scopedProviders) {
+          reason = `None of the ${d.totalProviders} configured providers has "Meeting Notes Summarization" enabled.`
+            + (d.knownScopes.length ? ` Scopes found: ${d.knownScopes.join(', ')}.` : '');
+        } else if (d.scopedMissingKey.length) {
+          reason = `${d.scopedMissingKey.join(', ')} handles Meeting Notes Summarization but has no API key.`;
+        } else if (d.scopedInactive.length) {
+          reason = `${d.scopedInactive.join(', ')} handles Meeting Notes Summarization but is switched off.`;
+        } else {
+          reason = 'A provider is enabled for Meeting Notes Summarization but has no usable endpoint URL.';
+        }
+      } catch (e) { /* keep the generic message */ }
 
-        if (response.ok) {
-          const data = await response.json();
-          const generatedSummary = data.choices?.[0]?.message?.content || '';
-          if (generatedSummary) {
-            saveProp('summary', generatedSummary);
-            saveProp('includeSummary', true);
-            setIsGeneratingSummary(false);
-            setProcessing(false);
-            return;
+      setSummaryStep('route', 'Routing to Ziva AI', 'failed', reason);
+      settleSummarySteps();
+      setIsGeneratingSummary(false);
+      setProcessing(false);
+      return;
+    }
+
+    setSummaryStep('route', `Routing to ${providerName}`, 'done',
+      pipeCount > 1 ? `${pipeCount} providers available — using the first in sequence.` : undefined);
+    setSummaryStep('analyze', 'Analyzing transcript and notes', 'active');
+
+    const pipe = { apiKey, baseUrl, model, providerName };
+    const systemMessage = `You are ZIVA AI Enterprise Meeting Assistant. ${instructionPrompt}`;
+    let sectionCount = 0;
+
+    /* Turn the markdown produced so far into progress rows: every
+       completed heading is a finished section, the newest one is still
+       being written. */
+    const syncSections = (full) => {
+      const matches = [...full.matchAll(/^#{1,6}[ \t]+(.+?)[ \t]*$/gm)];
+      if (!matches.length) return;
+
+      matches.forEach((m, i) => {
+        const isLast = i === matches.length - 1;
+        const label = m[1].replace(/[*_`]/g, '').trim();
+        if (!label) return;
+
+        /* Only the section being written shows a preview. T85: the detail
+           was previously left in place when a section completed —
+           setSummaryStep merges, and a `detail` of undefined is skipped —
+           so every finished row kept a stale half-sentence. */
+        let detail = '';
+        if (isLast) {
+          const body = full.slice(m.index + m[0].length).replace(/\s+/g, ' ').trim();
+          if (body) detail = body.length > 90 ? `${body.slice(0, 90)}…` : body;
+        }
+        setSummaryStep(`sec-${i}`, label, isLast ? 'active' : 'done', detail);
+      });
+      sectionCount = matches.length;
+    };
+
+    const onDelta = (full) => {
+      if (!full) return;
+      setSummaryStep('analyze', 'Analyzing transcript and notes', 'done');
+      syncSections(full);
+    };
+
+    /* ══════════════════════════════════════════════════════════════════
+       BRIS-NN-MNB-T100 — oversized transcripts.
+
+       Attempt the whole thing first: most meetings fit, and one request
+       is both faster and cheaper than three. Only when the provider
+       itself refuses on size do we split, so we never pay the chunking
+       cost speculatively and never guess a limit the provider hasn't
+       stated.
+       ══════════════════════════════════════════════════════════════════ */
+    const summariseInParts = async (limitTokens) => {
+      /* Reserve room for the completion and the instruction. The provider
+         counts max_tokens toward the same budget as the prompt, which is
+         why a 12k limit rejected a 16k transcript with 4096 reserved. */
+      const partMaxTokens = 1024;
+      const overheadTokens = estimateTokens(systemMessage) + partMaxTokens + 512;
+      const budgetTokens = Math.max(1000, (limitTokens || 12000) - overheadTokens);
+      const budgetChars = budgetTokens * 4;
+
+      const parts = splitForBudget(combinedInput, budgetChars);
+      if (parts.length <= 1) {
+        /* Splitting cannot help — one part is already over budget. */
+        throw new Error(
+          `${providerName} rejected this transcript as too large, and it cannot be split further.`
+        );
+      }
+
+      setSummaryStep('analyze', 'Analyzing transcript and notes', 'done');
+      setSummaryStep('split', `Transcript too large — summarising in ${parts.length} parts`, 'done',
+        `${providerName} allows about ${limitTokens || 12000} tokens per request.`);
+
+      const partSummaries = [];
+      for (let i = 0; i < parts.length; i += 1) {
+        const stepId = `part-${i}`;
+        setSummaryStep(stepId, `Summarising part ${i + 1} of ${parts.length}`, 'active');
+        try {
+          const text = await callZivaChat(pipe, {
+            system: 'You are ZIVA AI Enterprise Meeting Assistant. Summarise this PART of a '
+              + 'longer transcript. Keep every decision, action item, name, number and date. '
+              + 'Do not add headings or a conclusion — this is an intermediate note that will '
+              + 'be combined with the other parts.',
+            user: parts[i],
+            maxTokens: partMaxTokens,
+          });
+          partSummaries.push(text);
+          setSummaryStep(stepId, `Summarising part ${i + 1} of ${parts.length}`, 'done');
+        } catch (partErr) {
+          /* A per-minute limit is a wait, not a failure. One retry, paced
+             past the window, then report honestly rather than losing the
+             parts already summarised. */
+          if (isCapacityError(partErr?.providerMessage || partErr?.message, partErr?.status)) {
+            setSummaryStep(stepId, `Summarising part ${i + 1} of ${parts.length}`, 'active',
+              'Provider rate limit reached — waiting before retrying this part.');
+            await new Promise(r => setTimeout(r, 62000));
+            const text = await callZivaChat(pipe, {
+              system: 'You are ZIVA AI Enterprise Meeting Assistant. Summarise this PART of a '
+                + 'longer transcript. Keep every decision, action item, name, number and date.',
+              user: parts[i],
+              maxTokens: partMaxTokens,
+            });
+            partSummaries.push(text);
+            setSummaryStep(stepId, `Summarising part ${i + 1} of ${parts.length}`, 'done');
+          } else {
+            throw partErr;
           }
         }
       }
 
-      /* Smart fallback summary generator */
-      const words = combinedInput.trim().split(/\s+/).length;
-      const fallbackSummary = `## Executive Summary\nOverview of ${title || 'Meeting'} on ${date}. Discussed key topics across ${words} words.\n\n## Key Discussion Points\n- Topics analyzed from interaction notes and transcripts.\n\n## Action Items & Next Steps\n- [ ] Review action items and follow up with participants.`;
-      saveProp('summary', fallbackSummary);
+      /* Synthesis runs against the part summaries, which are far smaller
+         than the transcript, and streams so the section rows still come
+         from real headings. */
+      setSummaryStep('synth', 'Combining parts into the final summary', 'active');
+      const combined = partSummaries
+        .map((s, i) => `=== PART ${i + 1} OF ${parts.length} ===\n${s}`)
+        .join('\n\n');
+
+      const finalText = await callZivaChat(pipe, {
+        system: systemMessage,
+        user: combined,
+        maxTokens: 2048,
+        onDelta,
+      });
+      setSummaryStep('synth', 'Combining parts into the final summary', 'done');
+      return finalText;
+    };
+
+    try {
+      /* BRIS-NN-MNB-T82: streamed, so the section rows in the progress
+         list are the model's ACTUAL headings arriving in real time.
+         T83: the pipe carries its own endpoint — the Groq URL used to be
+         hardcoded here, so any other Ziva provider was sent to Groq.
+         T100: max_tokens 2048, not 4096. The reserved completion counts
+         toward the provider's per-minute budget, so an oversized reserve
+         costs input headroom for no benefit — these summaries run well
+         under 2048. */
+      let full = '';
+      try {
+        full = await callZivaChat(pipe, {
+          system: systemMessage,
+          user: combinedInput,
+          maxTokens: 2048,
+          onDelta,
+        });
+      } catch (firstErr) {
+        const msg = firstErr?.providerMessage || firstErr?.message;
+        if (!isCapacityError(msg, firstErr?.status)) throw firstErr;
+        full = await summariseInParts(parseTokenLimit(msg));
+      }
+
+      syncSections(full);
+
+      if (!full.trim()) {
+        throw new Error(`${providerName} returned an empty response.`);
+      }
+
+      saveProp('summary', full);
       saveProp('includeSummary', true);
+      if (!sectionCount) {
+        setSummaryStep('compose', 'Composing summary', 'done');
+      }
+      settleSummarySteps();
+      setIsGeneratingSummary(false);
+      setProcessing(false);
+      return;
     } catch (err) {
-      console.warn('Summary generation error:', err);
+      /* T83: NO local template fallback. A fabricated summary that looks
+         like AI output is worse than none — it is indistinguishable from
+         a real one once saved, and it masked the fact that the provider
+         was never reachable. The failure is reported and nothing is
+         written to the block. */
+      console.error('Summary generation failed:', err);
+      /* T100: reported on its own row. Marking 'analyze' failed would flip
+         a step that genuinely completed — the split path fails later, at a
+         part or at the synthesis. */
+      setSummaryStep('error', 'Summary could not be generated', 'failed',
+        String(err?.message || err));
     } finally {
+      settleSummarySteps();
       setIsGeneratingSummary(false);
       setProcessing(false);
     }
-  }, [isGeneratingSummary, processing, displayTranscriptLines, transcriptLines, transcription, extractTextFromBlocks, block.notesBlocks, notesContent, selectedInstruction, customInstructions, getZivaApiConfig, title, date, saveProp]);
+  }, [isGeneratingSummary, processing, displayTranscriptLines, transcriptLines, transcription, extractTextFromBlocks, block.notesBlocks, notesContent, selectedInstruction, instructionPrompts, getZivaApiConfig, title, date, saveProp, setSummaryStep, settleSummarySteps, resetSummarySteps, callZivaChat, estimateTokens, isCapacityError, parseTokenLimit, splitForBudget]);
+
+  /* stopRecording is declared far above this function, so it cannot call
+     it directly without hitting the temporal dead zone. The module
+     already uses this ref pattern for startRecording/stopRecording. */
+  const generateSummaryRef = useRef(null);
+  generateSummaryRef.current = handleGenerateSummary;
 
   const generateSummary = handleGenerateSummary;
 
@@ -1457,14 +2329,16 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
     saveProp('transcription', '');
   }, [saveProp]);
 
+  /* BRIS-NN-MNB-T98/T99: opens the instruction in the real NotionNest
+     editor. Auto is included — it is an ordinary document row like any
+     other now, and a built-in can be reset rather than only overwritten. */
   const openEditPromptModal = useCallback((instructionName) => {
-    const currentPrompt = (instructionPrompts && instructionPrompts[instructionName]) || 'You are Ziva AI Meeting Notes Architect. Generate a comprehensive, high-quality structured meeting summary in clean markdown.';
     setUnifiedModalInstruction(instructionName);
-    setUnifiedModalPrompt(currentPrompt);
     setUnifiedModalMode('edit');
     setUnifiedModalOpen(true);
     setShowSettingsPopover(false);
-  }, [instructionPrompts]);
+    setShowInstructionsSubmenu(false);
+  }, []);
 
   const detectLanguagesFromTranscript = useCallback((transcriptLines = [], rawText = '') => {
     const textSample = (transcriptLines.map(l => l.content || '').join(' ') + ' ' + (rawText || '')).trim();
@@ -1639,11 +2513,50 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
      directly, pre-titled. It used to call window.prompt(), which gave a
      browser dialog with no formatting and no block editing. */
   const openAddPromptModal = useCallback(() => {
-    setUnifiedModalInstruction('New Summary Instructions');
-    setUnifiedModalPrompt('');
+    setUnifiedModalInstruction('');
     setUnifiedModalMode('add');
     setUnifiedModalOpen(true);
   }, []);
+
+  /* ── Prompt library mutations (BRIS-NN-MNB-T98) ──────────────────
+     Every write goes through aiPromptConfigService so platform_config
+     stays the source of truth; the local document is replaced with the
+     service's result rather than patched optimistically, so the UI can
+     never show a prompt the database rejected. */
+  const [promptSaving, setPromptSaving] = useState(false);
+
+  const saveInstructionPrompt = useCallback(async (key, payload) => {
+    setPromptSaving(true);
+    try {
+      const targetKey = (payload.name || key || '').trim();
+      if (!targetKey) return;
+      const doc = await upsertInstruction(targetKey, payload);
+      if (doc) {
+        setPromptDoc(doc);
+        saveProp('selectedInstruction', targetKey);
+        setUnifiedModalOpen(false);
+      }
+    } finally {
+      setPromptSaving(false);
+    }
+  }, [saveProp]);
+
+  const resetInstructionPrompt = useCallback(async (key) => {
+    setPromptSaving(true);
+    try {
+      const doc = await resetInstructionToDefault(key);
+      if (doc) { setPromptDoc(doc); setUnifiedModalOpen(false); }
+    } finally {
+      setPromptSaving(false);
+    }
+  }, []);
+
+  const removeInstructionPrompt = useCallback(async (key) => {
+    const doc = await deleteInstruction(key);
+    if (!doc) return;
+    setPromptDoc(doc);
+    if (selectedInstruction === key) saveProp('selectedInstruction', 'Auto');
+  }, [selectedInstruction, saveProp]);
 
   const recordingTimer = timer;
 
@@ -2243,16 +3156,14 @@ ${text}`;
     ...Object.keys(LANGUAGE_CODE_MAP).filter(l => !INDIAN_LANGUAGES.includes(l)),
   ];
 
-  const INSTRUCTION_PRESETS = ['Auto', 'Meeting', 'Interview', 'Call', 'Stand-up', 'Workshop'];
+  /* BRIS-NN-MNB-T93: the menu list now comes from the prompt document,
+     so a preset can never be offered without a prompt behind it. The
+     hardcoded array that used to be here listed Interview / Call /
+     Stand-up / Workshop, none of which had prompts. */
+  const INSTRUCTION_PRESETS = activePromptDoc.order.filter(
+    k => activePromptDoc.instructions[k]?.isSystem
+  );
 
-  function renderCustomInstructions() {
-    var items = [];
-    for (var idx = 0; idx < customInstructions.length; idx++) {
-      var ci = customInstructions[idx];
-      items.push(renderCustomInstructionItem(ci, idx));
-    }
-    return items;
-  }
 
   /* BRIS-NN-MNB-T25: route to the block editor instead of window.prompt().
      Kept as a named function so both menus can call the same entry point. */
@@ -2268,22 +3179,10 @@ ${text}`;
     e.target.value = '';
   }
 
-  function renderCustomInstructionItem(ci, i) {
-    var handleSelect = function () { saveProp('selectedInstruction', ci); setShowInstructionsSubmenu(false); };
-    /* BRIS-NN-MNB-T25: edit opens the block editor, not a browser prompt. */
-    var handleEdit = function (e) { e.stopPropagation(); setShowInstructionsSubmenu(false); openEditPromptModal(ci); };
-    var handleDelete = function (e) { e.stopPropagation(); var upd = customInstructions.filter(function (_, idx) { return idx !== i; }); setCustomInstructions(upd); if (selectedInstruction === ci) saveProp('selectedInstruction', 'Auto'); };
-    return (
-      <div key={i} className={'nnr-settings-flyout-item' + (selectedInstruction === ci ? ' active' : '')} onClick={handleSelect}>
-        {ci}
-        {selectedInstruction === ci && <Check size={12} />}
-        <span className="nnr-settings-flyout-item-actions">
-          <span className="nnr-icon-btn-sm" onClick={handleEdit}><Edit3 size={12} /></span>
-          <span className="nnr-icon-btn-sm" onClick={handleDelete}><Trash2 size={12} /></span>
-        </span>
-      </div>
-    );
-  }
+  /* BRIS-NN-MNB-T93: renderCustomInstructions / renderCustomInstructionItem
+     removed. Both were defined but renderCustomInstructions was never
+     called anywhere, and they duplicated config/InstructionsMenu.jsx which
+     the settings flyout actually renders. */
 
   const renderSettingsPopover = () => (
     <div className="nnr-settings-popover">
@@ -2625,6 +3524,40 @@ ${text}`;
     normalizedTranscriptLines,
     setPlayQueue,
     playQueue,
+    /* BRIS-NN-MNB-T70/T75/T76: Briselle Audio Controller contract.
+       Every one of these is declared above AND destructured by the
+       consumer — missing any of the three is the failure mode this
+       module keeps hitting. Verified by verify-meeting-context.js. */
+    playQueueIndex,
+    playQueueTracks,
+    currentQueueTrack,
+    currentQueueSrc,
+    queuePlaying,
+    queueHasPrev,
+    queueHasNext,
+    queuePlay,
+    queuePause,
+    queueStop,
+    queuePrev,
+    queueNext,
+    queueEnded,
+    queueError,
+    startPlayQueue,
+    playerError,
+    playerVariant,
+    setPlayerVariant,
+    /* BRIS-NN-MNB-T73 */
+    recControlsRef,
+    /* BRIS-NN-MNB-T90 */
+    showSilenceNotice,
+    dismissSilenceNotice,
+    goToMeetingNote,
+    /* BRIS-NN-MNB-T77 */
+    audioFilesError,
+    /* BRIS-NN-MNB-T82 */
+    summarySteps,
+    setSummaryStep,
+    resetSummarySteps,
     removeAudioFiles,
     closeAllMenus,
     transcribeWrapRef,
@@ -2809,8 +3742,6 @@ ${text}`;
     removeAudioFile,
     removeParticipant,
     removeSelectedAudioFiles,
-    renderCustomInstructionItem,
-    renderCustomInstructions,
     renderMd,
     renderSettingsPopover,
     renderSummaryInstructionsPopoverContent,
@@ -2839,7 +3770,6 @@ ${text}`;
     setCurrentSpeaker,
     setCustomInstructionName,
     setCustomInstructionPrompt,
-    setCustomInstructions,
     setDate,
     setDateFormat,
     setDisplayTranscriptLines,
@@ -2847,7 +3777,6 @@ ${text}`;
     setEditingAiNotes,
     setEditingLineId,
     setInsightsCollapsed,
-    setInstructionPrompts,
     setInterimText,
     setIsGeneratingSummary,
     setIsLastModifier,
@@ -2973,6 +3902,11 @@ ${text}`;
     translatedTranscriptLines,
     translatedTranscription,
     translationProgress,
+    promptSaving,
+    saveInstructionPrompt,
+    resetInstructionPrompt,
+    removeInstructionPrompt,
+    activePromptDoc,
     unifiedModalInstruction,
     unifiedModalMode,
     unifiedModalOpen,
@@ -2988,8 +3922,14 @@ ${text}`;
   return (
     <MeetingNotesContext.Provider value={meetingNotesApi}>
     <div className="block-content">
-      <div className={`mt-container${recording ? ' is-recording' : ''}`} style={{ background: '#ffffff', borderRadius: '10px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
-        
+      <div ref={meetingRootRef} className={`mt-container${recording ? ' is-recording' : ''}`} style={{ background: '#ffffff', borderRadius: '10px', border: '1px solid #e2e8f0', overflow: 'hidden', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}>
+
+        {/* BRIS-NN-MNB-T89: the floating recording surfaces are mounted
+            here, not inside TranscriptPanel. A recording is block state,
+            not tab state — switching to Summary or Notes must not remove
+            the only visible Stop control. */}
+        <RecordingOverlays />
+
         <MeetingHeader />
 
         <MeetingTabBar />

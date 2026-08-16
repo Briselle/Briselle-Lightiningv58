@@ -53,9 +53,17 @@ const BlockRenderer = memo(function BlockRenderer({ block, blocksArray, blockInd
   const { 
     addBlock, deleteBlock, duplicateBlock, changeBlockType, moveBlock, 
     showContextMenu, updateBlockProperty, selectedBlockIds, setSelectedBlockIds,
-    selectionStartId, activeBlockId, flatVisibleBlocks
+    selectionStartId, activeBlockId, flatVisibleBlocks,
+    excludedBlockTypes
   } = usePageContext();
   const blockRef = useRef(null);
+
+  /* BRIS-NN-T97: last line of defence. The slash menu and the markdown
+     shortcuts are both filtered, but a block of an excluded type can still
+     arrive from stored content or a paste. Rendering it would nest the
+     component the host excluded — for the instruction editor, a Meeting
+     Notes block inside a Meeting Notes prompt, which recurses. */
+  const isExcluded = !!excludedBlockTypes?.includes(block.type);
   const Component = BLOCK_MAP[block.type] || TextBlock;
 
   /* ---- Plus button ---- */
@@ -209,6 +217,12 @@ const BlockRenderer = memo(function BlockRenderer({ block, blocksArray, blockInd
   if (block.quoteColor) {
     blockStyle['--nn-quote-color-local'] = block.quoteColor;
   }
+
+  /* BRIS-NN-T97: excluded types render nothing at all. Placed after every
+     hook above so the hook order is identical whether or not a block is
+     excluded — an early return before them would break the rules of hooks
+     the moment a page contained one. */
+  if (isExcluded) return null;
 
   return (
     <div

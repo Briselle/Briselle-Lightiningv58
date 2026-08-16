@@ -15,7 +15,7 @@ import { Languages, X } from 'lucide-react';
 import { useMeetingNotes } from '../context/MeetingNotesContext';
 import { LANGUAGE_CODE_MAP, getNativeLangDisplay } from '../constants';
 import { TranscribeControl } from './TranscribeControl';
-import { AudioPlayerBar } from './AudioPlayerBar';
+import { MeetingAudioPlayer } from './MeetingAudioPlayer';
 
 export function TranscriptToolbar() {
   const {
@@ -23,9 +23,30 @@ export function TranscriptToolbar() {
     translateWrapRef, showTranslatePopover, setShowTranslatePopover,
     translateFrom, setTranslateFrom, translateTo, setTranslateTo,
     isTranslating, translationProgress, handleTranslateTranscript,
+    recording,
   } = useMeetingNotes();
 
+  /* ══════════════════════════════════════════════════════════════════
+     BRIS-NN-MNB-T87 — do not render an empty strip.
+
+     This row is mounted on EVERY tab so recording and playback controls
+     stay reachable. But it only ever holds three things: the
+     Original/Translated switch (needs a translation), the translate
+     popover (needs to be open), and the live recording controls (need a
+     recording). With none of them present it still rendered its own
+     padding, background and bottom border — a blank ~40px band between
+     the tab row and the tab content, which is the empty space visible
+     under the header on the Summary tab.
+
+     The `.nnr-transcript-toolbar:empty` rule elsewhere in the CSS was an
+     attempt at this, but :empty only matches an element with no child
+     nodes at all, and this one always had its two wrapper divs.
+     ══════════════════════════════════════════════════════════════════ */
+  const hasToolbarContent = !!translatedLanguage || !!showTranslatePopover || !!recording;
+
   return (
+    <>
+      {hasToolbarContent && (
       <div className="nnr-transcript-toolbar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', borderBottom: '1px solid #f1f5f9', background: '#fafbfc' }}>
         {/* Left Edge: Original vs Translated Sub-Tabs */}
         <div className="nnr-transcript-left" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -109,7 +130,10 @@ export function TranscriptToolbar() {
               Summary tab. The idle Start button stays in the tab row,
               since that has to be reachable before this tab exists. */}
           <TranscribeControl variant="running" />
-          <AudioPlayerBar />
+          {/* BRIS-NN-MNB-T70: the player moved out of this cramped flex
+              row onto its own row below, so the FULL variant has space
+              for its two lines. It renders nothing when the queue is
+              empty, so the row costs nothing when idle. */}
           {/* BRIS-NN-MNB-T17: the standalone Upload button is gone — the
               split button's "Transcribe audio file" mode covers it. */}
 
@@ -122,7 +146,12 @@ export function TranscriptToolbar() {
               slider menu. Nothing here was unique. */}
         </div>
       </div>
+      )}
 
+      {/* Outside the guard: the player owns its own row and decides for
+          itself whether it has a track to show. */}
+      <MeetingAudioPlayer />
+    </>
   );
 }
 

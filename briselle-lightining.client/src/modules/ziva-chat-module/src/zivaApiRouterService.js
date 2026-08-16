@@ -143,7 +143,11 @@ export class ZivaApiRouterService {
     const providers = ZivaApiRouterService.getProviders();
 
     // Look for active provider with key for this specific scope
-    const match = providers.find(p => p.active && p.apiKey && Array.isArray(p.scopes) && p.scopes.includes(scopeTag));
+    // T84: same tolerant scope matching as getPipesForScope, so STT/chat/
+    // translation callers are not defeated by a label-spelled scope either.
+    const match = providers.find(p =>
+      p.active && p.apiKey && ZivaApiRouterService.providerHasScope(p, scopeTag)
+    );
     if (match) return match.apiKey;
 
     // Fallback: check legacy Groq key
@@ -155,6 +159,130 @@ export class ZivaApiRouterService {
     // Fallback: return key from any active provider with a key
     const anyKey = providers.find(p => p.active && p.apiKey);
     return anyKey ? anyKey.apiKey : '';
+  }
+
+  /* ══════════════════════════════════════════════════════════════════
+     BRIS-ZIVA-ROUTER-T83 — module-scoped provider pipeline.
+
+     The routing contract, in order:
+       1. query every configured provider;
+       2. keep only those that are active, hold an API key, AND declare
+          the requested module scope;
+       3. order them into a sequence (explicit `priority`, else the
+          stored order);
+       4. callers push to pipe #1 and may fall back down the list.
+
+     Returns a fully resolved pipe — key, baseUrl and a model suited to
+     the scope — so a caller never has to hardcode a provider URL. This
+     lives here rather than in a consumer because every module (STT,
+     summarization, chat, translation) routes the same way.
+     ══════════════════════════════════════════════════════════════════ */
+
+  /**
+   * BRIS-ZIVA-ROUTER-T84 — every spelling a stored scope may take.
+   *
+   * ZivaApiSettingsModal stores scope IDS ('summarization') and only
+   * RENDERS the label ('Meeting Notes Summarization'). A registry written
+   * by any other path — an older build, an import, a hand-edited entry —
+   * can hold the label instead, and an exact `includes(id)` test then
+   * reports the provider as not enabled for the module even though the
+   * settings screen plainly shows the scope ticked.
+   *
+   * Matching accepts the id, the full label, and the label without its
+   * parenthetical qualifier, all case- and whitespace-insensitive.
+   */
+  static _scopeAliases(scopeTag) {
+    const aliases = new Set([String(scopeTag)]);
+    const def = PREDEFINED_MODULE_SCOPES.find(s => s.id === scopeTag);
+    if (def && def.label) {
+      aliases.add(def.label);
+      aliases.add(def.label.split(' (')[0]);
+    }
+    return new Set([...aliases].map(v => v.trim().toLowerCase()));
+  }
+
+  /** Does this provider declare the given module scope, however spelled? */
+  static providerHasScope(provider, scopeTag) {
+    if (!provider || !Array.isArray(provider.scopes)) return false;
+    const aliases = ZivaApiRouterService._scopeAliases(scopeTag);
+    return provider.scopes.some(s => aliases.has(String(s).trim().toLowerCase()));
+  }
+
+  /**
+   * Why a scope did or did not resolve — so a caller can tell the user
+   * whether the problem is a missing key, an inactive provider, or a
+   * scope that was never ticked, instead of one blank "unavailable".
+   */
+  static getScopeDiagnostics(scopeTag) {
+    const providers = ZivaApiRouterService.getProviders();
+    const scoped = providers.filter(p => ZivaApiRouterService.providerHasScope(p, scopeTag));
+    return {
+      totalProviders: providers.length,
+      scopedProviders: scoped.length,
+      scopedMissingKey: scoped.filter(p => !String(p.apiKey || '').trim()).map(p => p.name || p.id),
+      scopedInactive: scoped.filter(p => p.active === false).map(p => p.name || p.id),
+      /* Every distinct scope string present in the registry. If the user
+         says a module is enabled and it is not in this list, the stored
+         spelling is the problem. */
+      knownScopes: [...new Set(providers.flatMap(p => Array.isArray(p.scopes) ? p.scopes : []))],
+    };
+  }
+
+  /** Base URL declared by the predefined catalogue for a provider. */
+  static _catalogueBaseUrl(provider) {
+    const match = PREDEFINED_PROVIDERS.find(
+      pp => pp.id === (provider.providerSource || provider.id)
+    );
+    return match ? match.defaultBaseUrl : '';
+  }
+
+  /** Best model on a provider for a scope: STT scopes want an stt model. */
+  static _modelForScope(provider, scopeTag) {
+    const models = Array.isArray(provider.models) ? provider.models : [];
+    if (!models.length) return '';
+    const wanted = scopeTag === 'stt' ? 'stt' : 'chat';
+    const typed = models.find(m => (m.type || 'chat') === wanted);
+    return (typed || models[0]).id;
+  }
+
+  /**
+   * Every provider able to serve `scopeTag`, in call order.
+   * @returns {Array<{providerId,providerName,apiKey,baseUrl,model,scopes}>}
+   */
+  static getPipesForScope(scopeTag) {
+    const providers = ZivaApiRouterService.getProviders();
+
+    return providers
+      .map((provider, order) => ({ provider, order }))
+      .filter(({ provider }) =>
+        provider &&
+        provider.active !== false &&
+        String(provider.apiKey || '').trim() &&
+        /* T84: tolerant of scope id OR the label the settings UI shows. */
+        ZivaApiRouterService.providerHasScope(provider, scopeTag)
+      )
+      /* An explicit priority wins; otherwise configuration order is the
+         sequence, so reordering providers reorders the pipeline. */
+      .sort((a, b) =>
+        (a.provider.priority ?? a.order) - (b.provider.priority ?? b.order)
+      )
+      .map(({ provider }) => ({
+        providerId: provider.id,
+        providerName: provider.name || provider.id,
+        apiKey: String(provider.apiKey).trim(),
+        baseUrl: String(provider.baseUrl || '').trim()
+          || ZivaApiRouterService._catalogueBaseUrl(provider),
+        model: ZivaApiRouterService._modelForScope(provider, scopeTag),
+        scopes: provider.scopes,
+      }))
+      /* A pipe with no endpoint cannot be called — drop it rather than
+         let a caller fail mysteriously on an empty URL. */
+      .filter(pipe => pipe.baseUrl);
+  }
+
+  /** Pipe #1 for a scope, or null when the module is not routed. */
+  static getTopPipeForScope(scopeTag) {
+    return ZivaApiRouterService.getPipesForScope(scopeTag)[0] || null;
   }
 
   /** Get all available models from active configured providers */

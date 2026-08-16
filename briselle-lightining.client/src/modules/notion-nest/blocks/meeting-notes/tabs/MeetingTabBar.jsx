@@ -27,6 +27,7 @@ export function MeetingTabBar() {
     setShowAudioFilesDropdown,
     showAudioFilesDropdown,
     audioFiles,
+    audioFilesError,
     transcriptStarted,
     renderSettingsPopover,
     stopRecording,
@@ -64,15 +65,21 @@ export function MeetingTabBar() {
     transcription,
     viewMode,
   } = useMeetingNotes();
+  /* BRIS-NN-MNB-T86: the inline styles that used to sit on this row and its
+     pills are gone. NotionNestPage.css already carried a correct Notion
+     palette for .nnr-notion-tab-bar / .nnr-tab-btn-pill, and the inline
+     slate-and-blue values were silently overriding every one of them —
+     inline style beats any selector short of !important. That override is
+     why the tabs and the right-hand icons never matched each other.
+     Styling now lives in one place, per the no-inline-CSS rule. */
   return (
-      <div className="nnr-tab-header nnr-notion-tab-bar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 12px', borderBottom: '1px solid #f1f5f9', background: '#fafbfc' }}>
-        <div className="nnr-tab-group-left" style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+      <div className="nnr-tab-header nnr-notion-tab-bar">
+        <div className="nnr-tab-group-left">
           {(summary || block.summary) && (
             <button
               type="button"
               className={`nnr-tab-btn-pill${viewMode === 'summary' ? ' active' : ''}`}
               onClick={() => setViewMode('summary')}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: 'none', background: viewMode === 'summary' ? '#ffffff' : 'transparent', color: viewMode === 'summary' ? '#0f172a' : '#64748b', fontWeight: viewMode === 'summary' ? 600 : 500, fontSize: '13px', cursor: 'pointer', boxShadow: viewMode === 'summary' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none' }}
             >
               <ListTodo size={14} />
               <span>Summary</span>
@@ -82,7 +89,6 @@ export function MeetingTabBar() {
             type="button"
             className={`nnr-tab-btn-pill${viewMode === 'notes' ? ' active' : ''}`}
             onClick={() => setViewMode('notes')}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: 'none', background: viewMode === 'notes' ? '#ffffff' : 'transparent', color: viewMode === 'notes' ? '#0f172a' : '#64748b', fontWeight: viewMode === 'notes' ? 600 : 500, fontSize: '13px', cursor: 'pointer', boxShadow: viewMode === 'notes' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none' }}
           >
             <Edit3 size={14} />
             <span>Notes</span>
@@ -95,7 +101,6 @@ export function MeetingTabBar() {
               type="button"
               className={`nnr-tab-btn-pill${viewMode === 'transcript' ? ' active' : ''}`}
               onClick={() => setViewMode('transcript')}
-              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '6px 12px', borderRadius: '6px', border: 'none', background: viewMode === 'transcript' ? '#ffffff' : 'transparent', color: viewMode === 'transcript' ? '#0f172a' : '#64748b', fontWeight: viewMode === 'transcript' ? 600 : 500, fontSize: '13px', cursor: 'pointer', boxShadow: viewMode === 'transcript' ? '0 1px 3px rgba(0,0,0,0.1)' : 'none' }}
             >
               {/* T36: mic with signal lines, not a plain waveform */}
               <span className="nnr-tab-mic">
@@ -111,7 +116,7 @@ export function MeetingTabBar() {
             Start Transcribe button in the transcript toolbar, so the running
             state lives in one place instead of two. See TranscriptPanel. */}
 
-        <div className="nnr-tab-group-right" style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+        <div className="nnr-tab-group-right">
           {/* Auto Consent vs Get Consent Myself Interchangeable Tag Badge */}
           {consentMode && (
             <div
@@ -146,7 +151,10 @@ export function MeetingTabBar() {
           {(displayTranscriptLines.length > 0 || transcription || notesContent) && (
             <button
               type="button"
-              className="nnr-summary-icon-btn"
+              /* T88: was .nnr-summary-icon-btn — a bordered white box while
+                 every other icon in this row is borderless. Same class as
+                 its neighbours now, so the row is one control family. */
+              className="nnr-tabrow-icon-btn"
               disabled={isGeneratingSummary || processing}
               onClick={() => handleGenerateSummary()}
               aria-label={block.summary ? 'Regenerate summary' : 'Generate summary'}
@@ -174,13 +182,16 @@ export function MeetingTabBar() {
               {/* Audio files — only rendered when this block actually owns
                   recordings; otherwise just the 3-dot menu remains. */}
               {audioFiles.length > 0 && (
-              <div className="nnr-audio-files-wrap" ref={audioFilesWrapRef} style={{ position: 'relative' }}>
+              <div className="nnr-audio-files-wrap" ref={audioFilesWrapRef}>
+                {/* T86: same class as the other tab-row icons. It carried its
+                    own inline colour (#64748b slate) while its neighbours
+                    used the Notion greys, which is why this one icon looked
+                    unrelated to the rest of the row. */}
                 <button
                   type="button"
-                  className="nnr-icon-btn"
+                  className={`nnr-tabrow-icon-btn${showAudioFilesDropdown ? ' active' : ''}`}
                   title={`Audio files (${audioFiles.length})`}
                   onClick={() => { const next = !showAudioFilesDropdown; closeAllMenus('audioFiles'); setShowAudioFilesDropdown(next); }}
-                  style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '6px', color: '#64748b', display: 'flex', alignItems: 'center' }}
                 >
                   <FileAudio size={15} />
                   {audioFiles.length > 0 && (
@@ -237,6 +248,14 @@ export function MeetingTabBar() {
                         </span>
                       )}
                     </div>
+
+                    {/* BRIS-NN-MNB-T77: a soft delete that the server
+                        refused says so here. It used to be swallowed, so a
+                        file that never actually left the DAM looked deleted
+                        until the next refresh brought it back. */}
+                    {audioFilesError && (
+                      <div className="nnr-af-error" role="alert">{audioFilesError}</div>
+                    )}
 
                     {audioFiles.map((af, idx) => {
                       const checked = selectedAudioFileIds.includes(af.id);
@@ -305,13 +324,12 @@ export function MeetingTabBar() {
 
 
           {/* Settings / Sliders Icon */}
-          <div className="nnr-settings-wrap" ref={settingsWrapRef} style={{ position: 'relative' }}>
+          <div className="nnr-settings-wrap" ref={settingsWrapRef}>
             <button
               type="button"
-              className="nnr-icon-btn"
+              className={`nnr-tabrow-icon-btn${showSettingsPopover ? ' active' : ''}`}
               onClick={() => { const next = !showSettingsPopover; closeAllMenus('settings'); setShowSettingsPopover(next); }}
               title="Settings & Presets"
-              style={{ border: 'none', background: 'transparent', cursor: 'pointer', padding: '4px', display: 'flex', alignItems: 'center', color: '#64748b' }}
             >
               <Sliders size={16} />
             </button>

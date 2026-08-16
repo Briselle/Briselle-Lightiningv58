@@ -24,6 +24,7 @@ export function TranscribeControl({ variant = 'both' }) {
     startTranscribe, TRANSCRIBE_MODES,
     showTranscribeMenu, setShowTranscribeMenu,
     audioUploadRef, handleAudioUpload, transcribeWrapRef, closeAllMenus,
+    recControlsRef,
   } = useMeetingNotes();
 
   return (
@@ -32,7 +33,15 @@ export function TranscribeControl({ variant = 'both' }) {
             replaces it in place with the live waveform + pause/stop,
             so there is never a second competing recording control. */}
         {(recording && variant !== 'start') ? (
-          <div className="nnr-tab-rec-group">
+          /* BRIS-NN-MNB-T73: recControlsRef marks the live controls so the
+             floating pill can tell whether they are still on screen. Only
+             the 'running' instance carries it — the 'start' instance in
+             the tab row renders the idle button, never this group, so
+             both can never claim the ref at once. */
+          <div
+            className="nnr-tab-rec-group"
+            ref={variant === 'running' ? recControlsRef : undefined}
+          >
             <Waveform level={micVolume} sliderLevel={micVolumeSliderLevel} size="inline" />
             <span className="nnr-rec-time">{formatTime(recordingTimer)}</span>
             <button

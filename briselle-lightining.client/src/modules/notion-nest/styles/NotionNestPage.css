@@ -11747,8 +11747,119 @@ kbd {
 }
 
 /* ── Summary Tab — Content ── */
+/* T86: the inline padding/colour this used to carry has moved here.
+   Notion ink rather than the slate #1e293b it was using.
+
+   ══════════════════════════════════════════════════════════════════
+   BRIS-NN-MNB-T88 — the white band under the header.
+
+   T87 blamed the empty transcript toolbar. That strip was real and is
+   gone, but it was NOT what produced the gap: three top spacings were
+   stacking before the first heading, and they still are.
+
+       .nnr-tab-content      padding-top 14px
+       .nnr-summary-content  padding-top 16px
+       .mt-rich-text h2      margin-top  14px
+                           = 44px of empty space
+
+   Note `.nnr-tab-content` is declared TWICE in this file (line ~9782
+   with 12px, line ~17141 with 14px); the later one wins, which is why
+   reading the first declaration understates the gap.
+
+   Fixed by removing the summary tab's own top padding and collapsing
+   the first heading's margin, so the content starts directly under the
+   tab row. The compound selector is required: `.nnr-summary-tab` alone
+   ties with `.nnr-tab-content` on specificity and loses on order.
+   ══════════════════════════════════════════════════════════════════ */
+.nnr-tab-content.nnr-summary-tab {
+  padding-top: 0;
+  min-height: 260px;
+}
+
 .nnr-summary-content {
-  padding: 4px 0;
+  padding: 0 20px 20px;
+  line-height: 1.6;
+  color: #37352f;
+}
+
+/* The first block of generated markdown sets the top edge itself. */
+.nnr-summary-content .mt-rich-text > :first-child {
+  margin-top: 0;
+}
+
+/* Fallback shown only before the first progress step registers. */
+.nnr-summary-booting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 48px 20px;
+  color: #787774;
+}
+
+.nnr-summary-booting .nnr-spin-icon {
+  color: #787774;
+  margin-bottom: 8px;
+}
+
+.nnr-summary-booting-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #37352f;
+}
+
+.nnr-summary-booting-sub {
+  margin: 0;
+  font-size: 12px;
+  color: #9b9b9b;
+}
+
+/* Empty state. T86: the primary button was the last #0070d2 in the tab. */
+.nnr-summary-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 20px;
+  color: #9b9b9b;
+}
+
+.nnr-summary-empty-icon {
+  opacity: 0.5;
+  margin-bottom: 10px;
+}
+
+.nnr-summary-empty-title {
+  margin: 0;
+  font-size: 14px;
+}
+
+.nnr-summary-empty-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 16px;
+  padding: 7px 14px;
+  border: 1px solid #e3e3e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #37352f;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.nnr-summary-empty-btn:hover {
+  background: #f1f1f0;
+  border-color: #d3d1cb;
+}
+
+.nnr-summary-empty-btn:focus-visible {
+  outline: 2px solid #37352f;
+  outline-offset: 1px;
 }
 
 .nnr-summary-section {
@@ -12127,18 +12238,33 @@ kbd {
 }
 
 /* Notion Tab Header Row */
+/* ── Meeting tab row (BRIS-NN-MNB-T86) ────────────────────────────────
+   One neutral palette for the whole row: Notion ink on Notion greys,
+   with Salesforce's quieter control weight. Deliberately no accent blue
+   anywhere — selection is carried by weight and background, not hue.
+
+     ink            #37352f   active label, icon on hover
+     muted          #787774   resting label and icon
+     hover surface  #f1f1f0
+     active surface #ececeb
+     hairline       #e9e9e7
+   These previously lost every argument with inline styles on the row;
+   those are now removed, so this block is the single source. */
 .nnr-notion-tab-bar {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 16px;
+  gap: 12px;
+  padding: 6px 12px;
   background: #ffffff;
+  border-bottom: 1px solid #e9e9e7;
 }
 
 .nnr-tab-group-left {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
+  min-width: 0;
 }
 
 /* Tab Pill Buttons — Exact Pill Style from Screenshot */
@@ -12159,24 +12285,82 @@ kbd {
 }
 
 .nnr-tab-btn-pill:hover {
-  background: #f7f7f5;
+  background: #f1f1f0;
   color: #37352f;
 }
 
+/* T86: active was #191919 — near-black, and noticeably heavier than the
+   other pills once the filled mic glyph was next to it. Notion ink is
+   the same colour the hover state uses, so the row reads as one family. */
 .nnr-tab-btn-pill.active {
-  background: #f1f1f0;
-  color: #191919;
+  background: #ececeb;
+  color: #37352f;
   font-weight: 600;
 }
 
 .nnr-tab-btn-pill svg {
   color: inherit;
+  opacity: 0.75;
 }
 
-/* Far-Right Sliders Icon Button */
+/* The icon firms up with its label rather than being uniformly black. */
+.nnr-tab-btn-pill.active svg,
+.nnr-tab-btn-pill:hover svg {
+  opacity: 1;
+}
+
 .nnr-tab-group-right {
   display: flex;
   align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* ── Tab-row icon buttons (T86) ───────────────────────────────────────
+   Audio files and Settings previously carried their own inline slate
+   colour while the summary button next to them used Notion greys, so one
+   icon in the row always looked foreign. One class, one appearance. */
+.nnr-tabrow-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #787774;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.nnr-tabrow-icon-btn:hover {
+  background: #f1f1f0;
+  color: #37352f;
+}
+
+.nnr-tabrow-icon-btn.active {
+  background: #ececeb;
+  color: #37352f;
+}
+
+.nnr-tabrow-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+  background: transparent;
+}
+
+.nnr-tabrow-icon-btn:focus-visible {
+  outline: 2px solid #37352f;
+  outline-offset: 1px;
+}
+
+.nnr-audio-files-wrap,
+.nnr-settings-wrap {
+  position: relative;
+  display: inline-flex;
 }
 
 .nnr-sliders-btn {
@@ -12681,14 +12865,172 @@ kbd {
 
 /* Docked to the bottom edge of the viewport so it stays reachable while the
    page scrolls, rather than sitting inside the block's flow. */
-.nnr-rec-pill {
+/* ── Floating recording stack (BRIS-NN-MNB-T89/T90) ───────────────────
+   The idle notice and the recording pill share one bottom-centre
+   column, so the notice sits directly above the pill without either
+   needing to know the other's height — and the pill can still grow on
+   hover without pushing the notice off-centre. */
+.nnr-rec-stack {
   position: fixed;
   left: 50%;
   bottom: 24px;
   transform: translateX(-50%);
   z-index: 1200;
-  width: fit-content;
-  max-width: min(92vw, 460px);
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  /* T91: ONE width for the whole stack. The notice was a fixed 340px
+     while the pill sized to its content, so the two floating cards never
+     lined up — and the pill changed width on hover as its detail row was
+     revealed, shifting under the notice. Both now fill this column, so
+     they share an edge and the pill no longer resizes on hover.
+     340px is the narrowest width that keeps the notice body to two
+     lines; below that it wraps to three and the card gets tall. */
+  width: min(92vw, 340px);
+  /* An empty stack must never swallow clicks on the page beneath. */
+  pointer-events: none;
+}
+
+.nnr-rec-stack > * {
+  pointer-events: auto;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* ── "Still there?" idle notice (BRIS-NN-MNB-T90) ─────────────────────
+   Deliberately dark: it is an interruption, and it must not read as
+   part of the note surface sitting behind it. */
+.nnr-idle-notice {
+  /* T91: width inherited from .nnr-rec-stack — see the note there. */
+  padding: 14px 16px 12px;
+  border: 1px solid #2f2f2f;
+  border-radius: 12px;
+  background: #1f1f1f;
+  color: #ffffff;
+  box-shadow: 0 10px 30px rgba(15, 15, 15, 0.28);
+  animation: nnr-idle-in 0.18s ease-out;
+}
+
+@keyframes nnr-idle-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+.nnr-idle-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.nnr-idle-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  flex-shrink: 0;
+}
+
+.nnr-idle-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: #ffffff;
+}
+
+.nnr-idle-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #b4b4b4;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.nnr-idle-close:hover {
+  background: #2f2f2f;
+  color: #ffffff;
+}
+
+.nnr-idle-body {
+  margin: 6px 0 0;
+  padding-left: 28px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #e6e6e6;
+}
+
+.nnr-idle-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.nnr-idle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 7px 14px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+/* Secondary: navigate away without changing the recording. */
+.nnr-idle-btn.ghost {
+  border: none;
+  background: transparent;
+  color: #b4b4b4;
+}
+
+.nnr-idle-btn.ghost:hover {
+  background: #2f2f2f;
+  color: #ffffff;
+}
+
+/* Primary: the action that ends the recording, so it carries the edge. */
+.nnr-idle-btn.solid {
+  border: 1px solid #4a4a4a;
+  background: #2a2a2a;
+  color: #ffffff;
+}
+
+.nnr-idle-btn.solid:hover {
+  background: #383838;
+  border-color: #5c5c5c;
+}
+
+.nnr-idle-btn:focus-visible,
+.nnr-idle-close:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nnr-idle-notice { animation: none; }
+}
+
+/* T89: positioning moved to .nnr-rec-stack; the pill is now a flow item
+   inside it rather than being fixed to the viewport itself. */
+.nnr-rec-pill {
+  position: relative;
+  /* T91: width comes from .nnr-rec-stack so the pill and the idle notice
+     share one edge. Was fit-content, which also made the pill jump wider
+     on hover when the detail row appeared. */
+  width: 100%;
+  max-width: none;
   margin: 0;
   padding: 10px 14px;
   border: 1px solid #ececea;
@@ -12734,6 +13076,20 @@ kbd {
   display: flex;
   align-items: center;
   gap: 12px;
+}
+
+/* T91: with the pill now filling the stack width, the waveform takes the
+   slack and the time + stop stay pinned right, instead of everything
+   bunching at the left edge of a wider card. */
+.nnr-rec-pill-row > .nnr-rec-wave {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.nnr-rec-pill-row > .nnr-rec-time,
+.nnr-rec-pill-row > .nnr-rec-stop {
+  flex-shrink: 0;
 }
 
 /* Waveform */
@@ -12945,111 +13301,102 @@ kbd {
   border-top: none;
 }
 
-/* ── Minimal audio player (BRIS-NN-MNB-T57) ───────────
-   Lives in the transcript toolbar. Deliberately light — transport,
-   seek, volume — rather than the heavier AudioController. */
+/* ── Briselle Audio Controller host (BRIS-NN-MNB-T70/T71/T74) ──────────
+   The 106-line .nnr-player-* block that used to live here styled
+   AudioPlayerBar, the parallel player. That component has been merged
+   into AudioController's `simple` variant and deleted, so its styles are
+   gone with it — its control sizing (28px buttons, #f7f7f5 / #e0dfdc
+   greys) was carried over verbatim into AudioController.css under
+   .bac-simple, which is why the compact look is unchanged.
 
-.nnr-player {
+   What remains here is only what belongs to the meeting block: where the
+   player sits, and the two overrides that slim the platform controller
+   down to Notion/Salesforce weight inside this block. AudioController.css
+   itself is NOT touched by these — other consumers keep their look. */
+
+.nnr-audio-player-row {
+  padding: 8px 14px;
+  border-bottom: 1px solid #f1f5f9;
+  background: #fafbfc;
+}
+
+/* T71: slim the platform controller inside the meeting block only.
+   Scoped to .nnr-audio-player-row so AudioBlock and Ziva are unaffected. */
+.nnr-audio-player-row .briselle-audio-controller {
+  border-color: #e6e6e3;
+  border-radius: 8px;
+  box-shadow: none;
+  padding: 8px 10px;
+}
+
+.nnr-audio-player-row .bac-btn-main {
+  width: 28px;
+  height: 28px;
+  box-shadow: none;
+}
+
+.nnr-audio-player-row .bac-btn-main:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+/* T79: scoped per variant. A single .nnr-audio-player-row rule outranked
+   .bac-waveform-compact on specificity, so the one-line view was being
+   given the two-line view's track height. Bar heights are percentages,
+   so each variant now fills its own track exactly. */
+.nnr-audio-player-row .briselle-audio-controller:not(.bac-simple) .bac-waveform-container {
+  height: 34px;
+}
+
+.nnr-audio-player-row .bac-simple .bac-waveform-container {
+  height: 22px;
+}
+
+/* Failure reason shown inline rather than swallowed (T65, kept at T70) */
+.nnr-player-error {
+  color: #e5484d;
+  font-size: 12px;
+  padding: 4px 2px 0;
+  line-height: 1.4;
+}
+
+/* T74: floating remote, shown only while the inline player is off-screen.
+   Three controls and a name — deliberately not a second player. */
+.nnr-audio-dock {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9998;
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
-  padding: 6px 0;
-}
-
-.nnr-player-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  flex-shrink: 0;
-  padding: 0;
-  border: none;
-  border-radius: 6px;
-  background: #ececea;
-  color: #37352f;
-  cursor: pointer;
-  transition: background 0.15s, color 0.15s;
-}
-
-.nnr-player-btn:hover { background: #e0dfdc; }
-
-.nnr-player-btn.stop {
-  background: #fde8e6;
-  color: #e5484d;
-}
-
-.nnr-player-btn.stop:hover { background: #fbd5d2; }
-
-.nnr-player-btn:focus-visible {
-  outline: 2px solid #2383e2;
-  outline-offset: 1px;
-}
-
-.nnr-player-name {
-  flex-shrink: 1;
-  min-width: 0;
-  max-width: 180px;
-  overflow: hidden;
-  color: #37352f;
-  font-size: 12px;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.nnr-player-seek { flex: 1; min-width: 80px; }
-.nnr-player-vol  { width: 72px; flex-shrink: 0; }
-
-/* Slim, neutral range inputs so they read as Notion/Salesforce rather
-   than the browser default chrome. */
-.nnr-player-seek,
-.nnr-player-vol {
-  height: 4px;
-  appearance: none;
-  -webkit-appearance: none;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 6px 12px 6px 8px;
+  border: 1px solid #e6e6e3;
   border-radius: 999px;
-  background: #e3e3e1;
-  cursor: pointer;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.16);
+  animation: nnr-audio-dock-in 0.18s ease-out;
 }
 
-.nnr-player-seek::-webkit-slider-thumb,
-.nnr-player-vol::-webkit-slider-thumb {
-  appearance: none;
-  -webkit-appearance: none;
-  width: 12px;
-  height: 12px;
-  border: none;
-  border-radius: 50%;
-  background: #2383e2;
-  cursor: pointer;
+@keyframes nnr-audio-dock-in {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
 }
 
-.nnr-player-seek::-moz-range-thumb,
-.nnr-player-vol::-moz-range-thumb {
-  width: 12px;
-  height: 12px;
-  border: none;
-  border-radius: 50%;
-  background: #2383e2;
-  cursor: pointer;
-}
-
-/* Failure reason shown inline rather than swallowed (T65) */
-.nnr-player-error {
-  flex-shrink: 0;
-  color: #e5484d;
+.nnr-audio-dock-name {
   font-size: 12px;
+  font-weight: 500;
+  color: #37352f;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
-.nnr-player-time,
-.nnr-player-count {
-  flex-shrink: 0;
-  color: #787774;
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
+@media (prefers-reduced-motion: reduce) {
+  .nnr-audio-dock { animation: none; }
 }
 
 /* ── Audio files dropdown (BRIS-NN-MNB-T49) ───────────
@@ -13082,7 +13429,9 @@ kbd {
   padding: 0 4px;
   border: 1.5px solid #ffffff;
   border-radius: 999px;
-  background: #2383e2;
+  /* T86: was #2383e2. The count is a neutral fact, not an alert, and the
+     row carries no other accent colour. */
+  background: #37352f;
   color: #ffffff;
   font-size: 10px;
   font-weight: 600;
@@ -13168,6 +13517,243 @@ kbd {
 
 .nnr-af-btn:hover { background: #ececea; color: #37352f; }
 .nnr-af-btn.danger:hover { background: #fde8e6; color: #e5484d; }
+
+/* ── Instruction editor modal (BRIS-NN-MNB-T98) ───────────────────
+   Hosts a full NotionNestPage, so the body must be the scroll container
+   and must not impose its own typography on the embedded editor. */
+.nnr-ie-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(15, 15, 15, 0.45);
+}
+
+.nnr-ie-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(96vw, 880px);
+  height: min(92vh, 760px);
+  border: 1px solid #e9e9e7;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 18px 48px rgba(15, 15, 15, 0.24);
+  overflow: hidden;
+}
+
+.nnr-ie-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid #e9e9e7;
+  flex-shrink: 0;
+}
+
+.nnr-ie-identity {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.nnr-ie-icon-select {
+  height: 30px;
+  border: 1px solid #e3e3e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #37352f;
+  font-size: 12px;
+  padding: 0 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.nnr-ie-name {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid #e3e3e1;
+  border-radius: 6px;
+  background: #ffffff;
+  color: #37352f;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.nnr-ie-name:disabled {
+  background: #f7f7f5;
+  color: #787774;
+  cursor: not-allowed;
+}
+
+.nnr-ie-badge {
+  flex-shrink: 0;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: #f1f1f0;
+  color: #787774;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.nnr-ie-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #787774;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.nnr-ie-close:hover { background: #f1f1f0; color: #37352f; }
+
+/* The embedded page owns everything inside here. */
+.nnr-ie-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px 4px 24px;
+}
+
+.nnr-ie-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid #e9e9e7;
+  background: #fbfbfa;
+  flex-shrink: 0;
+}
+
+.nnr-ie-spacer { flex: 1; }
+
+.nnr-ie-error {
+  color: #b91c1c;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.nnr-ie-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+
+.nnr-ie-btn.ghost {
+  border: 1px solid #e3e3e1;
+  background: #ffffff;
+  color: #37352f;
+}
+
+.nnr-ie-btn.ghost:hover { background: #f1f1f0; border-color: #d3d1cb; }
+
+.nnr-ie-btn.solid {
+  border: 1px solid #37352f;
+  background: #37352f;
+  color: #ffffff;
+}
+
+.nnr-ie-btn.solid:hover { background: #4a4844; }
+
+.nnr-ie-btn:disabled { opacity: 0.5; cursor: default; }
+
+.nnr-ie-btn:focus-visible,
+.nnr-ie-close:focus-visible {
+  outline: 2px solid #37352f;
+  outline-offset: 1px;
+}
+
+/* ── Summary progress checklist (BRIS-NN-MNB-T82) ──────────────────
+   One row per stage the summary pipeline actually reached. */
+.nnr-sumprog {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 18px 20px;
+}
+
+.nnr-sumprog-row {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+.nnr-sumprog-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.nnr-sumprog-row.is-done .nnr-sumprog-icon { color: #9b9b9b; }
+.nnr-sumprog-row.is-active .nnr-sumprog-icon { color: #37352f; }
+.nnr-sumprog-row.is-failed .nnr-sumprog-icon { color: #e5484d; }
+
+.nnr-sumprog-label {
+  color: #37352f;
+  font-weight: 600;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* The step in flight is de-emphasised until it completes. */
+.nnr-sumprog-row.is-active .nnr-sumprog-label { color: #6b6b6b; font-weight: 500; }
+.nnr-sumprog-row.is-failed .nnr-sumprog-label { color: #b91c1c; }
+
+/* Streamed detail sits under its own step, indented past the icon. */
+.nnr-sumprog-detail {
+  grid-column: 2;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  color: #9b9b9b;
+  font-size: 13px;
+  font-weight: 400;
+  padding-top: 2px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.nnr-sumprog-detail > svg { flex-shrink: 0; margin-top: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .nnr-sumprog .nnr-spin-icon { animation: none; }
+}
+
+/* BRIS-NN-MNB-T77: refused soft-delete, reported in the list itself
+   rather than swallowed by a bare .catch(). */
+.nnr-af-error {
+  margin: 4px 8px 6px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #fdeceb;
+  color: #b91c1c;
+  font-size: 12px;
+  line-height: 1.4;
+}
 
 /* Metadata occupies the second grid row, collapsed until hover */
 .nnr-af-meta {
@@ -13327,8 +13913,14 @@ kbd {
   justify-content: center;
 }
 
-/* Filled mic sitting on a white disc so it reads clearly against the
-   signal lines behind it, rather than disappearing as a hollow outline. */
+/* Filled mic sitting on a disc so it reads clearly against the signal
+   lines behind it, rather than disappearing as a hollow outline.
+
+   T86: the disc now matches the pill it sits on, and the glyph is held a
+   step lighter than the label. Being the only FILLED icon in the row, at
+   full ink it read as a black blob and made the Transcript tab look
+   heavier than Summary or Notes when active — which it was, visually,
+   even though every pill shared the same colour value. */
 .nnr-tab-mic-overlay {
   position: absolute;
   right: -3px;
@@ -13337,12 +13929,19 @@ kbd {
   border-radius: 50%;
   background: #ffffff;
   box-shadow: 0 0 0 1.5px #ffffff;
+  opacity: 0.85;
 }
 
-/* on the active pill the disc matches the pill, not the row */
-.nnr-tab-btn-pill.active .nnr-tab-mic-overlay {
-  background: #ffffff;
-  box-shadow: 0 0 0 1.5px #ffffff;
+/* On the active pill the disc matches the pill surface, not the row. */
+.nnr-tab-btn-pill.active .nnr-tab-mic-overlay,
+.nnr-tab-btn-pill:hover .nnr-tab-mic-overlay {
+  background: #ececeb;
+  box-shadow: 0 0 0 1.5px #ececeb;
+}
+
+.nnr-tab-btn-pill:hover .nnr-tab-mic-overlay {
+  background: #f1f1f0;
+  box-shadow: 0 0 0 1.5px #f1f1f0;
 }
 
 
@@ -14091,37 +14690,9 @@ kbd {
   text-overflow: ellipsis;
 }
 
-/* BRIS-NN-MNB-M05: summary actions as icon buttons, not text buttons */
-.nnr-summary-icon-btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid #e3e3e1;
-  border-radius: 6px;
-  background: #ffffff;
-  color: #37352f;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
-}
-
-.nnr-summary-icon-btn:hover {
-  background: #f7f7f5;
-  border-color: #d3d1cb;
-  color: #2383e2;
-}
-
-.nnr-summary-icon-btn:disabled {
-  opacity: 0.5;
-  cursor: default;
-}
-
-.nnr-summary-icon-btn:focus-visible {
-  outline: 2px solid #2383e2;
-  outline-offset: 1px;
-}
+/* BRIS-NN-MNB-M05 / T88: the bordered .nnr-summary-icon-btn is gone.
+   It was the only boxed icon in a row of borderless ones; the button now
+   uses the shared .nnr-tabrow-icon-btn. */
 
 /* ═══════════════════════════════════════════════════
    TRANSCRIPT — PLAIN PARAGRAPH FLOW  (BRIS-NN-MNB-T02/T09)

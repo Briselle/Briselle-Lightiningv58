@@ -11,12 +11,9 @@
 import { useMeetingNotes } from '../context/MeetingNotesContext';
 import { AudioLines, BookOpen, ChevronDown, Clock, Copy, FileAudio, Headphones, Languages, List, Mic, MicOff, MoreVertical, Pause, Play, Square, Trash2, Upload, Volume2, X } from 'lucide-react';
 import { LANGUAGE_CODE_MAP, getNativeLangDisplay } from '../constants';
-import { AudioPlayerBar } from './AudioPlayerBar';
 import { TranscribeControl } from './TranscribeControl';
 import { TranscriptStatsBar } from './TranscriptStatsBar';
 import { Waveform } from './Waveform';
-import { RecordingPill } from './RecordingPill';
-import AudioController from '../../../../utility-modules/audio-controller/AudioController.jsx';
 
 export function TranscriptPanel() {
   const {
@@ -82,7 +79,10 @@ export function TranscriptPanel() {
   } = useMeetingNotes();
   return (
         <div className="nnr-tab-content nnr-transcript-tab">
-          <RecordingPill />
+          {/* BRIS-NN-MNB-T89: RecordingPill moved to the Base, inside
+              RecordingOverlays. Mounted here it existed only while the
+              Transcript tab was open — the one tab where the inline
+              controls are already visible and the pill is least needed. */}
           {/* BRIS-NN-MNB-T66: the controls strip moved to the Base so it
               renders under the tab row on every tab, not just this one.
               See transcript/TranscriptToolbar.jsx. */}
@@ -90,23 +90,15 @@ export function TranscriptPanel() {
           <TranscriptStatsBar />
 
 
-          {/* BRIS-NN-MNB-T15: the audio tracker belongs to a FILE, not to live
-              speech. Hidden on load; it appears only while an audio file is
-              actually playing or being transcribed, and never during live
-              transcription. Merely having an audioUrl is not enough. */}
-          {audioUrl && !recording && (isPlaying || isTranscribingAudioFile || currentPlayingAudioId) && (
-            <div style={{ padding: '8px 16px', background: '#f8fafc', borderBottom: '1px solid #f1f5f9' }}>
-              <AudioController
-                audioUrl={audioUrl}
-                audioDuration={audioDuration}
-                isPlaying={isPlaying}
-                onPlayPause={togglePlayPause}
-                onSeek={handleSeek}
-                currentTime={currentTime}
-                recording={recording}
-              />
-            </div>
-          )}
+          {/* BRIS-NN-MNB-T70: the second AudioController render that used to
+              sit here has been removed. It passed audioUrl / onPlayPause /
+              audioDuration / recording, but the component's props are
+              src / onPlay / onPause / duration — so it never received a
+              `src` and its <audio> element never rendered at all. It was
+              not a redundant player, it was a player that could not play.
+
+              There is now exactly one playback surface:
+              transcript/MeetingAudioPlayer.jsx, mounted by TranscriptToolbar. */}
 
           {/* Transcript Lines Area */}
           <div className="nnr-transcript-content" style={{ padding: '16px', minHeight: '240px' }}>
