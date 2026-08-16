@@ -227,6 +227,9 @@ export function sanitizeNotionBlocks(blocks: unknown): any[] {
             ...(block.defaultInstruction !== undefined ? { defaultInstruction: String(block.defaultInstruction) } : {}),
             ...(block.hiddenInstructions !== undefined ? { hiddenInstructions: block.hiddenInstructions } : {}),
             ...(block.instructionIcons !== undefined ? { instructionIcons: block.instructionIcons } : {}),
+            /* BRIS-NN-MNB-T29b: keeps the Transcript tab visible after reload
+               once transcription has been started at least once. */
+            ...(block.transcriptStarted !== undefined ? { transcriptStarted: !!block.transcriptStarted } : {}),
         };
     }).filter(Boolean);
 }

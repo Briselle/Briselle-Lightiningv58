@@ -12901,6 +12901,297 @@ kbd {
   font-size: 11px;
 }
 
+/* ── Transcript toolbar (BRIS-NN-MNB-T43) ─────────────
+   Sits flush against the tab row above it: no top border, no vertical
+   padding, plain white. It now carries the live equalizer / pause /
+   stop, so it must not read as a second banded strip. Declared with
+   !important because the element still carries inline styles from the
+   original markup. */
+.nnr-transcript-toolbar {
+  margin-top: 0 !important;
+  padding: 0 14px !important;
+  border-top: none !important;
+  border-bottom: none !important;
+  background: #ffffff !important;
+  min-height: 0;
+}
+
+/* Collapse the strip entirely when it has nothing to show */
+.nnr-transcript-toolbar:empty { display: none !important; }
+
+/* BRIS-NN-MNB-T45: live controls centred in the strip, not right-aligned */
+.nnr-transcript-toolbar .nnr-tab-rec-group {
+  margin: 0 auto;
+  padding: 8px 0;
+}
+
+/* The toolbar is a flex row; centring the group needs the siblings to
+   stop claiming the free space. */
+.nnr-transcript-toolbar {
+  justify-content: center !important;
+}
+
+/* BRIS-NN-MNB-T47: with nothing in the strip, the insights bar should sit
+   directly under the header rather than after a band of white. */
+.nnr-transcript-toolbar:empty,
+.nnr-transcript-toolbar:not(:has(*)) {
+  display: none !important;
+  padding: 0 !important;
+  border: none !important;
+}
+
+.nnr-transcript-tab > .nnr-insights:first-child,
+.nnr-transcript-toolbar:empty + .nnr-insights {
+  border-top: none;
+}
+
+/* ── Minimal audio player (BRIS-NN-MNB-T57) ───────────
+   Lives in the transcript toolbar. Deliberately light — transport,
+   seek, volume — rather than the heavier AudioController. */
+
+.nnr-player {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 6px 0;
+}
+
+.nnr-player-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: #ececea;
+  color: #37352f;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.nnr-player-btn:hover { background: #e0dfdc; }
+
+.nnr-player-btn.stop {
+  background: #fde8e6;
+  color: #e5484d;
+}
+
+.nnr-player-btn.stop:hover { background: #fbd5d2; }
+
+.nnr-player-btn:focus-visible {
+  outline: 2px solid #2383e2;
+  outline-offset: 1px;
+}
+
+.nnr-player-name {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  color: #37352f;
+  font-size: 12px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.nnr-player-seek { flex: 1; min-width: 80px; }
+.nnr-player-vol  { width: 72px; flex-shrink: 0; }
+
+/* Slim, neutral range inputs so they read as Notion/Salesforce rather
+   than the browser default chrome. */
+.nnr-player-seek,
+.nnr-player-vol {
+  height: 4px;
+  appearance: none;
+  -webkit-appearance: none;
+  border-radius: 999px;
+  background: #e3e3e1;
+  cursor: pointer;
+}
+
+.nnr-player-seek::-webkit-slider-thumb,
+.nnr-player-vol::-webkit-slider-thumb {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  background: #2383e2;
+  cursor: pointer;
+}
+
+.nnr-player-seek::-moz-range-thumb,
+.nnr-player-vol::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  background: #2383e2;
+  cursor: pointer;
+}
+
+/* Failure reason shown inline rather than swallowed (T65) */
+.nnr-player-error {
+  flex-shrink: 0;
+  color: #e5484d;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.nnr-player-time,
+.nnr-player-count {
+  flex-shrink: 0;
+  color: #787774;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ── Audio files dropdown (BRIS-NN-MNB-T49) ───────────
+   Select-all, per-file play/delete, metadata on hover. */
+
+.nnr-audio-files-dropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 1000;
+  min-width: 288px;
+  max-height: 340px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid #e9e9e7;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 15, 15, 0.14);
+}
+
+/* BRIS-NN-MNB-T50: file-count badge on the audio-files icon */
+.nnr-audio-files-wrap { position: relative; }
+
+.nnr-af-badge {
+  position: absolute;
+  top: -1px;
+  right: -3px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  border: 1.5px solid #ffffff;
+  border-radius: 999px;
+  background: #2383e2;
+  color: #ffffff;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 12px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+
+.nnr-af-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px 8px;
+  border-bottom: 1px solid #f1f1f0;
+}
+
+.nnr-af-selectall {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: #37352f;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.nnr-af-count {
+  color: #2383e2;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.nnr-af-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  transition: background 0.15s;
+}
+
+.nnr-af-row:hover { background: #f7f7f5; }
+.nnr-af-row.playing { background: rgba(35, 131, 226, 0.08); }
+
+.nnr-af-pick { display: inline-flex; cursor: pointer; }
+
+.nnr-af-name {
+  overflow: hidden;
+  color: #37352f;
+  font-size: 13px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.nnr-af-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.nnr-af-row:hover .nnr-af-actions,
+.nnr-af-row:focus-within .nnr-af-actions { opacity: 1; }
+
+.nnr-af-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: #787774;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.nnr-af-btn:hover { background: #ececea; color: #37352f; }
+.nnr-af-btn.danger:hover { background: #fde8e6; color: #e5484d; }
+
+/* Metadata occupies the second grid row, collapsed until hover */
+.nnr-af-meta {
+  grid-column: 2 / -1;
+  max-height: 0;
+  overflow: hidden;
+  color: #9b9b9b;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  transition: max-height 0.15s ease;
+}
+
+.nnr-af-row:hover .nnr-af-meta,
+.nnr-af-row:focus-within .nnr-af-meta { max-height: 20px; }
+
+.nnr-af-empty {
+  padding: 10px 8px;
+  color: #9b9b9b;
+  font-size: 12px;
+  font-style: italic;
+}
+
 /* ── Inline recording controls in the tab row (T13) ───── */
 
 .nnr-tab-rec-group {
@@ -12910,13 +13201,16 @@ kbd {
   margin: 0 auto 0 12px;
 }
 
+/* BRIS-NN-MNB-T46: a taller, denser equalizer — reads as a real level
+   meter rather than a row of dots. */
 .nnr-rec-wave.inline {
-  height: 18px;
-  gap: 2px;
+  height: 30px;
+  gap: 3px;
 }
 
 .nnr-rec-wave.inline .nnr-rec-wave-bar {
-  width: 2px;
+  width: 3px;
+  border-radius: 999px;
 }
 
 .nnr-tab-rec-btn {
@@ -12955,16 +13249,7 @@ kbd {
 }
 
 /* Whole block reads as "recording" — tinted surface, calm not alarming */
-.mt-container.is-recording {
-  background: #eaf2fd !important;
-  border-color: #cfe0f7 !important;
-}
 
-.mt-container.is-recording .mt-header,
-.mt-container.is-recording .nnr-tab-header {
-  background: transparent !important;
-  border-bottom-color: #d8e6f8 !important;
-}
 
 /* Live source label above the first streaming line */
 .nnr-live-source {
@@ -12977,12 +13262,91 @@ kbd {
   font-weight: 600;
 }
 
+/* BRIS-NN-MNB-T30: hollow ring with a filled dot at its centre — two
+   concentric shapes rather than an inset-shadow approximation, so the
+   gap between ring and dot stays clean at any zoom. */
 .nnr-live-source-dot {
-  width: 14px;
-  height: 14px;
-  border: 2px solid #787774;
+  position: relative;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  border: 1.5px solid #9b9b9b;
   border-radius: 50%;
-  box-shadow: inset 0 0 0 2px #ffffff, inset 0 0 0 6px #787774;
+  background: transparent;
+}
+
+.nnr-live-source-dot::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: #787774;
+}
+
+/* soft pulse only while live */
+
+/* BRIS-NN-MNB-T31: capture-state bracket beside the speaker name */
+.nnr-live-source-state {
+  margin-left: 6px;
+  color: #9b9b9b;
+  font-size: 12px;
+  font-weight: 400;
+}
+
+/* BRIS-NN-MNB-T32: one continuous indent rule down the live column,
+   rather than a rule on the first paragraph only. */
+.nnr-transcript-lines-list {
+  position: relative;
+}
+
+.nnr-transcript-para,
+.nnr-live-first {
+  padding-left: 14px;
+  border-left: 2px solid #e9e9e7;
+}
+
+/* BRIS-NN-MNB-T33: the trailing glyph breathes so it reads as "working" */
+.nnr-live-glyph {
+  animation: nnrGlyphBreathe 2.4s ease-in-out infinite;
+}
+
+@keyframes nnrGlyphBreathe {
+  0%, 100% { transform: scale(1);    opacity: 0.85; }
+  50%      { transform: scale(1.08); opacity: 1; }
+}
+
+/* BRIS-NN-MNB-T36: mic overlaid on the signal-lines glyph */
+.nnr-tab-mic {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Filled mic sitting on a white disc so it reads clearly against the
+   signal lines behind it, rather than disappearing as a hollow outline. */
+.nnr-tab-mic-overlay {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  padding: 1px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 0 0 1.5px #ffffff;
+}
+
+/* on the active pill the disc matches the pill, not the row */
+.nnr-tab-btn-pill.active .nnr-tab-mic-overlay {
+  background: #ffffff;
+  box-shadow: 0 0 0 1.5px #ffffff;
+}
+
+
+@media (prefers-reduced-motion: reduce) {
 }
 
 .nnr-live-first {
@@ -13181,6 +13545,124 @@ kbd {
 }
 
 .nnr-stat-tag.pinned .nnr-stat-pin { opacity: 1; color: #2383e2; }
+
+/* ── Inline participants control (BRIS-NN-MNB-T28) ────
+   Two overlapping outlined circles sitting in the title flow, right
+   after the @date, so they wrap with the title rather than anchoring
+   to the tab row. */
+
+.nnr-participants-inline {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  margin-left: 10px;
+  vertical-align: middle;
+  cursor: pointer;
+  user-select: none;
+}
+
+/* Every participant overlaps the one before it */
+.nnr-participants-inline > .nnr-pi-person + .nnr-pi-person {
+  margin-left: -8px;
+}
+
+.nnr-pi-circle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: 1px solid #e3e3e1;
+  border-radius: 50%;
+  background: #ffffff;
+  color: #787774;
+  transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+/* the second circle tucks under the first */
+.nnr-pi-add { margin-left: -8px; }
+
+.nnr-participants-inline:hover .nnr-pi-circle {
+  background: #f7f7f5;
+  border-color: #d3d1cb;
+  color: #37352f;
+}
+
+.nnr-participants-inline:focus-visible {
+  outline: 2px solid #2383e2;
+  outline-offset: 2px;
+  border-radius: 999px;
+}
+
+/* Initials sit in the same circle as the fallback glyph */
+.nnr-pi-person {
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: 0;
+}
+
+/* Hover roster — opens upward, listed vertically */
+.nnr-pi-list {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 1300;
+  display: none;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 184px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid #e9e9e7;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 8px 24px rgba(15, 15, 15, 0.16);
+  cursor: default;
+}
+
+.nnr-participants-inline:hover .nnr-pi-list,
+.nnr-participants-inline:focus-within .nnr-pi-list {
+  display: flex;
+}
+
+.nnr-pi-list-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+
+.nnr-pi-list-row:hover { background: #f1f1f0; }
+
+/* rows stack vertically, so cancel the overlap inside the list */
+.nnr-pi-list-row .nnr-pi-person { margin-left: 0; }
+
+.nnr-pi-list-name {
+  overflow: hidden;
+  color: #37352f;
+  font-size: 13px;
+  font-weight: 400;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* attention dot on the add circle */
+.nnr-pi-dot {
+  position: absolute;
+  top: -1px;
+  right: -1px;
+  width: 9px;
+  height: 9px;
+  border: 2px solid #ffffff;
+  border-radius: 50%;
+  background: #eb5757;
+}
+
+
 
 /* ── Summary instructions menu (BRIS-NN-MNB-T27) ──────
    One implementation, rendered by the slider flyout and the footer. */
@@ -13490,11 +13972,6 @@ kbd {
 
 .nnr-footer-icon-btn:hover { background: #f1f1f0; color: #37352f; }
 
-.mt-container.is-recording .nnr-meeting-footer,
-.mt-container.is-recording .nnr-insights {
-  background: transparent;
-  border-color: #d8e6f8;
-}
 
 .nnr-stat-tag {
   display: inline-flex;
@@ -13533,10 +14010,6 @@ kbd {
 }
 
 /* Tinted recording surface: keep the bar reading as part of the block */
-.mt-container.is-recording .nnr-stats-bar {
-  background: transparent;
-  border-bottom-color: #d8e6f8;
-}
 
 /* ── BRIS-NN-MNB-T21: 3-dot menu — single column ──────────────
    The menu inherited a multi-column layout from an ancestor grid, so
@@ -13710,8 +14183,19 @@ kbd {
 
 /* BRIS-NN-MNB-T04: live speech in progress. Same prose flow as committed
    lines — only the caret marks it as still being spoken. */
-.nnr-transcript-interim > .nnr-transcript-text {
-  color: #37352f;
+/* BRIS-NN-MNB-T64: unconfirmed speech is grey; it turns black only once
+   the recogniser finalises it and it becomes a committed line above.
+   Declared with high specificity because the generic
+   `.nnr-transcript-para > .nnr-transcript-text { color: inherit }` rule
+   appears later in the cascade and was overriding the grey — which is
+   why every line rendered black. */
+.nnr-transcript-para.nnr-transcript-interim > .nnr-transcript-text,
+.nnr-transcript-para.nnr-live-first > .nnr-transcript-text {
+  color: #9b9b9b !important;
+}
+
+.nnr-transcript-para.nnr-transcript-interim {
+  color: #9b9b9b;
 }
 
 .nnr-typing-caret {

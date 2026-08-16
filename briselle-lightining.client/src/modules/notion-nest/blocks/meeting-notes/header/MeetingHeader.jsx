@@ -9,12 +9,16 @@
             closure to the MeetingNotes context.
    ============================================================ */
 import { useMeetingNotes } from '../context/MeetingNotesContext';
-import { Calendar, ChevronDown, Link } from 'lucide-react';
+import { Calendar, ChevronDown, Link, Plus, User } from 'lucide-react';
 import { NotionDatePicker } from '../../shared/NotionDatePicker';
 import { TAG_MODES } from '../../shared/meetingDateTags';
 
 export function MeetingHeader() {
   const {
+    closeAllMenus,
+    setShowParticipantsPanel,
+    showParticipantsPanel,
+    participants,
     applyDateTag,
     applyManualDate,
     block,
@@ -46,7 +50,7 @@ export function MeetingHeader() {
             <button
               type="button"
               className="nnr-cal-icon-btn borderless"
-              onClick={() => setShowCalendarPopover(!showCalendarPopover)}
+              onClick={() => { const next = !showCalendarPopover; closeAllMenus('calendar'); setShowCalendarPopover(next); }}
               title={`Meeting date — ${headerDateLabel}`}
               aria-haspopup="dialog"
               aria-expanded={showCalendarPopover}
@@ -165,6 +169,61 @@ export function MeetingHeader() {
               title="Change meeting date"
             >
               @{headerDateLabel}
+            </span>
+
+            {/* BRIS-NN-MNB-T28: participants now sit inline right after the
+                date, inside the title flow, so they wrap with the title
+                instead of living over in the tab row. */}
+            <span
+              className="nnr-participants-inline"
+              role="button"
+              tabIndex={0}
+              onClick={() => setShowParticipantsPanel(!showParticipantsPanel)}
+              onKeyDown={e => { if (e.key === 'Enter') setShowParticipantsPanel(!showParticipantsPanel); }}
+              aria-label={`Meeting participants (${(participants || []).length})`}
+              title="Meeting participants"
+            >
+              {/* One overlapping circle per participant. Falls back to a
+                  single person glyph when nobody has been added yet. */}
+              {(participants || []).length === 0 ? (
+                <span className="nnr-pi-circle nnr-pi-person">
+                  <User size={13} />
+                </span>
+              ) : (
+                (participants || []).map((p, i) => (
+                  <span
+                    key={p.id || i}
+                    className="nnr-pi-circle nnr-pi-person"
+                    style={{ zIndex: (participants || []).length - i }}
+                  >
+                    {p.name
+                      ? p.name.trim().charAt(0).toUpperCase()
+                      : <User size={13} />}
+                  </span>
+                ))
+              )}
+
+              <span className="nnr-pi-circle nnr-pi-add">
+                <Plus size={13} />
+                {/* unread/attention dot, as in the reference */}
+                <span className="nnr-pi-dot" aria-hidden="true" />
+              </span>
+
+              {/* Hover roster — opens upward so it never covers the block */}
+              {(participants || []).length > 0 && (
+                <span className="nnr-pi-list" role="list">
+                  {(participants || []).map((p, i) => (
+                    <span className="nnr-pi-list-row" role="listitem" key={p.id || `r${i}`}>
+                      <span className="nnr-pi-circle nnr-pi-person">
+                        {p.name
+                          ? p.name.trim().charAt(0).toUpperCase()
+                          : <User size={13} />}
+                      </span>
+                      <span className="nnr-pi-list-name">{p.name || p.email}</span>
+                    </span>
+                  ))}
+                </span>
+              )}
             </span>
           </div>
         </div>

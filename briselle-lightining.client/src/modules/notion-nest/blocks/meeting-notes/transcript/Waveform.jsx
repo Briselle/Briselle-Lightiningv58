@@ -46,9 +46,9 @@ export function barHeights(count, level, maxPx = 26, basePx = 3) {
  */
 export function Waveform({ level, sliderLevel, size = 'pill' }) {
   const inline = size === 'inline';
-  const count = barCountFor(sliderLevel, inline ? 12 : 10, inline ? 24 : 28);
+  const count = barCountFor(sliderLevel, inline ? 18 : 10, inline ? 34 : 28);
   const heights = useMemo(
-    () => barHeights(count, level, inline ? 14 : 26, inline ? 2 : 3),
+    () => barHeights(count, level, inline ? 26 : 26, inline ? 3 : 3),
     [count, level, inline]
   );
 

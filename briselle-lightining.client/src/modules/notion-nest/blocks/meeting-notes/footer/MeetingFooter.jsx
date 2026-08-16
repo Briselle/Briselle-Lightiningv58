@@ -10,8 +10,9 @@
    Styling: styles/NotionNestPage.css. No inline CSS.
    ============================================================ */
 import { useState, useRef, useEffect } from 'react';
-import { ChevronDown, Volume2, Copy, Check } from 'lucide-react';
+import { ChevronDown, Volume2, Copy, Check, Eraser, Clock , Languages } from 'lucide-react';
 import { InstructionsMenu } from '../config/InstructionsMenu';
+import { useDismissOnOutside } from '../hooks/useDismissOnOutside';
 import { useMeetingNotes } from '../context/MeetingNotesContext';
 
 const CONSENT_NOTICE =
@@ -19,6 +20,10 @@ const CONSENT_NOTICE =
 
 export function MeetingFooter() {
   const {
+    setShowTranslatePopover,
+    setShowTimeline,
+    showTimeline,
+    clearTranscript,
     selectedInstruction,
     setSelectedInstruction,
     INSTRUCTION_PRESETS,
@@ -33,16 +38,7 @@ export function MeetingFooter() {
   const [copied, setCopied] = useState(false);
   const wrapRef = useRef(null);
 
-  /* Dismiss the instructions dropdown on outside click. mousedown so a
-     click on a row still runs its handler before the menu closes. */
-  useEffect(() => {
-    if (!open) return undefined;
-    const onDown = (e) => {
-      if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);
-    };
-    document.addEventListener('mousedown', onDown);
-    return () => document.removeEventListener('mousedown', onDown);
-  }, [open]);
+  useDismissOnOutside(open, wrapRef, () => setOpen(false));
 
   const choose = (preset) => {
     setSelectedInstruction?.(preset);
@@ -90,6 +86,9 @@ export function MeetingFooter() {
         <span className="nnr-footer-ticker-text">{CONSENT_NOTICE}</span>
       </div>
 
+      {/* BRIS-NN-MNB-T38: order is Speak → Clear → Timestamps → Copy.
+          Clear and Timestamps moved here from the 3-dot menu, which has
+          been removed now that everything in it lives in the footer. */}
       <div className="nnr-footer-actions">
         <button
           type="button"
@@ -99,6 +98,35 @@ export function MeetingFooter() {
           title="Read aloud"
         >
           <Volume2 size={15} />
+        </button>
+        {/* BRIS-NN-MNB-T48: Translate sits right after Read aloud */}
+        <button
+          type="button"
+          className="nnr-footer-icon-btn"
+          onClick={() => setShowTranslatePopover?.(true)}
+          aria-label="Translate transcript"
+          title="Translate transcript"
+        >
+          <Languages size={15} />
+        </button>
+        <button
+          type="button"
+          className="nnr-footer-icon-btn"
+          onClick={() => clearTranscript?.()}
+          aria-label="Clear transcript"
+          title="Clear transcript"
+        >
+          <Eraser size={15} />
+        </button>
+        <button
+          type="button"
+          className={`nnr-footer-icon-btn${showTimeline ? ' active' : ''}`}
+          onClick={() => { setShowTimeline(!showTimeline); saveProp('showTimeline', !showTimeline); }}
+          aria-pressed={showTimeline}
+          aria-label={showTimeline ? 'Hide timestamps' : 'Show timestamps'}
+          title={showTimeline ? 'Hide timestamps' : 'Show timestamps'}
+        >
+          <Clock size={15} />
         </button>
         <button
           type="button"

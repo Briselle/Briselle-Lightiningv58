@@ -14,7 +14,7 @@
    ============================================================ */
 import { useRef, useCallback, useEffect, useState, useMemo, memo } from 'react';
 import { usePageContext } from '../../core/PageContext';
-import { Plus, Languages, Search, ListTodo, ExternalLink, AlertTriangle, FileText, Bell, Database, Edit3, Variable, Settings, Trash2, GripVertical, ChevronDown, X, Check, Mic, MicOff, Calendar, Users, Lightbulb, Copy, Volume2, VolumeX, MoreHorizontal, MoreVertical, List, Clock, UserPlus, MessageSquare, Download, Share2, Play, Pause, Sliders, Upload, Globe, BookOpen, Link, ArrowRight, Video, MessageCircle, HelpCircle, Info, Speaker, Megaphone, MegaphoneOff, AudioLines, Shield, ChevronUp, ChevronRight, Loader2, Zap, RefreshCw, Sparkles, Minus, PenLine, PlusCircle, Briefcase, Headphones, ThumbsUp, ThumbsDown, Pin, Eraser } from 'lucide-react';
+import { Plus, Languages, Search, ListTodo, ExternalLink, AlertTriangle, FileText, Bell, Database, Edit3, Variable, Settings, Trash2, GripVertical, ChevronDown, X, Check, Mic, MicOff, Calendar, Users, Lightbulb, Copy, Volume2, VolumeX, MoreHorizontal, MoreVertical, List, Clock, UserPlus, MessageSquare, Download, Share2, Play, Pause, Sliders, Upload, Globe, BookOpen, Link, ArrowRight, Video, MessageCircle, HelpCircle, Info, Speaker, Megaphone, MegaphoneOff, AudioLines, Shield, ChevronUp, ChevronRight, Loader2, Zap, RefreshCw, Sparkles, Minus, PenLine, PlusCircle, Briefcase, Headphones, ThumbsUp, ThumbsDown, Pin, Eraser , FileAudio } from 'lucide-react';
 /* BRIS-NN-MNB-H01: date-tag domain logic (pure, no UI) */
 import {
   TAG_MODES,
@@ -41,6 +41,8 @@ import { NotesTab } from './tabs/NotesTab';
 import { TranscriptPanel } from './transcript/TranscriptPanel';
 import { TranscriptInsights } from './transcript/TranscriptInsights';
 import { InstructionsMenu } from './config/InstructionsMenu';
+import { useDismissOnOutside } from './hooks/useDismissOnOutside';
+import { TranscriptToolbar } from './transcript/TranscriptToolbar';
 import { MeetingFooter } from './footer/MeetingFooter';
 import { SummaryActions } from './summary/SummaryActions';
 import { MeetingModals } from './config/MeetingModals';
@@ -65,9 +67,15 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
 
   const [showCalendarPopover, setShowCalendarPopover] = useState(false);
   const [showTranscribeMenu, setShowTranscribeMenu] = useState(false);
+  /* BRIS-NN-MNB-T57: files handed to the audio player bar. */
+  const [playQueue, setPlayQueue] = useState([]);
+  /* BRIS-NN-MNB-T39: mode submenu under Resume transcription. */
+  const [showResumeSubmenu, setShowResumeSubmenu] = useState(false);
   const calendarWrapRef = useRef(null);
   /* BRIS-NN-MNB-T21: dismiss the 3-dot menu when the user clicks away. */
   const moreMenuWrapRef = useRef(null);
+  /* BRIS-NN-MNB-T42: anchors the split-button mode menu for dismiss. */
+  const transcribeWrapRef = useRef(null);
   const translateWrapRef = useRef(null);
   const [BR, setBR] = useState(null);
   useEffect(() => { import('../../core/BlockRenderer').then(m => setBR(() => m.default)); }, []);
@@ -104,6 +112,11 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
   const [insightsCollapsed, setInsightsCollapsed] = useState(block.insightsCollapsed !== false);
   /* BRIS-NN-MNB-T27: which instruction is the menu default, and which
      presets the user has removed from their own menu. */
+  /* BRIS-NN-MNB-T29b: the Transcript tab stays hidden until the user has
+     actually started transcribing (or a transcript already exists), so a
+     fresh block shows only Notes plus the Start control. Persisted so the
+     tab does not disappear again after reload. */
+  const [transcriptStarted, setTranscriptStarted] = useState(!!block.transcriptStarted);
   const [defaultInstruction, setDefaultInstruction] = useState(block.defaultInstruction || 'Auto');
   const [hiddenInstructions, setHiddenInstructions] = useState(block.hiddenInstructions || []);
   const [instructionIcons, setInstructionIcons] = useState(block.instructionIcons || {});
@@ -137,9 +150,13 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
       try {
         if (typeof supabase === 'undefined') return;
         const query = supabase
+          /* BRIS-NN-MNB-T58: scope to THIS block, server-side.
+             Previously this pulled every MeetingNotesBlock row in the table
+             (a blockTypeId filter, not a blockId one) and filtered in JS —
+             so unrelated blocks' audio leaked in and the count drifted. */
           .from('enterprise_files')
           .select('*')
-          .in('data_entity_type', ['MeetingNotesBlock', 'AIMeetingNotesBlock', 'AudioBlock']);
+          .eq('source_info->>blockId', block.id);
         const { data, error } = await query;
         if (!error && data && data.length > 0 && isMounted) {
           const dbFiles = [];
@@ -163,17 +180,48 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
                 url: phys.file_url || row.file_url || row.cdn_url || '',
                 type: fileInfo.mime_type || 'audio/webm',
                 size: phys.size_bytes || row.file_size || 0,
-                duration: row.duration_seconds || 0,
+                /* BRIS-NN-MNB-T59: duration_seconds is not written by the
+                   upload path — it lives in custom metadata. Reading only
+                   the column is why every DAM file showed 0:00. */
+                duration: Number(
+                  row.duration_seconds
+                  ?? phys.duration_seconds
+                  ?? custom.durationSeconds
+                  ?? row.custom_metadata?.durationSeconds
+                  ?? 0
+                ) || 0,
+                fileId: row.id,
+                timestamp: row.created_at,
                 createdAt: row.created_at
               });
             }
           });
           if (dbFiles.length > 0) {
+            /* BRIS-NN-MNB-T60: a recording exists twice — once as the local
+               record written at stop time, once as its enterprise_files row.
+               Their ids differ, so matching on id alone counted both and the
+               total drifted on every refresh. Match on fileId (the DAM id
+               the local record stores) and fall back to name, then enrich
+               the local record rather than appending a duplicate. */
             setAudioFiles(prev => {
-              const existingIds = new Set(prev.map(f => f.id));
-              const merged = [...prev];
-              dbFiles.forEach(f => {
-                if (!existingIds.has(f.id)) merged.push(f);
+              const merged = prev.map(local => {
+                const match = dbFiles.find(db =>
+                  (local.fileId && db.fileId === local.fileId) ||
+                  (local.name && db.name === local.name) ||
+                  /* T68: last resort — same block, created within 60s of
+                     each other is the same recording seen twice. */
+                  (local.timestamp && db.timestamp &&
+                   Math.abs(new Date(local.timestamp) - new Date(db.timestamp)) < 60000)
+                );
+                return match
+                  ? { ...local, ...match, id: local.id, data: local.data, url: local.url || match.url }
+                  : local;
+              });
+              const claimed = new Set(
+                merged.map(m => m.fileId).filter(Boolean)
+              );
+              dbFiles.forEach(db => {
+                if (!claimed.has(db.fileId)) merged.push(db);
               });
               return merged;
             });
@@ -420,6 +468,8 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
      A ref (not state) because startRecording reads it synchronously in the
      same tick it is set — state would still hold the previous value. */
   const captureAudioRef = useRef(true);
+  /* Reactive mirror of the ref so the live header can show the mode. */
+  const [captureAudio, setCaptureAudio] = useState(true);
 
   const TRANSCRIBE_MODES = {
     LIVE_RECORD: 'live-record',   // live transcript + audio saved to DAM
@@ -608,14 +658,41 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
     return () => document.removeEventListener('mousedown', onDocDown);
   }, [showMoreMenu]);
 
+  /* BRIS-NN-MNB-T42: every meeting-block popover dismisses the same way. */
+  useDismissOnOutside(showSettingsPopover, settingsWrapRef, () => {
+    setShowSettingsPopover(false); setShowResumeSubmenu(false);
+    setShowLanguageSubmenu(false); setShowInstructionsSubmenu(false); setShowConsentSubmenu(false);
+  });
+  useDismissOnOutside(showCalendarPopover, calendarWrapRef, () => setShowCalendarPopover(false));
+  useDismissOnOutside(showTranscribeMenu, transcribeWrapRef, () => setShowTranscribeMenu(false));
+  useDismissOnOutside(showAudioFilesDropdown, audioFilesWrapRef, () => setShowAudioFilesDropdown(false));
+
+  /* BRIS-NN-MNB-T51: only one menu open at a time. Opening any menu in
+     the block closes the rest, so two popovers can never overlap. */
+  const closeAllMenus = useCallback((except) => {
+    if (except !== 'settings') { setShowSettingsPopover(false); setShowResumeSubmenu(false);
+      setShowLanguageSubmenu(false); setShowInstructionsSubmenu(false); setShowConsentSubmenu(false); }
+    if (except !== 'calendar') setShowCalendarPopover(false);
+    if (except !== 'transcribe') setShowTranscribeMenu(false);
+    if (except !== 'audioFiles') setShowAudioFilesDropdown(false);
+    if (except !== 'participants') setShowParticipantsPanel(false);
+    if (except !== 'translate') setShowTranslatePopover(false);
+  }, []);
+
   const startTranscribe = useCallback((mode) => {
     setShowTranscribeMenu(false);
     if (mode === TRANSCRIBE_MODES.UPLOAD) {
       captureAudioRef.current = false;
+      setCaptureAudio(false);
+      setTranscriptStarted(true);
+      saveProp('transcriptStarted', true);
       audioUploadRef.current?.click();
       return;
     }
     captureAudioRef.current = mode !== TRANSCRIBE_MODES.LIVE_ONLY;
+    setCaptureAudio(captureAudioRef.current);
+    setTranscriptStarted(true);
+    saveProp('transcriptStarted', true);
     saveProp('transcribeMode', mode);
     startRecording();
   }, [startRecording, saveProp]);
@@ -686,14 +763,18 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
 
       FileService.upload({
         file: audioBlob,
-        fileName,
+        fileName,   /* T68: same name the local record uses, so dedupe matches */
         entityType: 'MeetingNotesBlock',
         moduleName: 'NotionNest',
         entityId: block.id,
         blockId: block.id,
         blockTypeId: 'MeetingNotesBlock',
         metadata: {
+          /* BRIS-NN-MNB-T59: written under several keys because the loader
+             and the schema disagree on where duration lives. Belt and
+             braces until the column is authoritative everywhere. */
           durationSeconds: timer,
+          duration_seconds: timer,
           transcriptSource: TRANSCRIPT_SOURCE.LIVE,
           language: selectedLanguage,
           recordedAt: stamp.toISOString(),
@@ -893,19 +974,29 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
     reader.onload = (ev) => {
       const audioData = ev.target.result;
       saveProp('audioData', audioData);
-      saveProp('audioDuration', 0);
       setAudioUrl(audioData);
-      
-      // Add to audioFiles array with proper metadata
-      const newAudioFile = {
-        id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
-        name: file.name || `Upload ${new Date().toLocaleString()}`,
-        data: audioData,
-        duration: 0,
-        timestamp: new Date().toISOString(),
-        source: 'upload',
-        size: Math.round(audioData.length * 0.75)
-      };
+
+      /* BRIS-NN-MNB-T53: read the real duration off the decoded media
+         instead of storing 0. The browser only knows it once metadata has
+         loaded, so the record is written after that event (or after an
+         error, so a bad file still lands rather than vanishing). */
+      const probe = new Audio();
+      probe.preload = 'metadata';
+
+      const commitUpload = (seconds) => {
+        const secs = Number.isFinite(seconds) && seconds > 0 ? Math.round(seconds) : 0;
+        saveProp('audioDuration', secs);
+        setAudioDuration(secs);
+
+        const newAudioFile = {
+          id: Date.now().toString() + Math.random().toString(36).substring(2, 9),
+          name: file.name || `Upload ${new Date().toLocaleString()}`,
+          data: audioData,
+          duration: secs,
+          timestamp: new Date().toISOString(),
+          source: TRANSCRIPT_SOURCE.AUDIO_FILE,
+          size: file.size || Math.round(audioData.length * 0.75),
+        };
       const updatedAudioFiles = [...(audioFiles || []), newAudioFile];
       setAudioFiles(updatedAudioFiles);
       saveProp('audioFiles', updatedAudioFiles);
@@ -925,6 +1016,13 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
         setIsTranscribingAudioFile(true);
         setTimeout(() => startRecording(), 300);
       }
+      };  /* end commitUpload */
+
+      /* loadedmetadata gives us the real length; onerror still commits so a
+         file the browser can't decode is recorded rather than dropped. */
+      probe.onloadedmetadata = () => commitUpload(probe.duration);
+      probe.onerror = () => commitUpload(0);
+      probe.src = audioData;
     };
     reader.readAsDataURL(file);
   }, [saveProp, audioFiles, mode, startRecording]);
@@ -988,7 +1086,15 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
   }, [audioUrl, timer]);
 
   /* ── Audio Files Management ── */
+  /* BRIS-NN-MNB-T57: hand the file to the player bar instead of poking an
+     <audio> element that was never rendered. */
   const playAudioFile = useCallback((file) => {
+    if (file) { setPlayQueue([file]); setCurrentPlayingAudioId(file.id); setShowAudioFilesDropdown(false); }
+    return;
+    // eslint-disable-next-line no-unreachable
+  }, [setCurrentPlayingAudioId]);
+
+  const legacyPlayAudioFile = useCallback((file) => {
     if (audioRef.current) {
       if (isPlaying && currentPlayingAudioId === file.id) {
         audioRef.current.pause();
@@ -1017,6 +1123,27 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
      enterprise_files row (status_information.isDeleted) rather than
      destroying it. The row and the stored object are retained for audit;
      only the block stops referencing them. */
+  /* BRIS-NN-MNB-T57: batch delete. Calling removeAudioFile in a loop made
+     every call filter the SAME captured array, so only the last write
+     survived and just one file disappeared. One pass, one state write. */
+  const removeAudioFiles = useCallback((fileIds) => {
+    const ids = Array.isArray(fileIds) ? fileIds : [fileIds];
+    if (!ids.length) return;
+    const idSet = new Set(ids);
+
+    (audioFiles || [])
+      .filter(f => idSet.has(f.id) && f.fileId)
+      .forEach(f => { FileService.delete(f.fileId, false).catch(() => {}); });
+
+    const updatedAudioFiles = (audioFiles || []).filter(f => !idSet.has(f.id));
+    setAudioFiles(updatedAudioFiles);
+    saveProp('audioFiles', updatedAudioFiles);
+    try {
+      localStorage.setItem(`nn_audio_files_${block.id}`, JSON.stringify(updatedAudioFiles));
+    } catch (e) { /* quota — the DB row remains the source of truth */ }
+    setSelectedAudioFileIds(prev => prev.filter(id => !idSet.has(id)));
+  }, [audioFiles, block.id, saveProp]);
+
   const removeAudioFile = useCallback((fileId) => {
     const target = (audioFiles || []).find(f => f.id === fileId);
     if (target?.fileId) {
@@ -1033,29 +1160,11 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
   }, [audioFiles, block.id, saveProp]);
 
   const playSelectedAudioFiles = useCallback(() => {
-    const selectedFiles = audioFiles.filter(f => selectedAudioFileIds.includes(f.id));
-    if (selectedFiles.length === 0) return;
-    
-    let currentIndex = 0;
-    const playNext = () => {
-      if (currentIndex >= selectedFiles.length) {
-        setIsPlaying(false);
-        setCurrentPlayingAudioId(null);
-        return;
-      }
-      const file = selectedFiles[currentIndex];
-      if (audioRef.current) {
-        audioRef.current.src = file.data;
-        audioRef.current.play().catch(() => {});
-        setIsPlaying(true);
-        setCurrentPlayingAudioId(file.id);
-        audioRef.current.onended = () => {
-          currentIndex++;
-          playNext();
-        };
-      }
-    };
-    playNext();
+    const chosen = (audioFiles || []).filter(f => selectedAudioFileIds.includes(f.id));
+    if (!chosen.length) return;
+    setPlayQueue(chosen);
+    setCurrentPlayingAudioId(chosen[0].id);
+    setShowAudioFilesDropdown(false);
   }, [audioFiles, selectedAudioFileIds]);
 
   /* BUG-009: currentPlayingAudioId moved to L47 to fix temporal dead zone */
@@ -2019,13 +2128,24 @@ ${text}`;
     }
   }, [audioUrl]);
 
-  /* ── Cleanup on unmount ── */
+  /* ── Cleanup on unmount ──
+     BRIS-NN-MNB-T61: this said "on unmount" but depended on [recognition],
+     so it re-ran every time the recogniser was replaced — which the T05
+     auto-restart does every few seconds during normal speech. Each run
+     cleared timerRef, so the recording timer never advanced past 0 and
+     every saved file inherited duration: 0.
+
+     recognition is read through a ref so the teardown still stops the
+     CURRENT instance without making it a dependency. */
+  const recognitionRef = useRef(null);
+  useEffect(() => { recognitionRef.current = recognition; }, [recognition]);
+
   useEffect(() => () => {
     clearInterval(timerRef.current);
     clearInterval(playbackTimerRef.current);
-    if (recognition) recognition.stop();
+    if (recognitionRef.current) recognitionRef.current.stop();
     if (audioStreamRef.current) audioStreamRef.current.getTracks().forEach(t => t.stop());
-  }, [recognition]);
+  }, []);
 
   /* ── Download menu auto-close: 5s timeout + click-outside ── */
   useEffect(() => {
@@ -2170,12 +2290,52 @@ ${text}`;
       <div className="nnr-settings-popover-inner">
         {/* BRIS-NN-MNB-M01: transcription run-state — mirrors the Start/Stop
             button so the menu and the toolbar can never disagree. */}
+        {/* BRIS-NN-MNB-T39: Resume transcription now offers the same three
+            modes as the split button, rather than silently assuming
+            "live + save audio". */}
+        {recording ? (
+          <div
+            className="nnr-settings-item"
+            onClick={() => { stopRecording(); setShowSettingsPopover(false); }}
+          >
+            <span className="nnr-rec-dot live" aria-hidden="true" />
+            <span>Pause transcription</span>
+          </div>
+        ) : (
+          <div
+            className="nnr-settings-item nnr-settings-item-has-flyout"
+            onClick={() => { setShowResumeSubmenu(!showResumeSubmenu); setShowLanguageSubmenu(false); setShowInstructionsSubmenu(false); setShowConsentSubmenu(false); }}
+          >
+            <span className="nnr-rec-dot" aria-hidden="true" />
+            <span>Resume transcription</span>
+            <span className="nnr-settings-item-right"><ChevronRight size={13} /></span>
+
+            {showResumeSubmenu && (
+              <div className="nnr-settings-flyout">
+                <div className="nnr-settings-flyout-item" onClick={(e) => { e.stopPropagation(); setShowSettingsPopover(false); startTranscribe(TRANSCRIBE_MODES.LIVE_RECORD); }}>
+                  <span className="nnr-transcribe-menu-icons"><Mic size={14} /><FileAudio size={14} /></span>
+                  <span>Live + save audio</span>
+                </div>
+                <div className="nnr-settings-flyout-item" onClick={(e) => { e.stopPropagation(); setShowSettingsPopover(false); startTranscribe(TRANSCRIBE_MODES.LIVE_ONLY); }}>
+                  <Mic size={14} />
+                  <span>Live, transcript only</span>
+                </div>
+                <div className="nnr-settings-flyout-item" onClick={(e) => { e.stopPropagation(); setShowSettingsPopover(false); startTranscribe(TRANSCRIBE_MODES.UPLOAD); }}>
+                  <Upload size={14} />
+                  <span>Transcribe audio file</span>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* BRIS-NN-MNB-T40: Translate moved here from the 3-dot menu */}
         <div
           className="nnr-settings-item"
-          onClick={() => { recording ? stopRecording() : startRecording(); setShowSettingsPopover(false); }}
+          onClick={() => { setShowSettingsPopover(false); setShowTranslatePopover(true); }}
         >
-          <span className={`nnr-rec-dot${recording ? ' live' : ''}`} aria-hidden="true" />
-          <span>{recording ? 'Pause transcription' : 'Resume transcription'}</span>
+          <Languages size={14} />
+          <span>Translate transcript</span>
         </div>
 
         {/* BRIS-NN-MNB-M02: re-run the summary against the current transcript */}
@@ -2432,7 +2592,8 @@ ${text}`;
      of the UI and gives every consumer — display, translate, export —
      the same shape. Safe to re-run: already-canonical lines pass through.
      ═══════════════════════════════════════════════════════════════ */
-  const transcriptUserName = currentSpeaker || 'Unknown';
+  /* BRIS-NN-MNB-T62: never surface 'Unknown' in the UI. */
+  const transcriptUserName = currentSpeaker || 'Briselle';
 
   const normalizedTranscriptLines = useMemo(
     () => normalizeLines(displayTranscriptLines, {
@@ -2462,6 +2623,16 @@ ${text}`;
   /* BRIS-NN-MNB-R01: single contract published to all sub-files. */
   const meetingNotesApi = {
     normalizedTranscriptLines,
+    setPlayQueue,
+    playQueue,
+    removeAudioFiles,
+    closeAllMenus,
+    transcribeWrapRef,
+    setShowResumeSubmenu,
+    showResumeSubmenu,
+    captureAudio,
+    setTranscriptStarted,
+    transcriptStarted,
     setInstructionIcons,
     instructionIcons,
     setHiddenInstructions,
@@ -2822,6 +2993,7 @@ ${text}`;
         <MeetingHeader />
 
         <MeetingTabBar />
+        <TranscriptToolbar />
 
         {showParticipantsPanel && <ParticipantsPanel />}
 
