@@ -11777,9 +11777,90 @@ kbd {
 }
 
 .nnr-summary-content {
-  padding: 0 20px 20px;
+  padding: 0 20px 24px;
   line-height: 1.6;
   color: #37352f;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   BRIS-NN-MNB-T108 — summary typography.
+
+   The shared .mt-rich-text scale is tuned for inline note text: h2 at
+   15px and h3 at 14px #706e6b, which is barely larger than the body and
+   reads grey. A generated summary is the block's primary content, so its
+   section headings need to carry the document — larger, darker, with the
+   space above them that separates one section from the next.
+
+   Scoped to .nnr-summary-content so no other .mt-rich-text consumer
+   changes.
+   ══════════════════════════════════════════════════════════════════ */
+.nnr-summary-content .mt-rich-text {
+  font-size: 15px;
+  line-height: 1.65;
+  color: #37352f;
+}
+
+.nnr-summary-content .mt-rich-text h1 {
+  font-size: 22px;
+  font-weight: 700;
+  color: #37352f;
+  margin: 28px 0 8px;
+  padding-bottom: 0;
+  border-bottom: none;   /* the rule read as a page divider mid-summary */
+  letter-spacing: -0.01em;
+}
+
+.nnr-summary-content .mt-rich-text h2 {
+  font-size: 19px;
+  font-weight: 700;
+  color: #37352f;
+  margin: 26px 0 6px;
+  letter-spacing: -0.01em;
+}
+
+.nnr-summary-content .mt-rich-text h3 {
+  font-size: 16px;
+  font-weight: 600;
+  color: #37352f;   /* was #706e6b — a grey heading looked disabled */
+  margin: 20px 0 4px;
+}
+
+.nnr-summary-content .mt-rich-text > :first-child { margin-top: 0; }
+
+.nnr-summary-content .mt-rich-text p {
+  margin: 6px 0;
+}
+
+/* Notion sets its bullets tight to their heading and to each other; the
+   inherited spacing left each item floating in its own paragraph. */
+.nnr-summary-content .mt-rich-text ul,
+.nnr-summary-content .mt-rich-text ol {
+  margin: 6px 0;
+  padding-left: 26px;
+}
+
+.nnr-summary-content .mt-rich-text li {
+  margin: 3px 0;
+  padding-left: 2px;
+  line-height: 1.6;
+}
+
+.nnr-summary-content .mt-rich-text li::marker {
+  color: #9b9b9b;
+}
+
+.nnr-summary-content .mt-rich-text strong { font-weight: 600; }
+
+.nnr-summary-content .mt-rich-text em {
+  color: #4a4844;
+  font-style: italic;
+}
+
+.nnr-summary-content .mt-rich-text blockquote {
+  margin: 10px 0;
+  padding-left: 14px;
+  border-left: 3px solid #e3e3e1;
+  color: #4a4844;
 }
 
 /* The first block of generated markdown sets the top edge itself. */
@@ -13518,6 +13599,179 @@ kbd {
 .nnr-af-btn:hover { background: #ececea; color: #37352f; }
 .nnr-af-btn.danger:hover { background: #fde8e6; color: #e5484d; }
 
+/* ══════════════════════════════════════════════════════════════════
+   BRIS-NN-T120 — cross-block text selection highlight.
+
+   Painted by the CSS Custom Highlight API from a single Range that
+   spans several blocks. The browser draws it, so there is no overlay
+   to position and nothing to recalculate on scroll or resize.
+
+   Matched to the native selection colour so a drag that crosses a block
+   boundary looks like one continuous selection rather than handing over
+   to something else halfway.
+   ══════════════════════════════════════════════════════════════════ */
+::highlight(nn-cross-selection) {
+  background-color: #accef7;
+  color: inherit;
+}
+
+/* T111: the language switch sits centred above the transcript text. */
+.nnr-transcript-langbar {
+  display: flex;
+  justify-content: center;
+  padding: 10px 16px 2px;
+}
+
+/* T110: the Notes tab hosts a full NotionNestPage, so it must not impose
+   its own padding on top of the page's own gutters. */
+.nnr-tab-content.nnr-notes-tab {
+  padding: 4px 0 24px;
+  min-height: 300px;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   BRIS-NN-MNB-T113 — embedded page gutters.
+
+   .page-content is sized for a standalone document: max-width 900px,
+   centred, with 96px side gutters. Inside a block that leaves a narrow
+   column of text stranded between two wide empty margins.
+
+   An embedded editor should use the width its host gives it. Scoped to
+   the two embedding hosts, so standalone pages keep Notion's gutters.
+   ══════════════════════════════════════════════════════════════════ */
+.nnr-notes-tab .page-content,
+.nnr-ie-body .page-content {
+  max-width: none;
+  margin: 0;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   BRIS-NN-MNB-T115 — one gutter for every tab.
+
+   Summary reads correctly, so its value is the reference. The others
+   were each set independently and drifted: Transcript carried an inline
+   16px, Notes inherited the embedded page's own padding. One token, so
+   changing the gutter changes all three together.
+   ══════════════════════════════════════════════════════════════════ */
+/* T117: 32px, because that is what Summary ALREADY was — and the reason
+   the previous "one token" pass did not fix anything.
+
+   Summary's gutter is not one value, it is two stacked:
+       .nnr-summary-content   20px
+     + .mt-rich-text          12px   (padding: 10px 12px, line ~5167)
+     = 32px
+
+   Setting the token to 20px therefore left Summary at 32 and moved the
+   other two to 20 — still unequal, which is exactly what was reported
+   again. The inner .mt-rich-text padding is now zeroed inside the
+   summary, so the token is the whole gutter for every tab. */
+.mt-container {
+  --nnr-tab-gutter: 32px;
+}
+
+/* The rich-text wrapper keeps its vertical rhythm but contributes no
+   horizontal gutter — .nnr-summary-content owns that now. */
+.nnr-summary-content .mt-rich-text {
+  padding-left: 0;
+  padding-right: 0;
+}
+
+.nnr-summary-content,
+.nnr-transcript-content {
+  padding-left: var(--nnr-tab-gutter);
+  padding-right: var(--nnr-tab-gutter);
+}
+
+.nnr-transcript-content {
+  padding-top: var(--nnr-tab-gutter);
+  padding-bottom: var(--nnr-tab-gutter);
+  min-height: 240px;
+}
+
+.nnr-transcript-langbar {
+  padding-left: var(--nnr-tab-gutter);
+  padding-right: var(--nnr-tab-gutter);
+}
+
+.nnr-notes-tab .page-content {
+  padding: 0 var(--nnr-tab-gutter) 32px;
+}
+
+.nnr-ie-body .page-content {
+  padding: 0 32px 40px;
+}
+
+/* The comments variants carry their own max-width and a 360px right
+   gutter; both hosts run with comments off, so neither applies. */
+.nnr-notes-tab .page-content.has-comments,
+.nnr-notes-tab .page-content.has-comments.comments-hidden {
+  max-width: none;
+  padding-right: 20px;
+}
+
+.nnr-ie-body .page-content.has-comments,
+.nnr-ie-body .page-content.has-comments.comments-hidden {
+  max-width: none;
+  padding-right: 32px;
+}
+
+/* No page header in the Notes tab, so nothing needs the 80px lead-in. */
+.nnr-notes-tab .page-scroll,
+.nnr-ie-body .page-scroll {
+  padding: 0;
+}
+
+/* ── Instruction editor header (BRIS-NN-MNB-T115) ─────────────────
+   The page header is built for a full-page document: 80px of lead-in
+   and a 78px icon. In a modal that is a large glyph marooned in white
+   space, well away from the title it belongs to. Tightened, and the
+   icon brought down to a size that reads as a label rather than art. */
+.nnr-ie-body .page-header {
+  padding-top: 10px;
+  margin-bottom: 0;
+}
+
+.nnr-ie-body .page-icon-wrapper {
+  margin-bottom: 2px;
+}
+
+.nnr-ie-body .page-icon {
+  font-size: 34px;
+  line-height: 1;
+}
+
+/* T117: renderPageIcon is called with a hardcoded '78px' and puts that on
+   the element INLINE — an emoji comes back as
+   <span style="font-size:78px">, and inline style beats a class. The
+   previous rule set font-size on the .page-icon wrapper, which the inner
+   span then overrode, so the icon never shrank. Every form it can return
+   is constrained here, with !important, because inline is what we are
+   competing with. */
+.nnr-ie-body .page-icon > span {
+  font-size: 34px !important;
+  line-height: 1 !important;
+}
+
+.nnr-ie-body .page-icon > svg,
+.nnr-ie-body .page-icon > img,
+.nnr-ie-body .page-icon > div {
+  width: 34px !important;
+  height: 34px !important;
+  min-width: 0 !important;
+  border-radius: 6px;
+  font-size: 15px !important;   /* initials tile text */
+}
+
+.nnr-ie-body .page-title {
+  font-size: 30px;
+}
+
+/* The hover actions row reserves height even while invisible. */
+.nnr-ie-body .page-header-actions {
+  padding: 0;
+  min-height: 22px;
+}
+
 /* ── Instruction editor modal (BRIS-NN-MNB-T98) ───────────────────
    Hosts a full NotionNestPage, so the body must be the scroll container
    and must not impose its own typography on the embedded editor. */
@@ -13548,9 +13802,21 @@ kbd {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 12px 14px;
+  padding: 10px 14px;
   border-bottom: 1px solid #e9e9e7;
   flex-shrink: 0;
+}
+
+/* T103: a quiet context label. The name and icon are the embedded page's
+   own title and icon now, so this row carries no editable fields. */
+.nnr-ie-context {
+  flex: 1;
+  min-width: 0;
+  color: #787774;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.2px;
+  text-transform: uppercase;
 }
 
 .nnr-ie-identity {
@@ -14266,9 +14532,55 @@ kbd {
 /* ── Summary instructions menu (BRIS-NN-MNB-T27) ──────
    One implementation, rendered by the slider flyout and the footer. */
 
+/* ══════════════════════════════════════════════════════════════════
+   BRIS-NN-MNB-T101 — the instruction menu scrolls itself.
+
+   `.nnr-settings-flyout` is declared THREE times in this file (~11160,
+   ~14825, ~16743). The middle one sets `overflow: visible !important`,
+   which beats the later `overflow-y: auto`, so the flyout could not
+   scroll — with 12 presets the list simply spilled out of its own box.
+   Everything past the fold was unreachable, which is why "Add custom
+   instructions" (the last row) appeared to be missing and why clicking
+   a preset near the bottom did nothing.
+
+   Rather than add a fourth competing !important, the menu owns its own
+   height and scrolling. It is self-contained, so no host popover can
+   take it away again.
+   ══════════════════════════════════════════════════════════════════ */
+/* ──────────────────────────────────────────────────────────────────
+   T104 — the host popover must stop clamping the menu.
+
+   `.nnr-settings-flyout` carries `max-height: 360px` (from one of its
+   three declarations) AND `overflow: visible !important` (from another).
+   That combination is the whole bug: the box is capped at 360px but
+   cannot scroll, so anything taller paints OUTSIDE it. The menu was
+   allowed 420px, so ~60px of rows rendered beyond the popover's own
+   border — invisible against the page, and sitting under whatever was
+   painted on top, which is why clicking a lower instruction did nothing.
+
+   This class is added to the wrapper by both hosts (slider flyout and
+   footer dropdown). !important is unavoidable here: it is the only way
+   to beat the existing !important on the same properties.
+   ────────────────────────────────────────────────────────────────── */
+.nnr-settings-flyout.nnr-instr-flyout {
+  max-height: none !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  min-width: 0 !important;
+  width: max-content !important;
+}
+
 .nnr-instr-menu {
-  min-width: 268px;
+  display: flex;
+  flex-direction: column;
+  min-width: 288px;
+  max-width: 340px;
+  /* Bounded by the viewport, not by a fixed guess, and the menu itself
+     is the only thing that clips — see .nnr-instr-scroll. */
+  max-height: min(56vh, 380px);
   padding: 6px;
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .nnr-instr-heading {
@@ -14276,6 +14588,99 @@ kbd {
   color: #787774;
   font-size: 13px;
   font-weight: 600;
+  flex-shrink: 0;
+}
+
+/* Search — a 12-item list is past the point of scanning by eye. */
+.nnr-instr-search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 4px 6px;
+  padding: 5px 8px;
+  border: 1px solid #e3e3e1;
+  border-radius: 6px;
+  background: #ffffff;
+  flex-shrink: 0;
+}
+
+.nnr-instr-search svg { color: #9b9b9b; flex-shrink: 0; }
+
+.nnr-instr-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: #37352f;
+  font-size: 13px;
+}
+
+.nnr-instr-search input::placeholder { color: #9b9b9b; }
+
+/* The scrolling region. Only the rows scroll — heading, search and the
+   add-custom row stay put. */
+.nnr-instr-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* T106: host for renderPageIcon output — an SVG, an initials tile, an <img>
+   or an emoji span, depending on what the picker stored. Fixed box so the
+   labels stay aligned whichever form it is. */
+.nnr-instr-pageicon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.nnr-instr-pageicon > * {
+  max-width: 16px;
+  max-height: 16px;
+}
+
+/* The default marker doubles as a toggle now that the 3-dot menu is gone. */
+.nnr-flyout-action.is-on {
+  color: #37352f;
+  background: #ececeb;
+}
+
+/* T105: the row owns the click. Nothing inside it should be able to become
+   the event target and swallow a selection — except the action buttons,
+   which stop propagation deliberately. */
+.nnr-instr-row > .nnr-instr-icon,
+.nnr-instr-row > .nnr-instr-label,
+.nnr-instr-row > .nnr-instr-default,
+.nnr-instr-row > .nnr-instr-check {
+  pointer-events: none;
+}
+
+.nnr-instr-row:focus-visible {
+  outline: 2px solid #37352f;
+  outline-offset: -2px;
+}
+
+.nnr-instr-empty {
+  padding: 14px 10px;
+  color: #9b9b9b;
+  font-size: 13px;
+  text-align: center;
+}
+
+/* Pinned so it is reachable no matter how long the list gets — being the
+   last row in an unscrollable list is exactly how it went missing. */
+.nnr-instr-menu > .nnr-instr-add {
+  flex-shrink: 0;
+  margin-top: 4px;
+  border-top: 1px solid #ececea;
+  padding-top: 8px;
 }
 
 .nnr-instr-row {
@@ -14329,37 +14734,10 @@ kbd {
 .nnr-instr-row:focus-within .nnr-instr-actions { opacity: 1; }
 
 /* Per-row more menu, opens to the right of the row */
-.nnr-instr-more {
-  position: absolute;
-  top: 50%;
-  left: calc(100% - 12px);
-  z-index: 1200;
-  min-width: 214px;
-  padding: 6px;
-  border: 1px solid #e9e9e7;
-  border-radius: 8px;
-  background: #ffffff;
-  box-shadow: 0 8px 24px rgba(15, 15, 15, 0.16);
-}
-
-.nnr-instr-more-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 8px 10px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: #37352f;
-  font-family: inherit;
-  font-size: 14px;
-  text-align: left;
-  white-space: nowrap;
-  cursor: pointer;
-}
-
-.nnr-instr-more-item:hover { background: #f1f1f0; }
+/* T106: .nnr-instr-more* removed — the 3-dot popover is gone. It was
+   absolutely positioned inside .nnr-instr-scroll, whose overflow clipped
+   it, so its options could not be seen. Its two actions are inline icon
+   buttons on the row now, which nothing can clip. */
 
 .nnr-instr-add { color: #2383e2; }
 .nnr-instr-add-icon {

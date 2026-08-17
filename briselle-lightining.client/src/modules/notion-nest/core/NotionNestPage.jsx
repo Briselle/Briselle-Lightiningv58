@@ -2,6 +2,8 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { PageProvider, usePageContext } from './PageContext';
 import { Sidebar, Topbar, PageHeader, CoverImage } from '../layout/layout';
+import { useCrossBlockSelection } from './useCrossBlockSelection';
+import { serialiseRange } from './crossBlockSelection';
 import BlockRenderer from './BlockRenderer';
 import { SlashMenu, ContextMenu, InlineToolbar, NotionPageTextComment, NotionPageTopComments } from '../menus/menus';
 import { POPULAR_FONTS } from '../pages/NotionNestPage';
@@ -26,6 +28,16 @@ export default function NotionNestPage({
   /* BRIS-NN-T97: block types this instance must not offer or render.
      Default [] = unchanged behaviour for every existing page. */
   excludedBlockTypes,
+  /* BRIS-NN-T112: render the page header — cover, icon, title and the
+     Add cover / Add icon / Add comment actions. An embedded editor that is
+     only a body (the meeting Notes tab) has no use for any of it: the block
+     already carries its own title, and a page cover inside a block is
+     meaningless. Default true, so every standalone page is unchanged. */
+  showPageHeader = true,
+  /* BRIS-NN-T113: finer than showPageHeader — keep the icon and title but
+     drop the cover. A cover image inside an embedded editor is chrome the
+     host has no room for. */
+  showPageCover = true,
   imperativeRef
 }) {
   return (
@@ -44,6 +56,8 @@ export default function NotionNestPage({
     >
       <NotionPageInner
         showSidebarProp={showSidebar}
+        showPageHeader={showPageHeader}
+        showPageCover={showPageCover}
         commentsAlwaysShow={commentsAlwaysShow}
         commentsAlwaysOff={commentsAlwaysOff}
         commentsAutoHideDelay={commentsAutoHideDelay}
@@ -188,6 +202,8 @@ function AiRephrasePopover() {
 
 function NotionPageInner({
   showSidebarProp,
+  showPageHeader = true,
+  showPageCover = true,
   commentsAlwaysShow = false,
   commentsAlwaysOff = false,
   commentsAutoHideDelay = 30,
@@ -227,12 +243,66 @@ function NotionPageInner({
   const isPotentialDragRef = useRef(false);
   const startPosRef = useRef({ x: 0, y: 0 });
 
+  /* ══════════════════════════════════════════════════════════════════
+     BRIS-NN-T118 — scope the document-level listeners to THIS page.
+
+     NotionNestPage registers copy / paste / keydown handlers on
+     `document`. Fine for one page — but the Notes tab now embeds a SECOND
+     NotionNestPage inside the first, so with that tab open every one of
+     those handlers exists twice.
+
+     Their guards only asked "is document.activeElement inside a .block?",
+     which is a global question. Both instances answered yes for the same
+     element, so a copy produced two clipboard writes and a paste inserted
+     the content twice: once where it was meant to go, and once into the
+     meeting block's notes.
+
+     ownsEvent() asks the question that actually matters: is this element
+     inside MY root?
+     ══════════════════════════════════════════════════════════════════ */
+  const pageRootRef = useRef(null);
+
+  /* BRIS-NN-T120: cross-block text selection. Inert while a drag stays
+     inside one block — the browser handles that correctly on its own. */
+  const crossSelection = useCrossBlockSelection(pageRootRef);
+
+  const ownsEvent = useCallback((el) => {
+    if (!el) return false;
+    const root = pageRootRef.current;
+    /* Before mount, behave exactly as the single-page case did. */
+    if (!root) return true;
+    return root.contains(el);
+  }, []);
+
   const handleMouseDown = useCallback((e) => {
     if (e.button !== 0) return;
     if (e.target.closest('button, select, input, .block-handle, .block-plus, .comment-annotations, .context-menu, .slash-menu, .inline-toolbar, .ai-rephrase-popover, .confirm-modal-overlay')) {
       return;
     }
-    isPotentialDragRef.current = true;
+    /* ══════════════════════════════════════════════════════════════════
+       BRIS-NN-T114 — a marquee must not start on top of text.
+
+       This armed the box-select on EVERY left-click. handleMouseMove then
+       treats 10px of movement as a drag and calls
+       window.getSelection().removeAllRanges() — so the moment you dragged
+       far enough to select a word, the selection was wiped and replaced by
+       a marquee. Nothing on the page could be selected: not body text, not
+       headings, not labels.
+
+       A marquee now starts only from genuinely blank area — the page
+       container, the block list's own padding, the gutters below the
+       content. A drag that begins on text is a text selection, which is
+       how Notion behaves.
+       ══════════════════════════════════════════════════════════════════ */
+    const el = e.target;
+    const isBlankArea =
+      el.classList?.contains('page-content') ||
+      el.classList?.contains('blocks-container') ||
+      el.classList?.contains('page-scroll') ||
+      el.classList?.contains('page-body') ||
+      el.classList?.contains('main-content');
+
+    isPotentialDragRef.current = !!isBlankArea;
     startPosRef.current = { x: e.clientX, y: e.clientY };
     if (!e.target.closest('[contenteditable="true"]')) {
       setSelectedBlockIds([]);
@@ -361,6 +431,29 @@ function NotionPageInner({
 
   useEffect(() => {
     const handleCopy = (e) => {
+      /* ══════════════════════════════════════════════════════════════
+         BRIS-NN-T120: a cross-block selection is ours, not the
+         browser's, so the clipboard has to be filled by hand. The
+         Range slices at exactly the highlighted offsets, which is why
+         what lands on the clipboard is what is on screen — including
+         the partial first and last blocks.
+         ══════════════════════════════════════════════════════════════ */
+      const crossRange = crossSelection.getRange();
+      if (crossRange) {
+        const { text, html } = serialiseRange(crossRange);
+        if (text) {
+          e.preventDefault();
+          e.clipboardData.setData('text/plain', text);
+          if (html) e.clipboardData.setData('text/html', html);
+          return;
+        }
+      }
+
+      /* T118: only the page that owns the focused block answers a copy.
+         Both instances used to write to the clipboard for one Ctrl+C. */
+      const sel0 = window.getSelection();
+      if (!ownsEvent(document.activeElement)
+        && !ownsEvent(sel0?.anchorNode?.parentElement)) return;
       const selection = window.getSelection();
       let idsToCopy = [];
       
@@ -602,6 +695,9 @@ function NotionPageInner({
     const handlePaste = (e) => {
       const activeEl = document.activeElement;
       if (!activeEl || !activeEl.closest('.block')) return;
+      /* T118: the embedded notes page must not also insert this paste —
+         that is the content "jumping into" the meeting block. */
+      if (!ownsEvent(activeEl)) return;
       if (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT') return;
 
       const activeBlockId = activeEl.closest('.block').getAttribute('data-block-id');
@@ -999,7 +1095,19 @@ function NotionPageInner({
         }
       }
 
-      if (!e.target.closest('.nn-undo-popover')) {
+      /* ══════════════════════════════════════════════════════════════
+         BRIS-NN-T117 — do not re-render the page on an ordinary click.
+
+         These two setters ran unconditionally on EVERY click, including
+         the mouse-up that completes a text drag. Each is a state write,
+         so each forced a re-render at exactly the moment the browser had
+         just established a selection — and the re-render took it away.
+         Shift-selection survived because it extends an existing range
+         rather than starting a new one.
+
+         Guarded so a click that changes nothing writes nothing.
+         ══════════════════════════════════════════════════════════════ */
+      if (undoPopover && !e.target.closest('.nn-undo-popover')) {
         hideUndoPopover();
       }
 
@@ -1013,15 +1121,15 @@ function NotionPageInner({
         }
       }
 
-      if (!e.target.closest('.comment-annotations')) {
+      if (activeCommentId && !e.target.closest('.comment-annotations')) {
         setActiveCommentId(null);
       }
     },
-    [showUndoPopover, hideUndoPopover, setActiveCommentId]
+    [showUndoPopover, hideUndoPopover, setActiveCommentId, activeCommentId, undoPopover]
   );
 
   return (
-    <div className="notion-app">
+    <div className="notion-app" ref={pageRootRef}>
       {showSidebarProp && (
         <Sidebar collapsed={sidebarCollapsed} onToggle={toggleSidebar} />
       )}
@@ -1030,13 +1138,22 @@ function NotionPageInner({
         {showSidebarProp && <Topbar onToggleSidebar={toggleSidebar} />}
 
         <div className="page-scroll">
-          <CoverImage />
+          {/* BRIS-NN-T112: cover, icon, title and the Add cover / Add icon /
+              Add comment actions all live in PageHeader, so one guard hides
+              the whole page chrome for an embedded body-only editor. */}
+          {showPageHeader && showPageCover && <CoverImage />}
 
-          <PageHeader
-            hasComments={hasTextComments}
-            commentsVisible={isCommentsSidebarVisible}
-            onClick={handlePageClick}
-          />
+          {showPageHeader && (
+            <PageHeader
+              hasComments={hasTextComments}
+              commentsVisible={isCommentsSidebarVisible}
+              onClick={handlePageClick}
+              showCover={showPageCover}
+              /* T113: commentsAlwaysOff already means "this page has no
+                 comments" — offering to add one would be a dead end. */
+              showComments={!commentsAlwaysOff}
+            />
+          )}
 
           <div
             className={`page-content${hasTextComments ? ' has-comments' : ''}${isCommentsSidebarVisible ? '' : ' comments-hidden'}`}

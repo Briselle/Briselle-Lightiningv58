@@ -307,7 +307,11 @@ export const CoverImage = memo(function CoverImage() {
 });
 
 /* ---- PageHeader ---- */
-export const PageHeader = memo(function PageHeader({ hasComments, commentsVisible, onClick }) {
+/* BRIS-NN-T113: `showCover` and `showComments` let a host keep the icon and
+   title while dropping the affordances that make no sense embedded — a page
+   cover inside a modal, or page-level comments on a prompt. Both default to
+   true, so a standalone page is unchanged. */
+export const PageHeader = memo(function PageHeader({ hasComments, commentsVisible, onClick, showCover = true, showComments = true }) {
   const { pageState, updatePage, setCommentSidebarOpen, setShowPageCommentComposer, auditData } = usePageContext();
   const currentUser = useAuthStore((s) => s.user);
   const [showEmojiPicker, setShowEmojiPicker] = useState(false);
@@ -436,7 +440,7 @@ export const PageHeader = memo(function PageHeader({ hasComments, commentsVisibl
               <Smile size={14} /> Add icon
             </button>
           )}
-          {!pageState.cover && (
+          {showCover && !pageState.cover && (
             <div style={{ position: 'relative', display: 'inline-block' }}>
               <button
                 ref={coverBtnRef}
@@ -461,13 +465,15 @@ export const PageHeader = memo(function PageHeader({ hasComments, commentsVisibl
               )}
             </div>
           )}
-          <button
-            className="page-header-action-btn"
-            onClick={() => setShowPageCommentComposer(v => !v)}
-            style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
-          >
-            <MessageSquare size={14} /> Add comment
-          </button>
+          {showComments && (
+            <button
+              className="page-header-action-btn"
+              onClick={() => setShowPageCommentComposer(v => !v)}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+            >
+              <MessageSquare size={14} /> Add comment
+            </button>
+          )}
         </div>
 
         {/* Icon */}

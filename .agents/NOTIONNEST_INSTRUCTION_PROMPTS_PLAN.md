@@ -221,6 +221,99 @@ fixed first and the editor rebuilt after, approve 1–3 now.
 
 ---
 
+## 4b. Round 2 — `T101`–`T103` (2026-08-17)
+
+### `T101` — one CSS bug behind three symptoms
+
+`.nnr-settings-flyout` is declared **three times** (~11160, ~14825, ~16743).
+The middle declaration sets `overflow: visible !important`, which beats the
+later `overflow-y: auto`. The flyout therefore could not scroll: with 12
+presets the list simply spilled out of its own box.
+
+That single fault produced all three reports:
+- **#1** the list did not fit and would not scroll;
+- **#6** "Add custom instructions" looked missing — it is the *last* row, so it
+  was the first thing pushed past the fold;
+- **#2** selecting a preset did nothing — the rows being clicked were outside
+  the popover's box.
+
+Fixed by giving `.nnr-instr-menu` its own height and scrolling rather than
+adding a fourth competing `!important`. Heading, search and the add-custom row
+are pinned; only the rows scroll. A **search field** was added — 12 entries is
+past the point of scanning by eye.
+
+### `T102` — no prompt text in the client (#4, #5)
+
+`DEFAULT_INSTRUCTION_PROMPTS` is **removed from `constants.js`**, and the
+service no longer seeds from code. `database/019_...sql` is the only place
+prompt text exists.
+
+`config_json` now carries two copies:
+
+| Key | Written by | Purpose |
+|---|---|---|
+| `instructions.<Type>` | the app | the live, editable prompt |
+| `defaults.<Type>` | the SQL seed only | source for **Reset to default** |
+
+A reset therefore restores from the **database**, and stays correct if a later
+migration revises the shipped prompts.
+
+If the row is absent nothing is invented: `loadPromptDocument` returns
+`missing: true`, the menu says the library is not installed and names the
+script, writes are refused, and summary generation stops rather than
+substituting a prompt the user never configured.
+
+### `T103` — the editor's title and icon (#3)
+
+The title was not missing — it was *duplicated*. The modal drew its own name
+field and icon `<select>` above the embedded page, and the page's real Notion
+title sat below, out of view. Both are removed: the page's **own** title is the
+instruction name (parent-page formatting, full size) and the page's **own**
+icon picker sets the instruction icon. The dropdown renders that icon, falling
+back to the lucide glyph for entries never given one.
+
+## 4c. `T105` — why selecting an instruction never worked
+
+The write path was correct the whole time. `Row` was declared **inside**
+`InstructionsMenu`'s render:
+
+```js
+const Row = ({ inst }) => ( … );        // new function identity every render
+{presets.map(inst => <Row key={inst} inst={inst} />)}
+```
+
+React compares component types by identity, so a `Row` created on each render
+is a **new type** each time: the entire list is unmounted and remounted on
+every re-render of the menu. A click requires `mousedown` **and** `mouseup` on
+the *same* element — when the row under the pointer is replaced between the
+two, the browser never produces a `click` event and the handler simply never
+runs.
+
+That also explains the shape of the bug that made it so hard to place:
+- **Edit and More kept working** — a button pressed and released without an
+  intervening re-render completes normally.
+- **`saveProp` worked from the Base** — the editor's save set
+  `selectedInstruction` successfully, which is how "Technical Discussion"
+  ended up selected without a single row click ever landing.
+
+Chasing the write path (whitelist, `getBlockById` recursion, `mutateState`
+cloning, memo comparators, duplicate api keys) found nothing because nothing
+was wrong there. The evidence that finally located it was the screenshot: the
+✓ sat on an instruction the user had *edited*, not one they had *clicked*.
+
+`renderRow` is a plain function returning JSX, so the DOM elements persist
+across renders and the click completes. Rows also gained
+`role="menuitemradio"`, `tabIndex` and Enter/Space handling.
+
+Also fixed: the stored icon is rendered as text, and the page picker can
+return a **shortcode** (`:cpu:`) rather than a glyph. Unboxed, it spilled
+across the label — the `:cpu:bTechnical Discussion` overlap. Non-glyph values
+now fall back to the lucide icon, and the box clips regardless.
+
+**Outstanding of the same class:** `TranscriptStatsBar.jsx:81` declares
+`const Tag = ({stat, showPin}) => …` inside its render. Same remount-per-render
+defect, not yet triggered by anything reported. Worth fixing in a sweep.
+
 ## 5. Open questions — please answer with your approval
 
 1. **Org-wide prompts** (§1) — confirm editing a prompt in one block changes it for all

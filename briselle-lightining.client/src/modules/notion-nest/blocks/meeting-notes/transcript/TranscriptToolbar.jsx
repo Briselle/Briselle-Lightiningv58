@@ -54,25 +54,9 @@ export function TranscriptToolbar() {
               sense once a translation exists, so it stays hidden until
               then. The translated tab is labelled in the target language's
               own script — "in தமிழ்" rather than "Translated (Tamil)". */}
-          {translatedLanguage && (
-            <div className="nnr-subtab-toggle">
-              <button
-                type="button"
-                className={`nnr-subtab-btn${transcriptSubTab === 'original' ? ' active' : ''}`}
-                onClick={() => setTranscriptSubTab('original')}
-              >
-                Original
-              </button>
-              <button
-                type="button"
-                className={`nnr-subtab-btn${transcriptSubTab === 'translated' ? ' active' : ''}`}
-                onClick={() => setTranscriptSubTab('translated')}
-                lang={LANGUAGE_CODE_MAP[translatedLanguage] || undefined}
-              >
-                in {getNativeLangDisplay(translatedLanguage) || translatedLanguage}
-              </button>
-            </div>
-          )}
+          {/* BRIS-NN-MNB-T111: the Original / “In <native>” switch moved to
+              the top-centre of the transcript area, above the text it
+              applies to. See transcript/TranscriptPanel.jsx. */}
 
           {/* Translate Action Trigger */}
           <div className="nnr-translate-wrap" ref={translateWrapRef} style={{ position: 'relative' }}>

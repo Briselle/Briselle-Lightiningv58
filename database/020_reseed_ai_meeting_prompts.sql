@@ -1,48 +1,24 @@
 -- =============================================
--- Briselle Platform — 019_add_ai_prompts_config_type.sql
--- Created At: 2026-08-16 | Last Modified: 2026-08-17
--- Task: BRIS-NN-MNB-T92 / T102
+-- Briselle Platform — 020_reseed_ai_meeting_prompts.sql
+-- Created At: 2026-08-17
+-- Task: BRIS-NN-MNB-T108
 --
--- Adds config_type 8 = AIPromptsLoader and seeds the AI Meeting Notes
--- instruction prompt library.
+-- DESTRUCTIVE. Overwrites the AI Meeting Notes prompt library with the
+-- shipped set, discarding every edit made through the instruction editor.
 --
--- config_type is a plain smallint with no CHECK constraint, so no schema
--- change is needed to introduce 8 — only the documenting COMMENT, which
--- was stale (it stopped at 6 while the code already used 7).
+-- Run this if:
+--   * you installed 019 before the 'defaults' block existed (without it,
+--     "Reset to default" has no source to restore from), or
+--   * you want the revised Auto prompt.
 --
--- BRIS-NN-MNB-T102: THIS FILE IS THE ONLY PLACE THE PROMPT TEXT LIVES.
--- The application no longer carries any prompt in code and does not seed
--- itself. If this row is absent the instruction menu reports that the
--- library is missing rather than inventing one.
+-- 019 is guarded by ON CONFLICT DO NOTHING, so re-running it will NOT
+-- update an existing row — this file is how you refresh one.
 --
--- config_json carries TWO copies:
---   instructions.<Type>  the live, editable prompt
---   defaults.<Type>      the shipped text, never written by the app
--- "Reset to default" copies defaults -> instructions, so a reset restores
--- from the database rather than from anything compiled into the client.
---
--- Run in Supabase SQL Editor. Safe to re-run: guarded by
--- ON CONFLICT DO NOTHING against uq_platform_config_scope, so an edited
--- library is never overwritten.
+-- NOTE: this replaces 'instructions' as well as 'defaults'.
 -- =============================================
 
-COMMENT ON COLUMN platform_config.config_type IS
-  '1=MenuLoader, 2=UIUXLoader, 3=ObjectLoader, 4=ModuleLoader, 5=ThemeLoader, 6=DashboardLoader, 7=ObjectCounter, 8=AIPromptsLoader';
-
--- ---------------------------------------------------------------
--- Seed: AI Meeting Notes instruction prompts
---   entity_id  1000000000  Briselle org (defaults for everyone, for now)
---   dobj_id    1000000002  AI Meeting Notes prompt document
---   config_type        8   AIPromptsLoader
---   config_name        AIMeetingNotesPrompt
--- ---------------------------------------------------------------
-INSERT INTO platform_config (
-    entity_id, dobj_id, config_name, config_type,
-    config_description, is_default, is_active, config_json
-) VALUES (
-    1000000000, 1000000002, 'AIMeetingNotesPrompt', 8,
-    'AI Meeting Notes summarisation instruction prompts', true, true,
-    '{
+UPDATE platform_config
+   SET config_json     = '{
   "schemaVersion": "1.0",
   "order": [
     "Auto",
@@ -292,15 +268,22 @@ INSERT INTO platform_config (
       "updatedBy": null
     }
   }
-}'::jsonb
-)
-ON CONFLICT ON CONSTRAINT uq_platform_config_scope DO NOTHING;
+}'::jsonb,
+       lastmodified_ts = now()
+ WHERE entity_id   = 1000000000
+   AND dobj_id     = 1000000002
+   AND config_type = 8;
 
--- Re-seeding an existing row: see 020_reseed_ai_meeting_prompts.sql
+-- To keep local edits and refresh ONLY the reset-to-default source, run the
+-- statement above with 'config_json' replaced by
+--   jsonb_set(config_json, '{defaults}', <payload> -> 'defaults')
+-- It is not included inline here: a multi-line JSON payload cannot be
+-- line-commented safely, and a half-commented literal is live SQL.
 
 -- Verify
-SELECT config_id, config_name, config_type,
-       jsonb_array_length(config_json->'order')                AS instruction_count,
-       (SELECT count(*) FROM jsonb_object_keys(config_json->'defaults')) AS default_count
+SELECT config_id,
+       jsonb_array_length(config_json->'order') AS instruction_count,
+       (SELECT count(*) FROM jsonb_object_keys(config_json->'defaults')) AS default_count,
+       left(config_json->'instructions'->'Auto'->>'promptText', 60) AS auto_prompt_head
 FROM   platform_config
 WHERE  entity_id = 1000000000 AND dobj_id = 1000000002 AND config_type = 8;

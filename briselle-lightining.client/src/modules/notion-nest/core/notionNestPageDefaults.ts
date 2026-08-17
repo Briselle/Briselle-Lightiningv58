@@ -234,6 +234,10 @@ export function sanitizeNotionBlocks(blocks: unknown): any[] {
                ('simple' | 'full'). Whitelisted here or the user's choice
                is stripped on the next save and silently reverts. */
             ...(block.audioPlayerVariant !== undefined ? { audioPlayerVariant: String(block.audioPlayerVariant) } : {}),
+            /* BRIS-NN-MNB-T110: the Notes tab's block document. It was never
+               whitelisted, so notes were stripped on every save — invisible
+               until now only because the tab could not be typed into. */
+            ...(block.notesBlocks !== undefined ? { notesBlocks: block.notesBlocks } : {}),
         };
     }).filter(Boolean);
 }

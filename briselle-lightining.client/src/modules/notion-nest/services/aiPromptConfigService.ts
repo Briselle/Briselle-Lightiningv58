@@ -29,11 +29,11 @@
    which are hidden, the default) stays on the block itself.
    ============================================================ */
 import { supabase } from '../../../utils/supabase';
-import {
-  DEFAULT_INSTRUCTION_PROMPTS,
-  INSTRUCTION_PRESET_ORDER,
-  INSTRUCTION_PRESET_ICONS,
-} from '../blocks/meeting-notes/constants';
+/* BRIS-NN-MNB-T102: NO prompt text is imported. The database row seeded by
+   database/019_add_ai_prompts_config_type.sql is the only source. If the row
+   is absent the caller is told so — the client does not invent a library,
+   because a code-side default is exactly what "all prompts in the database"
+   rules out. */
 
 /** platform_config.config_type — 8 = AIPromptsLoader. */
 export const AI_PROMPTS_CONFIG_TYPE = 8;
@@ -63,59 +63,40 @@ export interface PromptDocument {
   schemaVersion: string;
   order: string[];
   instructions: Record<string, InstructionEntry>;
+  /** Shipped text, written only by the SQL seed. Source for reset. */
+  defaults: Record<string, InstructionEntry>;
+  /** true when the seed row is absent — the UI must say so. */
+  missing?: boolean;
 }
 
-/**
- * The shipped prompt set, as a document.
- * Exported so the SQL seed generator and the client seed cannot diverge.
- */
-export function buildDefaultPromptDocument(): PromptDocument {
-  const instructions: Record<string, InstructionEntry> = {};
-  INSTRUCTION_PRESET_ORDER.forEach((name) => {
-    instructions[name] = {
-      name,
-      icon: (INSTRUCTION_PRESET_ICONS as Record<string, string>)[name] || 'FileText',
-      isSystem: true,
-      /* Left empty on purpose: blocks are derived from promptText on first
-         edit. Storing a parse of it here would be a second copy of the same
-         content that could silently disagree with the text. */
-      blocks: [],
-      promptText: (DEFAULT_INSTRUCTION_PROMPTS as Record<string, string>)[name] || '',
-      updatedAt: null,
-      updatedBy: null,
-    };
-  });
-  return {
-    schemaVersion: PROMPT_DOC_SCHEMA_VERSION,
-    order: [...INSTRUCTION_PRESET_ORDER],
-    instructions,
-  };
+/** An empty library — used only when the seed row is missing. */
+export function emptyPromptDocument(): PromptDocument {
+  return { schemaVersion: PROMPT_DOC_SCHEMA_VERSION, order: [], instructions: {}, defaults: {}, missing: true };
 }
 
 /** Repair a document read from the DB so callers never handle a half-shape. */
+function normalizeEntry(e: any, key: string): InstructionEntry {
+  return {
+    name: e?.name || key,
+    icon: e?.icon || '',
+    isSystem: e?.isSystem === true,
+    blocks: Array.isArray(e?.blocks) ? e.blocks : [],
+    promptText: typeof e?.promptText === 'string' ? e.promptText : '',
+    updatedAt: e?.updatedAt || null,
+    updatedBy: e?.updatedBy || null,
+  };
+}
+
 function normalizeDocument(raw: any): PromptDocument {
-  const fallback = buildDefaultPromptDocument();
-  if (!raw || typeof raw !== 'object' || !raw.instructions) return fallback;
+  if (!raw || typeof raw !== 'object' || !raw.instructions) return emptyPromptDocument();
 
   const instructions: Record<string, InstructionEntry> = {};
-  Object.keys(raw.instructions).forEach((key) => {
-    const e = raw.instructions[key] || {};
-    instructions[key] = {
-      name: e.name || key,
-      icon: e.icon || (INSTRUCTION_PRESET_ICONS as Record<string, string>)[key] || 'FileText',
-      isSystem: e.isSystem === true,
-      blocks: Array.isArray(e.blocks) ? e.blocks : [],
-      promptText: typeof e.promptText === 'string' ? e.promptText : '',
-      updatedAt: e.updatedAt || null,
-      updatedBy: e.updatedBy || null,
-    };
-  });
+  Object.keys(raw.instructions).forEach((k) => { instructions[k] = normalizeEntry(raw.instructions[k], k); });
 
-  /* A shipped preset missing from a stored document is restored rather than
-     lost — an older document simply will not have Call or Workshop. */
-  fallback.order.forEach((name) => {
-    if (!instructions[name]) instructions[name] = fallback.instructions[name];
-  });
+  /* The shipped copy. Read-only as far as the app is concerned — it is what
+     "Reset to default" restores from, so nothing here is ever written back. */
+  const defaults: Record<string, InstructionEntry> = {};
+  Object.keys(raw.defaults || {}).forEach((k) => { defaults[k] = normalizeEntry(raw.defaults[k], k); });
 
   const storedOrder: string[] = Array.isArray(raw.order) ? raw.order : [];
   const order = [
@@ -123,7 +104,7 @@ function normalizeDocument(raw: any): PromptDocument {
     ...Object.keys(instructions).filter((k) => !storedOrder.includes(k)),
   ];
 
-  return { schemaVersion: raw.schemaVersion || PROMPT_DOC_SCHEMA_VERSION, order, instructions };
+  return { schemaVersion: raw.schemaVersion || PROMPT_DOC_SCHEMA_VERSION, order, instructions, defaults, missing: false };
 }
 
 async function fetchRow(): Promise<any | null> {
@@ -143,40 +124,27 @@ async function fetchRow(): Promise<any | null> {
 }
 
 /**
- * Load the prompt library, seeding the row on first use.
+ * Load the prompt library from the database.
  *
- * Seeding is idempotent: it only inserts when no row exists for the scope,
- * and a duplicate-key error (another tab seeding concurrently) is treated as
- * success and re-read rather than overwriting an existing document.
+ * T102: no seeding. If the row does not exist the returned document has
+ * missing:true and an empty list, and the UI says the library has not been
+ * installed — rather than silently running on a compiled-in copy that would
+ * then diverge from whatever the database eventually holds.
  */
 export async function loadPromptDocument(): Promise<PromptDocument> {
   try {
     const row = await fetchRow();
-    if (row) return normalizeDocument(row.config_json);
-
-    const seeded = buildDefaultPromptDocument();
-    const { error } = await supabase.from('platform_config').insert({
-      entity_id: AI_PROMPTS_ENTITY_ID,
-      dobj_id: AI_MEETING_NOTES_DOBJ_ID,
-      config_name: AI_MEETING_NOTES_CONFIG_NAME,
-      config_type: AI_PROMPTS_CONFIG_TYPE,
-      config_description: 'AI Meeting Notes summarisation instruction prompts',
-      is_default: true,
-      is_active: true,
-      config_json: seeded,
-    });
-
-    if (error) {
-      /* 23505 = unique violation: someone else seeded it first. */
-      const existing = await fetchRow();
-      if (existing) return normalizeDocument(existing.config_json);
-      console.warn('[AIPrompts] seed failed, using in-memory defaults:', error.message);
+    if (!row) {
+      console.warn(
+        '[AIPrompts] No AIMeetingNotesPrompt row for entity ' + AI_PROMPTS_ENTITY_ID +
+        '. Run database/019_add_ai_prompts_config_type.sql.'
+      );
+      return emptyPromptDocument();
     }
-    return seeded;
+    return normalizeDocument(row.config_json);
   } catch (e) {
     console.error('[AIPrompts] loadPromptDocument failed:', e);
-    /* Never leave the menu empty — fall back to the shipped set. */
-    return buildDefaultPromptDocument();
+    return emptyPromptDocument();
   }
 }
 
@@ -218,6 +186,9 @@ export async function upsertInstruction(
   payload: Partial<InstructionEntry>
 ): Promise<PromptDocument | null> {
   const doc = await loadPromptDocument();
+  /* Writing into an absent library would create a row holding only the one
+     instruction just edited, with no defaults — the migration must run first. */
+  if (doc.missing) return null;
   const previous = doc.instructions[key];
 
   doc.instructions[key] = {
@@ -258,6 +229,7 @@ export async function renameInstruction(
 /** Delete a custom instruction. Shipped presets are reset, not deleted. */
 export async function deleteInstruction(key: string): Promise<PromptDocument | null> {
   const doc = await loadPromptDocument();
+  if (doc.missing) return null;
   const entry = doc.instructions[key];
   if (!entry || entry.isSystem) return null;
 
@@ -267,13 +239,21 @@ export async function deleteInstruction(key: string): Promise<PromptDocument | n
   return (await savePromptDocument(doc)) ? doc : null;
 }
 
-/** Restore a shipped preset to its original text, discarding local edits. */
+/**
+ * Restore a shipped preset to its original text.
+ *
+ * T102: the source is config_json.defaults — the copy written by the SQL
+ * seed and never touched by the app — NOT a constant in the client. A reset
+ * therefore restores exactly what the database was installed with, and stays
+ * correct if the shipped prompts are revised in a later migration.
+ */
 export async function resetInstructionToDefault(key: string): Promise<PromptDocument | null> {
-  const shipped = buildDefaultPromptDocument().instructions[key];
-  if (!shipped) return null;
-
   const doc = await loadPromptDocument();
-  doc.instructions[key] = { ...shipped, updatedAt: new Date().toISOString() };
+  if (doc.missing) return null;
 
+  const shipped = doc.defaults[key];
+  if (!shipped) return null;   /* a custom instruction has no default */
+
+  doc.instructions[key] = { ...shipped, updatedAt: new Date().toISOString() };
   return (await savePromptDocument(doc)) ? doc : null;
 }

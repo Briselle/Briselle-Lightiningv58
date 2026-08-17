@@ -33,7 +33,6 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { RotateCcw, X } from 'lucide-react';
 import NotionNestPage from '../../../core/NotionNestPage';
 import { blocksToMarkdown, instructionToBlocks } from '../promptSerializer';
-import { CUSTOM_ICON_CHOICES } from './InstructionsMenu';
 
 /** Excluded types. Module-level so the array identity is stable. */
 const EDITOR_EXCLUDED_BLOCKS = ['meeting_notes'];
@@ -48,10 +47,15 @@ export function InstructionEditorModal({
   onReset,
   onClose,
 }) {
-  const [name, setName] = useState(instructionKey);
-  const [icon, setIcon] = useState(entry?.icon || 'FileText');
   const [initialBlocks, setInitialBlocks] = useState(null);
+  const [initialTitle, setInitialTitle] = useState(instructionKey);
+  const [initialIcon, setInitialIcon] = useState(entry?.icon || '📝');
   const [error, setError] = useState('');
+
+  /* Title and icon arrive through onChange like the blocks do; refs for the
+     same reason — re-rendering on every keystroke would remount the page. */
+  const titleRef = useRef(instructionKey);
+  const iconRef = useRef(entry?.icon || '📝');
 
   /* Live blocks are held in a ref, not state: NotionNestPage fires
      onChange on every keystroke, and re-rendering this modal on each one
@@ -66,30 +70,38 @@ export function InstructionEditorModal({
     const blocks = instructionToBlocks(entry);
     blocksRef.current = blocks;
     setInitialBlocks(blocks);
-    setName(instructionKey);
-    setIcon(entry?.icon || 'FileText');
+    titleRef.current = instructionKey;
+    iconRef.current = entry?.icon || '📝';
+    setInitialTitle(instructionKey);
+    setInitialIcon(entry?.icon || '📝');
     setError('');
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, instructionKey]);
 
   const handleChange = useCallback((page) => {
-    if (page && Array.isArray(page.blocks)) blocksRef.current = page.blocks;
+    if (!page) return;
+    if (Array.isArray(page.blocks)) blocksRef.current = page.blocks;
+    if (typeof page.title === 'string') titleRef.current = page.title;
+    if (page.icon) iconRef.current = page.icon;
   }, []);
 
   const handleSave = useCallback(() => {
-    const trimmed = (name || '').trim();
-    if (!trimmed) { setError('Give this instruction a name.'); return; }
+    /* A built-in keeps its key: it is the identity the defaults copy is
+       matched on, so renaming one would orphan its reset. */
+    const typed = (titleRef.current || '').trim();
+    const trimmed = entry?.isSystem ? instructionKey : typed;
+    if (!trimmed) { setError('Give this instruction a name in the page title.'); return; }
 
     const promptText = blocksToMarkdown(blocksRef.current);
     if (!promptText.trim()) { setError('The prompt is empty.'); return; }
 
     onSave?.(instructionKey, {
       name: trimmed,
-      icon,
+      icon: iconRef.current,
       blocks: blocksRef.current,
       promptText,
     });
-  }, [name, icon, instructionKey, onSave]);
+  }, [entry, instructionKey, onSave]);
 
   if (!isOpen) return null;
 
@@ -98,34 +110,16 @@ export function InstructionEditorModal({
   return (
     <div className="nnr-ie-overlay" role="dialog" aria-modal="true" aria-label="Edit instruction">
       <div className="nnr-ie-modal">
+        {/* T103: no name field and no icon selector here. The embedded page
+            renders its OWN icon + title with Notion formatting, and that
+            title IS the instruction name — which is the point of reusing
+            the editor. A second name box above it was both duplicate UI
+            and the reason the real title looked "missing": it was there,
+            just pushed out of view under a header that repeated it. */}
         <div className="nnr-ie-head">
-          <div className="nnr-ie-identity">
-            <select
-              className="nnr-ie-icon-select"
-              value={icon}
-              onChange={(e) => setIcon(e.target.value)}
-              aria-label="Instruction icon"
-              title="Instruction icon"
-            >
-              {Object.keys(CUSTOM_ICON_CHOICES).map(k => (
-                <option key={k} value={k}>{k}</option>
-              ))}
-            </select>
-
-            <input
-              className="nnr-ie-name"
-              value={name}
-              onChange={(e) => { setName(e.target.value); setError(''); }}
-              placeholder="Instruction name"
-              aria-label="Instruction name"
-              /* A shipped preset's key is its seed identity — renaming it
-                 would orphan the reset-to-default mapping. */
-              disabled={isSystem}
-              title={isSystem ? 'Built-in instructions cannot be renamed' : undefined}
-            />
-            {isSystem && <span className="nnr-ie-badge">Built-in</span>}
-          </div>
-
+          <span className="nnr-ie-context">
+            {isSystem ? 'Built-in instruction' : 'Custom instruction'}
+          </span>
           <button type="button" className="nnr-ie-close" onClick={onClose}
                   aria-label="Close" title="Close">
             <X size={18} />
@@ -138,9 +132,18 @@ export function InstructionEditorModal({
           {initialBlocks && (
             <NotionNestPage
               initialBlocks={initialBlocks}
-              initialTitle=""
+              /* The page title is the instruction name, rendered with the
+                 parent page's own big-title formatting. */
+              initialTitle={initialTitle}
+              /* And the page icon is the instruction icon, so the glyph the
+                 dropdown shows is picked with the page's own picker. */
+              initialIcon={initialIcon}
               onChange={handleChange}
               showSidebar={false}
+              /* T113: keep the icon and the big title — they ARE the
+                 instruction's identity — but drop the cover and the
+                 comment affordance, which have no meaning for a prompt. */
+              showPageCover={false}
               commentsAlwaysOff
               excludedBlockTypes={EDITOR_EXCLUDED_BLOCKS}
             />

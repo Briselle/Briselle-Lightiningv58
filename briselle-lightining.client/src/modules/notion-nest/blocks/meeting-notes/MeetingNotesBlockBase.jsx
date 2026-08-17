@@ -51,13 +51,14 @@ import { SummaryActions } from './summary/SummaryActions';
 import { MeetingModals } from './config/MeetingModals';
 import { InstructionEditorModal } from './config/InstructionEditorModal';
 import {
-  loadPromptDocument, buildDefaultPromptDocument, upsertInstruction,
+  loadPromptDocument, emptyPromptDocument, upsertInstruction,
   deleteInstruction, resetInstructionToDefault,
 } from '../../services/aiPromptConfigService';
-import { DEFAULT_INSTRUCTION_PROMPTS, LANGUAGE_CODE_MAP, NATIVE_LANGUAGE_DISPLAY, getNativeLangDisplay, resolveRecognitionLang, LANGUAGE_AUTO, INDIAN_LANGUAGES } from './constants';
+import { LANGUAGE_CODE_MAP, NATIVE_LANGUAGE_DISPLAY, getNativeLangDisplay, resolveRecognitionLang, LANGUAGE_AUTO, INDIAN_LANGUAGES } from './constants';
 /* BRIS-NN-MNB-T01/T02: canonical transcript line shape + hidden prefix */
 import { FileService } from '../../../utility-modules/upload-module/FileService';
 import { normalizeLines, formatPrefix, formatTs, TRANSCRIPT_SOURCE } from './transcript/transcriptLine';
+import { blocksToMarkdown } from './promptSerializer';
 import { bufferToWavBlob } from './audioUtils';
 
 export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block }) {
@@ -489,8 +490,11 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
     return () => { alive = false; };
   }, []);
 
-  /* Never let the menu be empty while the document loads. */
-  const activePromptDoc = promptDoc || buildDefaultPromptDocument();
+  /* T102: an empty shape while loading, and if the seed row is absent it
+     STAYS empty — the menu then says the library is missing rather than
+     falling back to prompts compiled into the client. */
+  const activePromptDoc = promptDoc || emptyPromptDocument();
+  const promptLibraryMissing = !promptDocLoading && !!activePromptDoc.missing;
 
   /** name -> prompt text, for the summary call. */
   const instructionPrompts = useMemo(() => {
@@ -1737,6 +1741,36 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
   /* ── Copy ── */
   const copyText = (text) => { if (text) navigator.clipboard.writeText(text); };
 
+  /* ══════════════════════════════════════════════════════════════════
+     BRIS-NN-MNB-T116 — copy the tab you are looking at, with formatting.
+
+     The footer's copy button always sent the transcript, whichever tab
+     was open, and always as plain text.
+
+     Both flavours are written to the clipboard: text/html so a paste
+     into Word, Notion or an email keeps the headings and bullets, and
+     text/plain so a paste into a code editor or terminal is still
+     sensible. Falls back to plain text where ClipboardItem is
+     unavailable, rather than failing.
+     ══════════════════════════════════════════════════════════════════ */
+  const copyRich = useCallback(async (plain, html) => {
+    if (!plain && !html) return false;
+    try {
+      if (html && typeof ClipboardItem !== 'undefined' && navigator.clipboard?.write) {
+        await navigator.clipboard.write([new ClipboardItem({
+          'text/html': new Blob([html], { type: 'text/html' }),
+          'text/plain': new Blob([plain || ''], { type: 'text/plain' }),
+        })]);
+        return true;
+      }
+      await navigator.clipboard.writeText(plain || '');
+      return true;
+    } catch (e) {
+      console.warn('Copy failed:', e);
+      try { await navigator.clipboard.writeText(plain || ''); return true; } catch (e2) { return false; }
+    }
+  }, []);
+
   /* ── LLM Request/Response Logging & Download ── */
   const downloadLLMLog = useCallback((type) => {
     const content = llmLogs[type];
@@ -2090,9 +2124,20 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
        silently produced the Auto prompt. DEFAULT_INSTRUCTION_PROMPTS remains
        only as the last-resort fallback if the document failed to load. */
     const instructionKey = selectedInstruction || 'Auto';
-    const instructionPrompt = instructionPrompts[instructionKey]
-      || DEFAULT_INSTRUCTION_PROMPTS[instructionKey]
-      || DEFAULT_INSTRUCTION_PROMPTS['Auto'];
+    const instructionPrompt = instructionPrompts[instructionKey] || '';
+
+    /* T102: no compiled-in fallback. Summarising with a silently substituted
+       prompt would produce output the user never configured. */
+    if (!instructionPrompt.trim()) {
+      setSummaryStep('route', 'Loading instruction prompt', 'failed',
+        activePromptDoc.missing
+          ? 'The AI prompt library is not installed. Run database/019_add_ai_prompts_config_type.sql in Supabase.'
+          : 'The "' + instructionKey + '" instruction has no prompt text. Edit it and add one.');
+      settleSummarySteps();
+      setIsGeneratingSummary(false);
+      setProcessing(false);
+      return;
+    }
 
     /* T83: resolve the Ziva pipe BEFORE claiming any analysis is running,
        and name the provider that will actually serve the request. */
@@ -2134,7 +2179,19 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
     setSummaryStep('analyze', 'Analyzing transcript and notes', 'active');
 
     const pipe = { apiKey, baseUrl, model, providerName };
-    const systemMessage = `You are ZIVA AI Enterprise Meeting Assistant. ${instructionPrompt}`;
+    /* BRIS-NN-MNB-T107: the title comes from the summary run itself.
+       Requested in the SYSTEM message, which is composed here — the stored
+       prompts stay exactly as configured. One extra output line costs no
+       extra request, which matters on a per-minute token budget. */
+    const systemMessage = `You are ZIVA AI Enterprise Meeting Assistant. ${instructionPrompt}
+
+Begin your response with a single line containing a short, specific title in
+the form "# Title" — eight words or fewer, naming what this recording was
+actually about rather than restating the document type.
+
+Then produce the FULL structured summary exactly as instructed above. The
+title line is in addition to that summary, never a replacement for or an
+abbreviation of it.`;
     let sectionCount = 0;
 
     /* Turn the markdown produced so far into progress rows: every
@@ -2283,8 +2340,36 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
         throw new Error(`${providerName} returned an empty response.`);
       }
 
-      saveProp('summary', full);
+      /* ══════════════════════════════════════════════════════════════
+         BRIS-NN-MNB-T108 — promote the leading H1 to the block title.
+
+         Only a LEADING H1 counts: a heading further down is a section
+         name ("Key Discussion Points"), not a title for the meeting.
+
+         The H1 is then REMOVED from the stored summary. It has become the
+         block title, and leaving it in rendered the same text twice — a
+         large rule-underlined heading at the top of the summary saying
+         what the header already says.
+
+         (The previous attempt never fired: its regex reached the file as
+         /^s*#s+(.+?)s*$/ — the backslashes were lost writing it through a
+         shell-to-node string, so it looked for the literal text "s*#s+".) */
+      const titleMatch = full.match(/^[ \t]*#[ \t]+(.+?)[ \t]*$/m);
+      const derivedTitle = titleMatch
+        ? titleMatch[1].replace(/[*_`"]/g, '').trim()
+        : '';
+
+      let summaryBody = full;
+      if (derivedTitle && derivedTitle.length <= 120) {
+        summaryBody = full.replace(titleMatch[0], '').replace(/^\s+/, '');
+        setTitle(derivedTitle);
+        saveProp('title', derivedTitle);
+        setSummaryStep('title', 'Naming the meeting', 'done', derivedTitle);
+      }
+
+      saveProp('summary', summaryBody);
       saveProp('includeSummary', true);
+
       if (!sectionCount) {
         setSummaryStep('compose', 'Composing summary', 'done');
       }
@@ -2309,7 +2394,7 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
       setIsGeneratingSummary(false);
       setProcessing(false);
     }
-  }, [isGeneratingSummary, processing, displayTranscriptLines, transcriptLines, transcription, extractTextFromBlocks, block.notesBlocks, notesContent, selectedInstruction, instructionPrompts, getZivaApiConfig, title, date, saveProp, setSummaryStep, settleSummarySteps, resetSummarySteps, callZivaChat, estimateTokens, isCapacityError, parseTokenLimit, splitForBudget]);
+  }, [isGeneratingSummary, processing, displayTranscriptLines, transcriptLines, transcription, extractTextFromBlocks, block.notesBlocks, notesContent, selectedInstruction, instructionPrompts, activePromptDoc, getZivaApiConfig, title, date, saveProp, setSummaryStep, settleSummarySteps, resetSummarySteps, setTitle, callZivaChat, estimateTokens, isCapacityError, parseTokenLimit, splitForBudget]);
 
   /* stopRecording is declared far above this function, so it cannot call
      it directly without hitting the temporal dead zone. The module
@@ -2947,7 +3032,10 @@ ${text}`;
     html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
     html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
     html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-    html = html.replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>');
+    /* T109: matched on &gt; — es() has already escaped the source, so the
+       literal "> " this used to look for no longer exists by this point and
+       blockquotes rendered as "&gt; text". */
+    html = html.replace(/^&gt;\s?(.+)$/gm, '<blockquote>$1</blockquote>');
     html = html.replace(/^---+\s*$/gm, '<hr>');
     html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
 
@@ -2961,19 +3049,51 @@ ${text}`;
     html = html.replace(/((?:<tr[^>]*>.*?<\/tr>\s*)+)/g, '<table>$1</table>');
     html = html.replace(/<tr class="mt-tbl-sep"><\/tr>/g, '');
 
-    /* Lists */
+    /* Lists. BRIS-NN-MNB-T109: items are joined before wrapping so a blank
+       line between them (a "loose" list in markdown) still renders tight,
+       the way Notion does. */
     html = html.replace(/^[-*•] (.+)$/gm, '<li>$1</li>');
+    html = html.replace(/(<\/li>)\s*\n\s*(?=<li>)/g, '$1');
     html = html.replace(/((?:<li>.*?<\/li>\s*)+)/g, '<ul>$1</ul>');
 
-    /* Line breaks */
-    html = html.replace(/\n\n+/g, '</p><p>');
-    html = html.replace(/\n/g, '<br>');
-    html = '<p>' + html + '</p>';
-    html = html.replace(/<p><\/p>/g, '');
-    html = html.replace(/<br><\/p>/g, '</p>');
-    html = html.replace(/<p><br>/g, '<p>');
-    html = html.replace(/<\/?p>(?:\s*<(?:table|ul|ol|h[12]|hr|blockquote))/g, (m) => m.includes('</p>') ? m.replace('</p>', '') : m.replace('<p>', ''));
-    html = html.replace(/(<\/(?:table|ul|ol|h[12]|hr|blockquote)>\s*)<\/?p>/g, '$1');
+    /* ══════════════════════════════════════════════════════════════════
+       BRIS-NN-MNB-T109 — this is the "too many line spaces".
+
+       Every remaining newline became a <br>, INCLUDING the ones between
+       block elements. A list therefore rendered as
+
+           <li>…</li><br><li>…</li><br></ul><br><h2>…
+
+       so each bullet carried a blank line after it and every heading sat
+       on top of another. Block tags bring their own margins; a <br> next
+       to one is always double spacing.
+
+       The old code also wrapped EVERYTHING in <p> and then tried to unwrap
+       around block tags with two further regexes. Those unwrap passes
+       listed only h1/h2, so h3–h6 kept their paragraph margins on top of
+       their own, and what they left behind was unbalanced HTML.
+
+       Prose BETWEEN blocks is wrapped instead. Block elements pass through
+       untouched, and <br> is left to do the one job it should — a soft
+       line break inside a paragraph.
+       ══════════════════════════════════════════════════════════════════ */
+    const BLOCK_SPLIT = /(<(?:h[1-6]|ul|ol|table|blockquote)\b[\s\S]*?<\/(?:h[1-6]|ul|ol|table|blockquote)>|<hr>)/g;
+    const isBlock = /^(?:<(?:h[1-6]|ul|ol|table|blockquote)\b|<hr>)/;
+
+    html = html
+      .split(BLOCK_SPLIT)
+      .map((part) => {
+        if (!part) return '';
+        if (isBlock.test(part)) return part;
+        return part
+          .split(/\n{2,}/)
+          .map(p => p.trim())
+          .filter(Boolean)
+          .map(p => `<p>${p.replace(/\n/g, '<br>')}</p>`)
+          .join('');
+      })
+      .join('');
+
     return html;
   }, []);
 
@@ -3284,7 +3404,12 @@ ${text}`;
           </span>
         </div>
         {showInstructionsSubmenu && (
-          <div className="nnr-settings-flyout">
+          /* T104: nnr-instr-flyout releases the host popover's 360px clamp so
+             the menu can size and scroll itself. Without it the flyout capped
+             the height while `overflow: visible !important` let the surplus
+             paint OUTSIDE the box — rows past the fold were both invisible
+             and unclickable. */
+          <div className="nnr-settings-flyout nnr-instr-flyout">
             {/* BRIS-NN-MNB-T26: the presets, add-custom row and custom
                 instructions all render from the shared InstructionsMenu, so
                 this flyout and the footer selector cannot drift apart. */}
@@ -3494,17 +3619,64 @@ ${text}`;
   /* BRIS-NN-MNB-T62: never surface 'Unknown' in the UI. */
   const transcriptUserName = currentSpeaker || 'Briselle';
 
-  const normalizedTranscriptLines = useMemo(
-    () => normalizeLines(displayTranscriptLines, {
+  /* BRIS-NN-MNB-T111: honour the Original / Translated switch.
+     This always normalised displayTranscriptLines, so selecting the
+     translated tab changed the highlighted pill and nothing else — the
+     translation was produced, saved and then never rendered. */
+  const normalizedTranscriptLines = useMemo(() => {
+    const useTranslated = transcriptSubTab === 'translated'
+      && Array.isArray(translatedTranscriptLines)
+      && translatedTranscriptLines.length > 0;
+    return normalizeLines(useTranslated ? translatedTranscriptLines : displayTranscriptLines, {
       userName: transcriptUserName,
       source: TRANSCRIPT_SOURCE.LIVE,
       date,
-    }),
-    [displayTranscriptLines, transcriptUserName, date]
-  );
+    });
+  }, [transcriptSubTab, translatedTranscriptLines, displayTranscriptLines, transcriptUserName, date]);
 
   /* The hidden prefix builder, handed to the view so it stays presentation-free. */
   const transcriptPrefixOf = useCallback(line => formatPrefix(line), []);
+
+  /* ══════════════════════════════════════════════════════════════════
+     BRIS-NN-MNB-T116 — copy whichever tab is showing, as-is.
+
+     Position matters. This must sit below EVERY value in its dependency
+     array, not merely below renderMd. It was first placed just after
+     renderMd, which reads fine — but the deps array also names
+     normalizedTranscriptLines, declared ~500 lines further down, and a
+     dependency array is evaluated during render. That threw
+     "Cannot access 'normalizedTranscriptLines' before initialization"
+     and took the whole block down on mount.
+
+     The trap is that the FUNCTION BODY may safely reference anything in
+     the component — it only runs on click. The deps array may not.
+     ══════════════════════════════════════════════════════════════════ */
+  const copyActiveTab = useCallback(async () => {
+    let plain = '';
+    let html = '';
+
+    if (viewMode === 'summary') {
+      plain = summary || block.summary || '';
+      html = plain ? renderMd(plain) : '';
+    } else if (viewMode === 'notes') {
+      plain = blocksToMarkdown(block.notesBlocks || []);
+      html = plain ? renderMd(plain) : '';
+    } else {
+      /* Transcript: the visible lines, prefixes included when timestamps
+         are on, so what lands on the clipboard is what is on screen. */
+      const lines = normalizedTranscriptLines || [];
+      plain = lines.length
+        ? lines.map(l => (showTimeline ? `${formatPrefix(l)} ` : '') + (l.content || '')).join('\n')
+        : (activeTranscriptText || '');
+      html = plain
+        ? `<div>${plain.split('\n').map(l =>
+            `<p>${l.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`).join('')}</div>`
+        : '';
+    }
+
+    return copyRich(plain, html);
+  }, [viewMode, summary, block.summary, block.notesBlocks, normalizedTranscriptLines,
+      showTimeline, activeTranscriptText, renderMd, copyRich]);
 
   /* BRIS-NN-MNB-T04: a live, not-yet-committed line so streaming speech can
      carry the same "ts | source | user |" prefix as committed lines. */
@@ -3554,6 +3726,11 @@ ${text}`;
     goToMeetingNote,
     /* BRIS-NN-MNB-T77 */
     audioFilesError,
+    /* BRIS-NN-MNB-T116 */
+    copyActiveTab,
+    /* BRIS-NN-MNB-T102 */
+    promptLibraryMissing,
+    promptDocLoading,
     /* BRIS-NN-MNB-T82 */
     summarySteps,
     setSummaryStep,

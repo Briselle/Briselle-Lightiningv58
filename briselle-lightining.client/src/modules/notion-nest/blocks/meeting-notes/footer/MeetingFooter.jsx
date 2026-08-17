@@ -25,12 +25,12 @@ export function MeetingFooter() {
     showTimeline,
     clearTranscript,
     selectedInstruction,
-    setSelectedInstruction,
     INSTRUCTION_PRESETS,
     saveProp,
     openAddPromptModal,
     readAloud,
     copyText,
+    copyActiveTab,
     activeTranscriptText,
   } = useMeetingNotes();
 
@@ -41,13 +41,17 @@ export function MeetingFooter() {
   useDismissOnOutside(open, wrapRef, () => setOpen(false));
 
   const choose = (preset) => {
-    setSelectedInstruction?.(preset);
+    /* T104: single write — setSelectedInstruction is itself a saveProp
+       wrapper, so calling both fired the same mutation twice. */
     saveProp('selectedInstruction', preset);
     setOpen(false);
   };
 
-  const handleCopy = () => {
-    copyText?.(activeTranscriptText || '');
+  /* BRIS-NN-MNB-T116: copies the ACTIVE tab, with formatting. This always
+     sent the transcript as plain text, whichever tab was open. */
+  const handleCopy = async () => {
+    const ok = await copyActiveTab?.();
+    if (ok === false) return;
     setCopied(true);
     setTimeout(() => setCopied(false), 1600);
   };
@@ -72,7 +76,7 @@ export function MeetingFooter() {
             menu, so edit / more / add and the per-item icons are identical
             in both places. This used to be a separate, simpler list. */}
         {open && (
-          <div className="nnr-footer-menu nnr-settings-flyout" role="menu">
+          <div className="nnr-footer-menu nnr-settings-flyout nnr-instr-flyout" role="menu">
             <InstructionsMenu onDone={() => setOpen(false)} />
           </div>
         )}
@@ -132,8 +136,8 @@ export function MeetingFooter() {
           type="button"
           className="nnr-footer-icon-btn"
           onClick={handleCopy}
-          aria-label="Copy transcript"
-          title={copied ? 'Copied' : 'Copy transcript'}
+          aria-label="Copy this tab"
+          title={copied ? 'Copied' : 'Copy this tab'}
         >
           {copied ? <Check size={15} /> : <Copy size={15} />}
         </button>

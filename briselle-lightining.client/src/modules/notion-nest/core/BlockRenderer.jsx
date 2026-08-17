@@ -163,6 +163,26 @@ const BlockRenderer = memo(function BlockRenderer({ block, blocksArray, blockInd
 
   const handleBlockClick = useCallback((e) => {
     if (e.shiftKey) return;
+    /* ══════════════════════════════════════════════════════════════════
+       BRIS-NN-T119 — never steal the caret from a live text selection.
+
+       This handler exists to focus a block when you click its empty area.
+       It ends by calling sel.removeAllRanges() and collapsing the caret
+       into the block's first contenteditable — which also destroys any
+       selection the user has just finished making.
+
+       Text blocks escaped it because their content IS contenteditable, so
+       the guard below returned early. The meeting block's content is not:
+       summary text, transcript lines and labels are plain spans and divs.
+       Releasing the mouse after selecting any of them landed here, and the
+       selection was replaced by a caret in the meeting title. Holding
+       shift avoided it only because of the line above.
+
+       A completed selection means the click was the end of a drag, not a
+       request to focus. Leave it alone.
+       ══════════════════════════════════════════════════════════════════ */
+    const liveSelection = window.getSelection();
+    if (liveSelection && !liveSelection.isCollapsed) return;
     // Don't interfere with clicks on interactive elements
     if (e.target.closest('[contenteditable], input, button, select, textarea, .block-controls, .toggle-icon, .toggle-empty-placeholder')) return;
     // Find the nearest contenteditable within this specific block (not nested child blocks)

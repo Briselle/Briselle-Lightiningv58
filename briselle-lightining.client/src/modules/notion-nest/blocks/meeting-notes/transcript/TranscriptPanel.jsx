@@ -100,8 +100,44 @@ export function TranscriptPanel() {
               There is now exactly one playback surface:
               transcript/MeetingAudioPlayer.jsx, mounted by TranscriptToolbar. */}
 
+          {/* BRIS-NN-MNB-T111: the Original / “In <native>” switch, centred
+              directly above the text it applies to. It lived at the left
+              edge of the toolbar strip, two rows away from the transcript
+              and off to one side — and that strip only renders when it has
+              other content, so the switch could vanish entirely. It appears
+              only once a translation exists, and is labelled in the target
+              language's own script ("in தமிழ்", not "Translated (Tamil)"). */}
+          {translatedLanguage && (
+            <div className="nnr-transcript-langbar">
+              <div className="nnr-subtab-toggle" role="tablist" aria-label="Transcript language">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={transcriptSubTab !== 'translated'}
+                  className={`nnr-subtab-btn${transcriptSubTab !== 'translated' ? ' active' : ''}`}
+                  onClick={() => setTranscriptSubTab('original')}
+                >
+                  Original
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={transcriptSubTab === 'translated'}
+                  className={`nnr-subtab-btn${transcriptSubTab === 'translated' ? ' active' : ''}`}
+                  onClick={() => setTranscriptSubTab('translated')}
+                  lang={LANGUAGE_CODE_MAP[translatedLanguage] || undefined}
+                >
+                  in {getNativeLangDisplay(translatedLanguage) || translatedLanguage}
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Transcript Lines Area */}
-          <div className="nnr-transcript-content" style={{ padding: '16px', minHeight: '240px' }}>
+          {/* T115: padding moved to CSS so every tab shares one gutter. The
+              inline 16px here was narrower than Summary's 20px, which is
+              why the tabs did not line up. */}
+          <div className="nnr-transcript-content">
             {(normalizedTranscriptLines.length > 0 || recording) ? (
               /* BRIS-NN-MNB-T35: one continuous stream. The source header,
                  glyph and dots belong to the RECORDING state, not to the
