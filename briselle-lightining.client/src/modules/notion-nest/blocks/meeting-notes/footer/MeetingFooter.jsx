@@ -10,10 +10,11 @@
    Styling: styles/NotionNestPage.css. No inline CSS.
    ============================================================ */
 import { useState, useRef, useEffect } from 'react';
-import { ChevronDown, Volume2, Copy, Check, Eraser, Clock , Languages } from 'lucide-react';
+import { ChevronDown, Volume2, Copy, Check, Eraser, Clock, Languages, X } from 'lucide-react';
 import { InstructionsMenu } from '../config/InstructionsMenu';
 import { useDismissOnOutside } from '../hooks/useDismissOnOutside';
 import { useMeetingNotes } from '../context/MeetingNotesContext';
+import { LANGUAGE_CODE_MAP, getNativeLangDisplay } from '../constants';
 
 const CONSENT_NOTICE =
   'By starting, you confirm everyone being transcribed has given consent.';
@@ -21,6 +22,12 @@ const CONSENT_NOTICE =
 export function MeetingFooter() {
   const {
     setShowTranslatePopover,
+    showTranslatePopover,
+    translateWrapRef,
+    translateFrom, setTranslateFrom,
+    translateTo, setTranslateTo,
+    isTranslating, translationProgress,
+    handleTranslateTranscript,
     setShowTimeline,
     showTimeline,
     clearTranscript,
@@ -104,15 +111,63 @@ export function MeetingFooter() {
           <Volume2 size={15} />
         </button>
         {/* BRIS-NN-MNB-T48: Translate sits right after Read aloud */}
-        <button
-          type="button"
-          className="nnr-footer-icon-btn"
-          onClick={() => setShowTranslatePopover?.(true)}
-          aria-label="Translate transcript"
-          title="Translate transcript"
-        >
-          <Languages size={15} />
-        </button>
+        {/* BRIS-NN-MNB-T134: the From/To popover is anchored to THIS button —
+            the one the user presses — instead of a wrapper in the transcript
+            toolbar rows above. */}
+        <div className="nnr-footer-translate-wrap" ref={translateWrapRef}>
+          <button
+            type="button"
+            className="nnr-footer-icon-btn"
+            onClick={() => setShowTranslatePopover?.(!showTranslatePopover)}
+            aria-haspopup="dialog"
+            aria-expanded={!!showTranslatePopover}
+            aria-label="Translate transcript"
+            title="Translate transcript"
+          >
+            <Languages size={15} />
+          </button>
+
+          {showTranslatePopover && (
+            <div className="nnr-translate-popover">
+              <div className="nnr-translate-popover-header">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <Languages size={14} style={{ color: '#0070d2' }} />
+                  <span>Universal Translation</span>
+                </div>
+                <X size={14} style={{ cursor: 'pointer', color: '#64748b' }} onClick={() => setShowTranslatePopover(false)} />
+              </div>
+              <div className="nnr-translate-field">
+                <label className="nnr-translate-label">From Language</label>
+                <select value={translateFrom} onChange={e => setTranslateFrom(e.target.value)} className="nnr-translate-select">
+                  <option value="auto">Auto / Any Language</option>
+                  {Object.keys(LANGUAGE_CODE_MAP).map(lang => (
+                    <option key={lang} value={lang}>
+                      {lang.charAt(0).toUpperCase() + lang.slice(1)} {getNativeLangDisplay(lang) ? `(${getNativeLangDisplay(lang)})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="nnr-translate-field">
+                <label className="nnr-translate-label">To Language</label>
+                <select value={translateTo} onChange={e => setTranslateTo(e.target.value)} className="nnr-translate-select">
+                  {Object.keys(LANGUAGE_CODE_MAP).map(lang => (
+                    <option key={lang} value={lang}>
+                      {lang.charAt(0).toUpperCase() + lang.slice(1)} {getNativeLangDisplay(lang) ? `(${getNativeLangDisplay(lang)})` : ''}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <button
+                type="button"
+                className="nnr-translate-action-btn"
+                disabled={isTranslating}
+                onClick={() => handleTranslateTranscript(translateFrom, translateTo)}
+              >
+                {isTranslating ? `Translating... (${translationProgress}%)` : 'Translate Now'}
+              </button>
+            </div>
+          )}
+        </div>
         <button
           type="button"
           className="nnr-footer-icon-btn"

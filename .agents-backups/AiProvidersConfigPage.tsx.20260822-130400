@@ -1,0 +1,154 @@
+/* ============================================================
+   Briselle Enterprise Platform — Settings / AI Providers Config
+   AiProvidersConfigPage.tsx — page shell and tab router
+   Created At: 2026-08-22 | Last Modified: 2026-08-22
+   Previous Version Back URL: (new file — no previous version)
+
+   Task: BRIS-AI-T151
+
+   Route: /settings/ai-providers
+
+   ── This page names no module ──────────────────────────────────
+   Deliberately. Nothing here mentions NotionNest, Ziva, meeting notes
+   or any other feature, and no provider or model is hardcoded. Modules
+   consume this registry through a configuration id; the registry knows
+   nothing about them. Adding a module-specific branch here is the one
+   change that would break the abstraction, so it is checked by
+   .agents/scripts/verify-ai-config-boundary.js.
+   ============================================================ */
+import { useState } from 'react';
+import { Link } from 'react-router-dom';
+import { AlertTriangle, ArrowLeft, BrainCircuit, Check, Cpu, Layers, Loader2, Plug, Plug2, ShieldCheck, X } from 'lucide-react';
+import { ProvidersTab } from './ProvidersTab';
+import { ModelsTab } from './ModelsTab';
+import { ConfigurationsTab } from './ConfigurationsTab';
+import { McpConnectorsTab } from './McpConnectorsTab';
+import { useAiConfig } from './useAiConfig';
+import './AiProvidersConfig.css';
+
+type TabKey = 'providers' | 'models' | 'configurations' | 'mcp';
+
+const TABS: Array<{ key: TabKey; label: string; icon: React.ReactNode }> = [
+  { key: 'providers', label: 'Providers', icon: <Plug size={15} /> },
+  { key: 'models', label: 'Models', icon: <Cpu size={15} /> },
+  { key: 'configurations', label: 'AI Configurations', icon: <Layers size={15} /> },
+  { key: 'mcp', label: 'MCP Connectors', icon: <Plug2 size={15} /> },
+];
+
+export default function AiProvidersConfigPage() {
+  const [tab, setTab] = useState<TabKey>('providers');
+  const state = useAiConfig();
+  const { doc, loading, error, notice, setError, setNotice } = state;
+
+  const counts: Record<TabKey, number> = {
+    providers: doc.providers.length,
+    models: doc.models.length,
+    configurations: doc.configurations.length,
+    mcp: doc.mcpServers.length,
+  };
+
+  return (
+    <div className="aipc-page">
+      <div className="aipc-header">
+        <Link to="/settings" className="aipc-back">
+          <ArrowLeft size={15} /> Settings
+        </Link>
+        <div className="aipc-title-row">
+          <BrainCircuit size={22} />
+          <h1 className="aipc-title">AI Providers Config</h1>
+        </div>
+        <p className="aipc-subtitle">
+          Register AI providers, models, reusable configurations and MCP connectors for this entity.
+          Every AI feature on the platform resolves through what is configured here.
+        </p>
+      </div>
+
+      {/* The security posture stated where it is administered, so an
+          operator is not left guessing where a pasted key went. */}
+      <div className="aipc-security">
+        <ShieldCheck size={16} />
+        <div>
+          <strong>Credentials are stored in Supabase Vault.</strong>{' '}
+          API keys are never written into the configuration document, never saved to browser storage,
+          and cannot be read back by this page. Connection tests and all AI calls run server-side in the
+          <code className="aipc-code"> ai-gateway </code> Edge Function.
+        </div>
+      </div>
+
+      {/* The document row is created on first save, so its absence is a
+          warning rather than a blocker. 022 IS a blocker, but only for
+          credentials — providers, models and configurations save fine
+          without it, which is why the two are stated separately instead
+          of as one "run the migrations" instruction. */}
+      {doc.missing && !loading && (
+        <div className="aipc-notice warn">
+          <AlertTriangle size={16} />
+          <div>
+            <strong>Not yet initialised for this entity.</strong>
+            <div>
+              You can configure providers, models and configurations now — the record is created on
+              your first save. Two things still need the Supabase SQL editor:{' '}
+              <code className="aipc-code">database/021_platform_ai_config.sql</code> installs the
+              database-level guard against plaintext credentials, and{' '}
+              <code className="aipc-code">database/022_ai_credentials_vault.sql</code> is{' '}
+              <strong>required before any API key can be stored</strong>.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {error && (
+        <div className="aipc-notice error" role="alert">
+          <AlertTriangle size={16} />
+          <div>{error}</div>
+          <button type="button" className="aipc-icon-btn" onClick={() => setError('')} aria-label="Dismiss">
+            <X size={15} />
+          </button>
+        </div>
+      )}
+
+      {notice && (
+        <div className="aipc-notice ok" role="status">
+          <Check size={16} />
+          <div>{notice}</div>
+          <button type="button" className="aipc-icon-btn" onClick={() => setNotice('')} aria-label="Dismiss">
+            <X size={15} />
+          </button>
+        </div>
+      )}
+
+      <div className="aipc-tabbar" role="tablist" aria-label="AI configuration sections">
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.key}
+            className={`aipc-tabbtn${tab === t.key ? ' active' : ''}`}
+            onClick={() => setTab(t.key)}
+          >
+            {t.icon}
+            <span>{t.label}</span>
+            {counts[t.key] > 0 && <span className="aipc-count">{counts[t.key]}</span>}
+          </button>
+        ))}
+      </div>
+
+      <div className="aipc-body">
+        {loading ? (
+          <div className="aipc-loading">
+            <Loader2 size={20} className="aipc-spin" />
+            <span>Loading AI configuration…</span>
+          </div>
+        ) : (
+          <>
+            {tab === 'providers' && <ProvidersTab state={state} />}
+            {tab === 'models' && <ModelsTab state={state} />}
+            {tab === 'configurations' && <ConfigurationsTab state={state} />}
+            {tab === 'mcp' && <McpConnectorsTab state={state} />}
+          </>
+        )}
+      </div>
+    </div>
+  );
+}

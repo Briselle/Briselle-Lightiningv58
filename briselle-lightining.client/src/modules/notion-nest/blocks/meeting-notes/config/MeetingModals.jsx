@@ -11,7 +11,6 @@
 import { useMeetingNotes } from '../context/MeetingNotesContext';
 import { Info, Loader2 } from 'lucide-react';
 import { InstructionEditorModal } from './InstructionEditorModal';
-import ZivaApiSettingsModal from '../../../../ziva-chat-module/src/components/ZivaApiSettingsModal.jsx';
 
 export function MeetingModals() {
   const {
@@ -19,9 +18,7 @@ export function MeetingModals() {
     isTranslating,
     mode,
     setDynamicConfirmModalConfig,
-    setShowZivaApiSettingsModal,
     setUnifiedModalOpen,
-    showZivaApiSettingsModal,
     title,
     translateTo,
     translationProgress,
@@ -53,13 +50,12 @@ export function MeetingModals() {
       />
     )}
 
-    {/* Central Ziva AI API Key Configuration & Routing Modal */}
-    {showZivaApiSettingsModal && (
-      <ZivaApiSettingsModal
-        isOpen={showZivaApiSettingsModal}
-        onClose={() => setShowZivaApiSettingsModal(false)}
-      />
-    )}
+    {/* BRIS-AI-T163: the Ziva API settings modal was mounted here but
+        nothing ever opened it — no call site set the flag to true, so this
+        branch was unreachable. Provider configuration now lives at
+        Settings > AI Providers Config. Removed rather than repointed,
+        because a second route into one configuration screen is what this
+        consolidation set out to eliminate. */}
 
     {/* Platform Standard Warning / Confirm Modal */}
     {dynamicConfirmModalConfig && (

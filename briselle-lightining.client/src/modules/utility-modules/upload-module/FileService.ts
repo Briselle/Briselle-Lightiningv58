@@ -512,6 +512,48 @@ export class FileService {
    * Resolves signed/public URL ONLY if file is found and ACTIVE (non-deleted) in enterprise_files table.
    * Features automatic fallback resolution if file was renamed in Supabase Storage to fileId.ext or fileId.
    */
+  /**
+   * BRIS-NN-T142 — sign a URL from a row the caller ALREADY has.
+   *
+   * getSignedUrl() below costs two round-trips: getFileMetadata() to read
+   * storagePath and the deleted flags, then createSignedUrl(). Callers that
+   * just listed enterprise_files are holding that row, so the lookup is a
+   * second fetch for data already in memory. On a block with ten audio
+   * files that is ten needless queries at mount.
+   *
+   * Same access rules as getSignedUrl — a soft-deleted or failed row still
+   * returns  — so this is a cheaper path, not a looser one.
+   */
+  static async getSignedUrlFromRow(fileRow: any, expiresInSeconds: number = 3600): Promise<string> {
+    if (!fileRow) return '';
+    try {
+      const status = fileRow.status_information || {};
+      if (status.isDeleted || status.status === 'Deleted'
+        || status.status === 'FailedStorage' || status.isActive === false) {
+        return '';
+      }
+
+      const fileInfo = fileRow.file_information || {};
+      const bucket = fileInfo.bucketName || this.DEFAULT_BUCKET;
+      const path = fileInfo.storagePath;
+      if (!path) return fileInfo.publicUrl || '';
+
+      const signed = await supabase.storage.from(bucket).createSignedUrl(path, expiresInSeconds);
+      if (signed?.data?.signedUrl) return signed.data.signedUrl;
+
+      /* BRIS-NN-T146: do NOT delegate to getSignedUrl here. That re-reads the
+         metadata row and restarts its whole fallback chain, so ONE missing
+         object cost four sign requests plus a query — which is what filled
+         the console with 400s. The row we were handed already told us the
+         path; if nothing is there, say so once. */
+      console.warn(`Storage object missing for ${fileRow.file_id} at ${path}`);
+      return '';
+    } catch (e) {
+      console.warn('getSignedUrlFromRow exception:', e);
+      return '';
+    }
+  }
+
   static async getSignedUrl(rawFileId: string, expiresInSeconds: number = 3600): Promise<string> {
     const fileId = extractUuid(rawFileId);
     if (!fileId) return '';
@@ -549,10 +591,16 @@ export class FileService {
           return cand1Res.data.signedUrl;
         }
 
+        /* BRIS-NN-T146: candidate2 equals candidate1 whenever the record has
+           no fileExtension, and equals `path` for most rows. Firing it
+           regardless meant two or three identical 400s for one missing
+           object. */
         const candidate2 = `${folder}/${fileId}`;
-        const cand2Res = await supabase.storage.from(bucket).createSignedUrl(candidate2, expiresInSeconds);
-        if (cand2Res.data?.signedUrl) {
-          return cand2Res.data.signedUrl;
+        if (candidate2 !== candidate1 && candidate2 !== path) {
+          const cand2Res = await supabase.storage.from(bucket).createSignedUrl(candidate2, expiresInSeconds);
+          if (cand2Res.data?.signedUrl) {
+            return cand2Res.data.signedUrl;
+          }
         }
       }
 

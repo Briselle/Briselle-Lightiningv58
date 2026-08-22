@@ -82,7 +82,10 @@ import {
 } from './zivaAssistantModes.js';
 import { buildExploreContextForSession } from './zivaExploreContext.js';
 import ZivaPlanChecklist from './components/ZivaPlanChecklist.jsx';
-import ZivaApiSettingsModal from './components/ZivaApiSettingsModal.jsx';
+/* BRIS-AI-T163: ZivaApiSettingsModal is gone. Provider configuration
+   moved to Settings > AI Providers Config, where credentials go to
+   Supabase Vault instead of localStorage. The cog below now points there
+   rather than opening a second, competing configuration screen. */
 import { resolveZivaApiBaseUrl } from './zivaServiceConfig.js';
 import SimpleZivaContactForm from './SimpleZivaContactForm.jsx';
 import { mergeZivaConfig } from './defaultConfig.js';
@@ -258,7 +261,7 @@ export default function ZivaChat({ config: userConfig, contactFormComponent: Con
   }
 
   const [open, setOpen] = useState(false);
-  const [showApiSettingsModal, setShowApiSettingsModal] = useState(false);
+  const [showAiSettingsTag, setShowAiSettingsTag] = useState(false);
   const [wizard, setWizard] = useState(() => {
     const cache = loadChatCache();
     if (cache?.wizard && typeof cache.wizard === 'object') {
@@ -2122,16 +2125,33 @@ export default function ZivaChat({ config: userConfig, contactFormComponent: Con
             <Link to={cfg.routes.learnMorePath} className="ziva-chat-link-page" onClick={() => setOpen(false)}>
               {cfg.routes.learnMoreLabel}
             </Link>
-            <button
-              type="button"
-              className="ziva-chat-settings-btn"
-              onClick={() => setShowApiSettingsModal(true)}
-              aria-label="AI API Configuration"
-              title="AI API Configuration & Provider Routing"
-              style={{ background: 'none', border: 'none', color: '#54698d', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '14px', marginRight: '4px' }}
-            >
-              <i className="fas fa-cog" />
-            </button>
+            {/* BRIS-AI-T163: cog -> "AI Settings" tag -> the settings page.
+                Two steps rather than navigating straight off the cog,
+                because a single click that abandons an in-progress chat
+                would be a trap. The tag names the destination first. */}
+            <div className="ziva-chat-ai-settings-wrap">
+              <button
+                type="button"
+                className="ziva-chat-settings-btn"
+                onClick={() => setShowAiSettingsTag((v) => !v)}
+                aria-label="AI settings"
+                aria-expanded={showAiSettingsTag}
+                title="AI settings"
+              >
+                <i className="fas fa-cog" />
+              </button>
+
+              {showAiSettingsTag && (
+                <Link
+                  to="/settings/ai-providers"
+                  className="ziva-chat-ai-settings-tag"
+                  onClick={() => { setShowAiSettingsTag(false); setOpen(false); }}
+                >
+                  <i className="fas fa-sliders-h" />
+                  <span>AI Settings</span>
+                </Link>
+              )}
+            </div>
             <button
               type="button"
               className="ziva-chat-close"
@@ -2142,11 +2162,6 @@ export default function ZivaChat({ config: userConfig, contactFormComponent: Con
             </button>
           </div>
         </div>
-
-        <ZivaApiSettingsModal
-          isOpen={showApiSettingsModal}
-          onClose={() => setShowApiSettingsModal(false)}
-        />
 
         <div className="ziva-chat-body">
           {showWelcome && (

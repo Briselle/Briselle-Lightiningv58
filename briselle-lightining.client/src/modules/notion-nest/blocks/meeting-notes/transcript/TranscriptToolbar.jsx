@@ -11,18 +11,16 @@
    than inside the Transcript tab, so playback and recording controls
    stay visible from Summary and Notes as well.
    ============================================================ */
-import { Languages, X } from 'lucide-react';
 import { useMeetingNotes } from '../context/MeetingNotesContext';
-import { LANGUAGE_CODE_MAP, getNativeLangDisplay } from '../constants';
 import { TranscribeControl } from './TranscribeControl';
 import { MeetingAudioPlayer } from './MeetingAudioPlayer';
 
 export function TranscriptToolbar() {
   const {
-    transcriptSubTab, setTranscriptSubTab, translatedLanguage,
-    translateWrapRef, showTranslatePopover, setShowTranslatePopover,
-    translateFrom, setTranslateFrom, translateTo, setTranslateTo,
-    isTranslating, translationProgress, handleTranslateTranscript,
+    /* T134: the translate popover and its language selects moved to the
+       footer, so none of that state is read here any more. */
+    translatedLanguage,
+    showTranslatePopover,
     recording,
   } = useMeetingNotes();
 
@@ -58,52 +56,12 @@ export function TranscriptToolbar() {
               the top-centre of the transcript area, above the text it
               applies to. See transcript/TranscriptPanel.jsx. */}
 
-          {/* Translate Action Trigger */}
-          <div className="nnr-translate-wrap" ref={translateWrapRef} style={{ position: 'relative' }}>
-            {/* BRIS-NN-MNB-T19: the always-visible Translate button is gone —
-                it duplicated the 3-dot menu's translate action. This wrapper
-                stays because it positions the popover, which the menu opens. */}
-            {showTranslatePopover && (
-              <div className="nnr-translate-popover">
-                <div className="nnr-translate-popover-header">
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Languages size={14} style={{ color: '#0070d2' }} />
-                    <span>Universal Translation</span>
-                  </div>
-                  <X size={14} style={{ cursor: 'pointer', color: '#64748b' }} onClick={() => setShowTranslatePopover(false)} />
-                </div>
-                <div className="nnr-translate-field">
-                  <label className="nnr-translate-label">From Language</label>
-                  <select value={translateFrom} onChange={e => setTranslateFrom(e.target.value)} className="nnr-translate-select">
-                    <option value="auto">Auto / Any Language</option>
-                    {Object.keys(LANGUAGE_CODE_MAP).map(lang => (
-                      <option key={lang} value={lang}>
-                        {lang.charAt(0).toUpperCase() + lang.slice(1)} {getNativeLangDisplay(lang) ? `(${getNativeLangDisplay(lang)})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="nnr-translate-field">
-                  <label className="nnr-translate-label">To Language</label>
-                  <select value={translateTo} onChange={e => setTranslateTo(e.target.value)} className="nnr-translate-select">
-                    {Object.keys(LANGUAGE_CODE_MAP).map(lang => (
-                      <option key={lang} value={lang}>
-                        {lang.charAt(0).toUpperCase() + lang.slice(1)} {getNativeLangDisplay(lang) ? `(${getNativeLangDisplay(lang)})` : ''}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <button
-                  type="button"
-                  className="nnr-translate-action-btn"
-                  disabled={isTranslating}
-                  onClick={() => handleTranslateTranscript(translateFrom, translateTo)}
-                >
-                  {isTranslating ? `Translating... (${translationProgress}%)` : 'Translate Now'}
-                </button>
-              </div>
-            )}
-          </div>
+          {/* BRIS-NN-MNB-T134: the From/To popover moved to the footer, where
+              the Translate button that opens it actually lives. Anchored here
+              it appeared at the far left of this strip, rows away from the
+              button — and this strip only renders when it has other content,
+              so the popover could open with no visible anchor at all.
+              See footer/MeetingFooter.jsx. */}
         </div>
 
         {/* Right Edge: Start Transcribe + Upload + Audio Files + 3-Dot More Menu */}

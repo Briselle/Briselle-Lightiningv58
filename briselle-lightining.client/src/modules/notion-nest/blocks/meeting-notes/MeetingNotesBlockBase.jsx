@@ -27,7 +27,12 @@ import {
 /* BRIS-NN-MNB-H11: reusable Notion-parity date picker */
 import { NotionDatePicker } from '../shared/NotionDatePicker';
 import { ZivaApiRouterService } from '../../../ziva-chat-module/src/zivaApiRouterService.js';
-import ZivaApiSettingsModal from '../../../ziva-chat-module/src/components/ZivaApiSettingsModal.jsx';
+/* BRIS-AI-T159: gateway-backed AI. When the router returns a pipe with
+   viaGateway, there is no API key in the browser to call the provider
+   with — the credential is in Vault and only the ai-gateway Edge
+   Function can read it. These are the two calls that replace the direct
+   fetches below. */
+import { executeAI, transcribeAudio } from '../../../../services/aiGatewayClient';
 /* BRIS-NN-MNB-T70: the AudioController import that was here is gone —
    the Base never rendered it. The one playback surface is
    transcript/MeetingAudioPlayer.jsx. */
@@ -51,7 +56,7 @@ import { SummaryActions } from './summary/SummaryActions';
 import { MeetingModals } from './config/MeetingModals';
 import { InstructionEditorModal } from './config/InstructionEditorModal';
 import {
-  loadPromptDocument, emptyPromptDocument, upsertInstruction,
+  loadPromptDocument, emptyPromptDocument, invalidatePromptCache, upsertInstruction,
   deleteInstruction, resetInstructionToDefault,
 } from '../../services/aiPromptConfigService';
 import { LANGUAGE_CODE_MAP, NATIVE_LANGUAGE_DISPLAY, getNativeLangDisplay, resolveRecognitionLang, LANGUAGE_AUTO, INDIAN_LANGUAGES } from './constants';
@@ -154,7 +159,6 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
   const [unifiedModalPrompt, setUnifiedModalPrompt] = useState('');
 
   /* TASK-MN-ZIVA-021B: Ziva API Settings Modal & Generation Status */
-  const [showZivaApiSettingsModal, setShowZivaApiSettingsModal] = useState(false);
   const [isGeneratingSummary, setIsGeneratingSummary] = useState(false);
 
   /* ──────────────────────────────────────────────────────────────────
@@ -289,6 +293,18 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
                 ?? 0
               ) || 0,
               storagePath: fileInfo.storagePath || null,
+              /* T142: keep the few fields getSignedUrlFromRow reads, so
+                 signing does not re-fetch a row we just listed. The whole
+                 row would bloat the block payload on every save. */
+              damRow: {
+                file_id: damId,
+                file_information: {
+                  storagePath: fileInfo.storagePath || null,
+                  bucketName: fileInfo.bucketName || null,
+                  publicUrl: fileInfo.publicUrl || null,
+                },
+                status_information: row.status_information || {},
+              },
               damStatus: 'uploaded',
               timestamp: row.created_at || audit.createdOn || null,
               createdAt: row.created_at || audit.createdOn || null,
@@ -395,64 +411,25 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
   const [selectedAudioFileIds, setSelectedAudioFileIds] = useState([]);
   const [currentPlayingAudioId, setCurrentPlayingAudioId] = useState(null);
 
-  /* ──────────────────────────────────────────────────────────────────
-     BRIS-NN-MNB-T75 — pre-resolve playable URLs.
+  /* ══════════════════════════════════════════════════════════════════
+     BRIS-NN-T146 — nothing is signed at mount any more.
 
-     Root cause of "Playback blocked by the browser": DAM rows land in
-     state with url: '' whenever the bucket is private (see the
-     `phys.file_url || row.file_url || row.cdn_url || ''` fallback in the
-     loader above). Every Play click therefore had to await a signed-URL
-     round-trip BEFORE it could call play(), and the browser had already
-     withdrawn the click's transient activation by the time it did.
+     T75 signed every audio file on mount so play() could be reached
+     without an await. T140 tried to cap that at one file per pass, which
+     did not work: the effect depends on audioFiles and ENDS by calling
+     setAudioFiles, so each resolution retriggered it and the whole list
+     still resolved — one render and one request apart. That is the
+     MeetingNotesBlockBase.jsx:479 → :484 loop repeating down the console
+     stack, and the source of the 400s.
 
-     Moving that await inside the click handler does not help — the await
-     IS the round-trip. The fix is to not have one on the click path at
-     all: resolve the URLs as soon as the files are known, so by the time
-     the user clicks, `url` is already populated and play() is reached
-     synchronously.
+     Signing is now strictly on demand, in startPlayQueue, which has
+     carried that fallback since T75. Mount cost: zero requests. The
+     price is one round-trip before the first play of a file, once.
 
-     Signed URLs expire (FileService default: 1 hour), so they are held in
-     component state only and deliberately NOT written back to the block
-     via saveProp — a persisted URL would be dead on the next session.
-
-     The ref guards against two things: re-entering this effect from its
-     own setAudioFiles, and hammering the API for a file that keeps
-     failing to resolve.
-     ────────────────────────────────────────────────────────────────── */
+     signedUrlAttemptedRef survives as the on-demand guard so a file whose
+     object is missing is not re-signed on every click.
+     ══════════════════════════════════════════════════════════════════ */
   const signedUrlAttemptedRef = useRef(new Set());
-  useEffect(() => {
-    const pending = (audioFiles || []).filter(f =>
-      f && f.fileId && !f.url && !f.data && !signedUrlAttemptedRef.current.has(f.fileId)
-    );
-    if (!pending.length) return undefined;
-
-    let cancelled = false;
-    pending.forEach(f => signedUrlAttemptedRef.current.add(f.fileId));
-
-    (async () => {
-      const resolved = await Promise.all(pending.map(async (f) => {
-        try {
-          return { fileId: f.fileId, url: await FileService.getSignedUrl(f.fileId) };
-        } catch (e) {
-          /* Left unresolved on purpose: playAudioFile retries on demand
-             and reports the failure to the user rather than hiding it. */
-          return { fileId: f.fileId, url: '' };
-        }
-      }));
-
-      if (cancelled) return;
-      const byFileId = new Map(resolved.filter(r => r.url).map(r => [r.fileId, r.url]));
-      if (!byFileId.size) return;
-
-      setAudioFiles(prev => (prev || []).map(f =>
-        (f.fileId && !f.url && byFileId.has(f.fileId))
-          ? { ...f, url: byFileId.get(f.fileId) }
-          : f
-      ));
-    })();
-
-    return () => { cancelled = true; };
-  }, [audioFiles]);
 
   /* ── Full Enterprise States (Restored from 7,000-Line Master Suite) ── */
   const [isLastModifier, setIsLastModifier] = useState(true);
@@ -482,12 +459,56 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
   const [promptDoc, setPromptDoc] = useState(null);
   const [promptDocLoading, setPromptDocLoading] = useState(true);
 
+  /* ══════════════════════════════════════════════════════════════════
+     BRIS-NN-T144 — a failed mount read degrades THIS block, not the page.
+
+     A rejected fetch here previously propagated as an unhandled
+     "TypeError: Failed to fetch" and an error boundary took the whole view
+     down to "Back to records". One dropped request should cost one menu,
+     not the document.
+
+     One retry, and only for a network-class rejection — a 4xx will not fix
+     itself, and retrying it just doubles the load that caused the problem.
+     ══════════════════════════════════════════════════════════════════ */
+  const [promptLoadError, setPromptLoadError] = useState('');
+  const [promptReloadKey, setPromptReloadKey] = useState(0);
+
   useEffect(() => {
     let alive = true;
-    loadPromptDocument()
-      .then(doc => { if (alive) { setPromptDoc(doc); setPromptDocLoading(false); } })
-      .catch(() => { if (alive) setPromptDocLoading(false); });
+
+    const isNetworkish = (e) => {
+      const m = String(e?.message || e || '').toLowerCase();
+      return m.includes('failed to fetch') || m.includes('networkerror')
+        || m.includes('load failed') || m.includes('timeout');
+    };
+
+    const attempt = (retriesLeft) => loadPromptDocument()
+      .then((doc) => {
+        if (!alive) return;
+        setPromptDoc(doc);
+        setPromptLoadError('');
+        setPromptDocLoading(false);
+      })
+      .catch((e) => {
+        if (!alive) return;
+        if (retriesLeft > 0 && isNetworkish(e)) {
+          setTimeout(() => { if (alive) attempt(retriesLeft - 1); }, 1200);
+          return;
+        }
+        console.warn('[AIPrompts] load failed:', e);
+        setPromptLoadError('Could not load the AI prompt library.');
+        setPromptDocLoading(false);
+      });
+
+    attempt(1);
     return () => { alive = false; };
+  }, [promptReloadKey]);
+
+  const retryPromptLoad = useCallback(() => {
+    setPromptDocLoading(true);
+    setPromptLoadError('');
+    invalidatePromptCache();
+    setPromptReloadKey(k => k + 1);
   }, []);
 
   /* T102: an empty shape while loading, and if the seed row is absent it
@@ -815,6 +836,21 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
     UPLOAD: 'upload',             // transcribe an existing audio file
   };
 
+  /* ══════════════════════════════════════════════════════════════════
+     BRIS-NN-MNB-T132 — the recogniser was using a stale language.
+
+     startRecording sets recog.lang from selectedLanguage, but its
+     dependency array was [saveProp, isTranscribingAudioFile, audioUrl] —
+     selectedLanguage was NOT in it. The callback therefore kept whatever
+     the language was when it was last created, so choosing Tamil and then
+     pressing Start still opened the session in the previous language and
+     nothing was recognised.
+
+     Read through a ref as well as fixing the deps: the language can be
+     changed from a menu that is open at the moment Start is pressed, and
+     the ref is always current regardless of when the callback was built. */
+  const selectedLanguageRef = useRef(null);
+
   const startRecording = useCallback(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { alert('Speech recognition is not supported in this browser. Use Chrome or Edge.'); return; }
@@ -824,7 +860,10 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
     recog.interimResults = true;
     /* BRIS-NN-MNB-T03: honour the user's language choice. This was hardcoded
        to en-US, which silently ignored the language selector. */
-    recog.lang = resolveRecognitionLang(selectedLanguage);
+    recog.lang = resolveRecognitionLang(selectedLanguageRef.current || selectedLanguage);
+    /* T132: visible, so a wrong language is diagnosable rather than silent. */
+    console.debug('[Transcribe] recognition language:', recog.lang,
+      '(from', selectedLanguageRef.current || selectedLanguage, ')');
     recog.onresult = (event) => {
       let final = '';
       let interim = '';
@@ -978,7 +1017,7 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
         setIsPlaying(true);
       }
     }
-  }, [saveProp, isTranscribingAudioFile, audioUrl]);
+  }, [saveProp, isTranscribingAudioFile, audioUrl, selectedLanguage]);
 
   /* BRIS-NN-MNB-T16: single entry point for the split button. Sets the
      capture preference, then either starts live recognition or opens the
@@ -1273,7 +1312,10 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
       recog.continuous = true;
       recog.interimResults = true;
       /* BRIS-NN-MNB-T03: honour the user's language choice (was hardcoded). */
-      recog.lang = resolveRecognitionLang(selectedLanguage);
+      recog.lang = resolveRecognitionLang(selectedLanguageRef.current || selectedLanguage);
+    /* T132: visible, so a wrong language is diagnosable rather than silent. */
+    console.debug('[Transcribe] recognition language:', recog.lang,
+      '(from', selectedLanguageRef.current || selectedLanguage, ')');
       recog.onresult = (event) => {
           let final = '';
           let interim = '';
@@ -1409,6 +1451,184 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
     saveProp('transcriptLines', newLines);
   }, [saveProp]);
 
+  /* ══════════════════════════════════════════════════════════════════
+     BRIS-NN-MNB-T127 — server-side transcription of an uploaded file.
+
+     What this replaces: uploading a file used to PLAY IT OUT LOUD and
+     transcribe it through the microphone (`startRecording()` with
+     isTranscribingAudioFile). That is why "Transcribe audio file" and
+     "upload audio file" behaved identically and both badly — it was the
+     live path wearing a different label, so it inherited every limit of
+     the Web Speech API and needed the room to be silent.
+
+     Now the file goes to the Ziva STT pipe (config_type 8, scope 'stt')
+     and comes back as timed segments. Real transcription, no playback,
+     no microphone.
+
+     LANGUAGE (T128): Whisper detects the language itself when none is
+     given, so "Auto" genuinely auto-detects here — unlike the live path,
+     where the Web Speech API requires a fixed BCP-47 tag up front and
+     cannot detect anything. Segment-level detection also means a
+     recording that switches language partway is followed correctly.
+     ══════════════════════════════════════════════════════════════════ */
+
+  /** mm:ss for a segment offset, matching the live prefix format. */
+  const offsetTs = useCallback((seconds) => {
+    const s = Math.max(0, Math.floor(Number(seconds) || 0));
+    return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  }, []);
+
+  /** Picker label -> ISO-639-1, or '' for Auto (let the model decide). */
+  const sttLanguageCode = useCallback(() => {
+    if (!selectedLanguage || selectedLanguage === LANGUAGE_AUTO) return '';
+    const tag = LANGUAGE_CODE_MAP[selectedLanguage];
+    /* Whisper wants the bare language, not a region: 'en-IN' -> 'en'. */
+    return tag ? String(tag).split('-')[0] : '';
+  }, [selectedLanguage]);
+
+  /* getZivaApiConfig and transcriptUserName are declared several hundred
+     lines BELOW this function. The body may reference them — it only runs
+     on upload — but a dependency array may not: it is evaluated during
+     render and would throw "cannot access before initialization". Same
+     ref pattern as generateSummaryRef. */
+  const sttRefs = useRef({});
+
+  const transcribeAudioFile = useCallback(async (file) => {
+    const sttPipe = sttRefs.current.getZivaApiConfig('stt');
+    const { apiKey, baseUrl, model, providerName } = sttPipe;
+
+    /* BRIS-AI-T159: a gateway pipe has no key or base URL in the
+       browser by design, so it must not be judged unconfigured for
+       lacking them. */
+    if (!sttPipe.viaGateway && (!apiKey || !baseUrl)) {
+      setAudioSttTeaserText(
+        'No AI configuration is enabled for Speech to Text. Open Settings > AI Providers Config, '
+        + 'add a provider with an API key and a model, and create a configuration tagged '
+        + '"Speech to Text".'
+      );
+      return;
+    }
+
+    setIsTranscribingAudioFile(true);
+    setAudioSttProgressPct(10);
+    setAudioSttTeaserText(`Transcribing ${file.name || 'audio'} via ${providerName}…`);
+
+    try {
+      setAudioSttProgressPct(35);
+
+      /* ══════════════════════════════════════════════════════════════
+         BRIS-AI-T159 — one `data` from either path.
+
+         Everything below this point (segment mapping, detected language,
+         the summary hand-off) is shared. Giving the gateway its own copy
+         of that logic is exactly how the two paths would drift apart —
+         which is the bug the earlier "two audio transcription paths"
+         round already had to fix once.
+         ══════════════════════════════════════════════════════════════ */
+      let data;
+      const lang = sttLanguageCode();
+
+      if (sttPipe.viaGateway) {
+        const result = await transcribeAudio(
+          sttPipe.configurationId || 'stt',
+          file,
+          { language: lang || 'auto', filename: file.name || 'recording.webm' }
+        );
+        if (!result.ok) {
+          throw new Error(result.error?.message || 'Transcription failed at the AI gateway.');
+        }
+        /* The gateway passes the provider's verbose_json through as
+           `raw`, so the segment timings survive the round trip. */
+        data = (result.raw && typeof result.raw === 'object')
+          ? result.raw
+          : { text: result.text, language: result.language };
+      } else {
+        /* T147: no invented model name here either. */
+        if (!model) {
+          throw new Error(providerName + ' has no speech-to-text model configured. '
+            + 'Set one in Settings > AI Providers Config.');
+        }
+        const form = new FormData();
+        form.append('file', file, file.name || 'recording.webm');
+        form.append('model', model);
+        /* verbose_json is what carries segments and the detected language;
+           plain json returns one undifferentiated string. */
+        form.append('response_format', 'verbose_json');
+        if (lang) form.append('language', lang);
+
+        const res = await fetch(`${baseUrl.replace(/\/+$/, '')}/audio/transcriptions`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${apiKey}` },
+          body: form,
+        });
+
+        if (!res.ok) {
+          let reason = `${res.status} ${res.statusText}`;
+          try { reason = (await res.json())?.error?.message || reason; } catch (e) { /* status is enough */ }
+          throw new Error(`${providerName}: ${reason}`);
+        }
+        data = await res.json();
+      }
+
+      setAudioSttProgressPct(75);
+
+      const segments = Array.isArray(data?.segments) ? data.segments : [];
+      const lines = segments.length
+        ? segments
+            .map(seg => ({
+              id: `tl_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`,
+              ts: offsetTs(seg.start),
+              source: TRANSCRIPT_SOURCE.AUDIO_FILE,
+              userName: sttRefs.current.transcriptUserName,
+              content: String(seg.text || '').trim(),
+            }))
+            .filter(l => l.content)
+        /* Some models answer with text only; keep it rather than lose it. */
+        : (String(data?.text || '').trim()
+            ? [{
+                id: `tl_${Date.now().toString(36)}`,
+                ts: offsetTs(0),
+                source: TRANSCRIPT_SOURCE.AUDIO_FILE,
+                userName: sttRefs.current.transcriptUserName,
+                content: String(data.text).trim(),
+              }]
+            : []);
+
+      if (!lines.length) throw new Error('No speech was detected in this file.');
+
+      /* Appended, so transcribing a second file does not discard the first. */
+      const merged = [...(transcriptLinesRef.current || []), ...lines];
+      transcriptLinesRef.current = merged;
+      setDisplayTranscriptLines(merged);
+      saveProp('transcriptLines', merged);
+
+      const joined = merged.map(l => l.content).join('\n');
+      transcriptionRef.current = joined;
+      setTranscription(joined);
+      saveProp('transcription', joined);
+
+      setTranscriptStarted(true);
+      saveProp('transcriptStarted', true);
+      setViewMode('transcript');
+
+      setAudioSttProgressPct(100);
+      setAudioSttTeaserText(
+        data?.language
+          ? `Transcribed ${lines.length} segments · detected ${data.language}`
+          : `Transcribed ${lines.length} segments`
+      );
+
+      /* T127: the summary runs off the file transcript exactly as it does
+         after a live recording. */
+      generateSummaryRef.current?.(joined, { keepSteps: false });
+    } catch (err) {
+      console.error('Audio file transcription failed:', err);
+      setAudioSttTeaserText(String(err?.message || err));
+    } finally {
+      setIsTranscribingAudioFile(false);
+    }
+  }, [sttLanguageCode, offsetTs, saveProp]);
+
   const handleAudioUpload = useCallback((file) => {
     const reader = new FileReader();
     reader.onload = (ev) => {
@@ -1441,21 +1661,10 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
       setAudioFiles(updatedAudioFiles);
       saveProp('audioFiles', updatedAudioFiles);
       
-      // Auto-play the uploaded audio after a short delay to ensure audioRef is ready
-      setTimeout(() => {
-        if (audioRef.current) {
-          audioRef.current.src = audioData;
-          audioRef.current.play().catch(() => {});
-          setIsPlaying(true);
-        }
-      }, 200);
-      
-      // Auto-start transcription if in auto mode
-      if (mode === 'auto' || mode === 'manual') {
-        saveProp('mode', 'auto');
-        setIsTranscribingAudioFile(true);
-        setTimeout(() => startRecording(), 300);
-      }
+      /* T127: no auto-play and no microphone. The file used to be played
+         aloud so the live recogniser could hear it — that is what made
+         this path unusable. It is sent to the STT provider instead. */
+      transcribeAudioFile(file);
       };  /* end commitUpload */
 
       /* loadedmetadata gives us the real length; onerror still commits so a
@@ -1465,7 +1674,7 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
       probe.src = audioData;
     };
     reader.readAsDataURL(file);
-  }, [saveProp, audioFiles, mode, startRecording]);
+  }, [saveProp, audioFiles, transcribeAudioFile]);
 
   /* BUG-009: currentPlayingAudioId now declared before this function (L47) */
   const clearAllLines = useCallback(() => {
@@ -1543,22 +1752,31 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
     setQueuePlaying(true);
     setShowAudioFilesDropdown(false);
 
-    /* Fallback for a record the pre-resolve pass has not reached yet (a
-       recording saved seconds ago, or one whose first attempt failed).
-       Playback starts by itself as soon as the src lands, so this stays
-       off the click path. */
-    const unresolved = list.filter(f => f.fileId && !f.url && !f.data);
+    /* ══════════════════════════════════════════════════════════════
+       T146: this is now the ONLY place a URL is signed. Only the files
+       actually queued for playback are resolved, and only once —
+       signedUrlAttemptedRef stops a file whose storage object is missing
+       from being re-signed on every click, which is what filled the
+       console with 400s.
+       ══════════════════════════════════════════════════════════════ */
+    const unresolved = list.filter(f =>
+      f.fileId && !f.url && !f.data && !signedUrlAttemptedRef.current.has(f.fileId)
+    );
     if (!unresolved.length) return;
 
     unresolved.forEach(async (f) => {
+      signedUrlAttemptedRef.current.add(f.fileId);
       try {
-        const url = await FileService.getSignedUrl(f.fileId);
-        if (!url) throw new Error('empty url');
+        /* T142: sign from the row already listed — one call, not two. */
+        const url = f.damRow
+          ? await FileService.getSignedUrlFromRow(f.damRow)
+          : await FileService.getSignedUrl(f.fileId);
+        if (!url) throw new Error('The stored audio file could not be found.');
         setAudioFiles(prev => (prev || []).map(x =>
           x.id === f.id && !x.url ? { ...x, url } : x
         ));
       } catch (e) {
-        setPlayerError('Could not load this recording');
+        setPlayerError('Could not load "' + (f.name || 'this recording') + '" - the stored file is missing.');
       }
     });
   }, []);
@@ -1785,80 +2003,147 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
   }, [llmLogs]);
 
   /* ── Dynamic Universal Translation (Preserves Original Intact & Fills Translated Tab) ── */
+  /* ══════════════════════════════════════════════════════════════════
+     BRIS-NN-MNB-T133 — translation through the Ziva pipeline.
+
+     Two defects were here, and the first meant this code never ran:
+
+       1. It called getLanguageCode(), which is DEFINED NOWHERE in the
+          codebase. That threw ReferenceError on the first line inside the
+          try, the outer catch swallowed it, and the function returned
+          having done nothing. Translation has never worked. A fabricated
+          API is exactly what the architecture rules forbid.
+
+       2. It fetched translate.googleapis.com straight from the browser —
+          an unofficial endpoint with no CORS headers, and a third-party
+          service outside the configured provider pipeline. Even with (1)
+          fixed, every request would have failed.
+
+     Now it resolves the top-1 pipe for the 'translation' scope — the
+     "Translation Engine" keyword configured in Ziva API settings — and
+     reuses callZivaChat, so there is one HTTP implementation and one
+     error path for every AI call in this block.
+
+     ONE batched request, not one per line. The old loop fired N requests;
+     a 40-line transcript meant 40 calls and the same per-minute ceiling
+     that T100 exists to avoid.
+     ══════════════════════════════════════════════════════════════════ */
+
+  /** Picker label -> ISO-639-1. Replaces the non-existent getLanguageCode. */
+  const langCodeOf = useCallback((label) => {
+    if (!label || label === 'auto' || label === 'Auto / Any' || label === LANGUAGE_AUTO) return '';
+    const tag = LANGUAGE_CODE_MAP[label];
+    return tag ? String(tag).split('-')[0] : '';
+  }, []);
+
   const handleTranslateTranscript = useCallback(async (fromLangName, toLangName) => {
+    const toCode = langCodeOf(toLangName);
+    if (!toCode) {
+      setAudioSttTeaserText('Choose a target language to translate into.');
+      return;
+    }
+
+    const linesToTranslate = (displayTranscriptLines && displayTranscriptLines.length > 0)
+      ? displayTranscriptLines
+      : (transcription
+          ? transcription.split('\n').filter(Boolean).map((l, i) => ({ id: 'tlx' + i, content: l }))
+          : []);
+
+    if (!linesToTranslate.length) {
+      setDynamicConfirmModalConfig({
+        title: 'No Transcript Content',
+        message: 'No transcript content is available to translate.',
+        icon: <Info size={20} />,
+        confirmText: 'OK',
+        variant: 'info',
+        onConfirm: () => setDynamicConfirmModalConfig(null),
+      });
+      return;
+    }
+
+    const pipe = sttRefs.current.getZivaApiConfig('translation');
+    if (!pipe.apiKey || !pipe.baseUrl) {
+      setAudioSttTeaserText(
+        'No Ziva AI provider is enabled for Translation. Open Ziva API settings, '
+        + 'add a provider with an API key, and tick "Translation Engine".'
+      );
+      return;
+    }
+
     setIsTranslating(true);
-    setTranslationProgress(0);
     setIsTranslationMinimized(false);
+    setTranslationProgress(10);
+    setAudioSttTeaserText('Translating ' + linesToTranslate.length + ' lines to ' + toLangName + ' via ' + pipe.providerName + '...');
+
     try {
-      const fromCode = fromLangName === 'auto' || fromLangName === 'Auto / Any' ? 'auto' : getLanguageCode(fromLangName).split('-')[0];
-      const toCode = getLanguageCode(toLangName).split('-')[0] || 'en';
-      const linesToTranslate = displayTranscriptLines && displayTranscriptLines.length > 0
-        ? displayTranscriptLines
-        : (transcription ? transcription.split('\n').map((l, i) => ({ id: i, content: l })) : []);
+      /* Numbered in, numbered out, mapped by index — the model is told not
+         to merge or drop lines, and a count mismatch is detected below
+         rather than silently mis-aligning the transcript. */
+      const numbered = linesToTranslate
+        .map((l, i) => (i + 1) + '. ' + String(l.content || l.text || '').replace(/\n/g, ' '))
+        .join('\n');
 
-      if (linesToTranslate.length === 0 && !notesContent) {
-        setDynamicConfirmModalConfig({
-          title: 'No Transcript Content',
-          message: 'No transcript content is available to translate.',
-          icon: <Info size={20} />,
-          confirmText: 'OK',
-          variant: 'info',
-          onConfirm: () => setDynamicConfirmModalConfig(null)
-        });
-        setIsTranslating(false);
-        return;
-      }
+      const fromCode = langCodeOf(fromLangName);
+      const system = 'You are a professional translator. Translate each numbered line into '
+        + toLangName + (fromCode ? '' : ', detecting the source language yourself') + '. '
+        + 'Return EXACTLY the same number of lines, each prefixed with its original number '
+        + 'and a period, in the same order. Translate only - do not summarise, merge, split, '
+        + 'explain or add commentary. Preserve names, numbers and technical terms. '
+        + 'Write the translation in the target language own native script.';
 
-      const translatedLines = [];
-      const totalCount = linesToTranslate.length;
-      for (let idx = 0; idx < totalCount; idx++) {
-        const item = linesToTranslate[idx];
-        const textToTranslate = item.content || item.text || '';
-        const pct = Math.round(((idx + 1) / Math.max(1, totalCount)) * 90);
-        setTranslationProgress(pct);
-        if (!textToTranslate.trim()) {
-          translatedLines.push(item);
-          continue;
-        }
-        try {
-          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${fromCode}&tl=${toCode}&dt=t&q=${encodeURIComponent(textToTranslate)}`;
-          const res = await fetch(url);
-          const data = await res.json();
-          const translatedText = data[0].map(x => x[0]).join('');
-          translatedLines.push({ ...item, content: translatedText, originalContent: textToTranslate });
-        } catch (err) {
-          translatedLines.push(item);
-        }
-      }
+      setTranslationProgress(40);
 
-      setTranslationProgress(95);
-      if (translatedLines.length > 0) {
-        setTranslatedTranscriptLines(translatedLines);
-        const joinedTrans = translatedLines.map(l => l.content).join('\n');
-        setTranslatedTranscription(joinedTrans);
-        setTranslatedLanguage(toLangName);
-        saveProp('translatedTranscriptLines', translatedLines);
-        saveProp('translatedTranscription', joinedTrans);
-        saveProp('translatedLanguage', toLangName);
+      /* T133: via sttRefs — callZivaChat is declared below this function,
+         so naming it in the deps array below would be a TDZ crash. */
+      const raw = await sttRefs.current.callZivaChat(pipe, { system, user: numbered, maxTokens: 4096 });
 
-        setTranscriptSubTab('translated');
-      }
+      setTranslationProgress(80);
 
-      if (summary) {
-        try {
-          const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=${fromCode}&tl=${toCode}&dt=t&q=${encodeURIComponent(summary)}`;
-          const res = await fetch(url);
-          const data = await res.json();
-          const tSummary = data[0].map(x => x[0]).join('');
-          setTranslatedSummary(tSummary);
-          saveProp('translatedSummary', tSummary);
-        } catch (e) {}
-      }
+      /* Parse "N. text" back into an index-keyed map. */
+      const byIndex = new Map();
+      String(raw || '').split('\n').forEach((line) => {
+        const m = line.match(/^\s*(\d+)\s*[.)]\s*(.*)$/);
+        if (m) byIndex.set(Number(m[1]) - 1, m[2].trim());
+      });
+
+      if (!byIndex.size) throw new Error(pipe.providerName + ' returned no usable translation.');
+
+      const translatedLines = linesToTranslate.map((item, i) => {
+        const t = byIndex.get(i);
+        const original = String(item.content || item.text || '');
+        /* A line the model skipped keeps its original text but is NOT
+           labelled as translated — silently passing an untranslated line
+           off as a translation is what made the old version look like it
+           had worked. */
+        return t ? { ...item, content: t, originalContent: original }
+                 : { ...item, content: original };
+      });
+
+      const missing = linesToTranslate.length - byIndex.size;
+
+      setTranslatedTranscriptLines(translatedLines);
+      saveProp('translatedTranscriptLines', translatedLines);
+      const joined = translatedLines.map(l => l.content).join('\n');
+      setTranslatedTranscription(joined);
+      saveProp('translatedTranscription', joined);
+      setTranslatedLanguage(toLangName);
+      saveProp('translatedLanguage', toLangName);
+
+      /* Show the result — the Original / "in <native>" switch only appears
+         once a translation exists. */
+      setTranscriptSubTab('translated');
+      setViewMode('transcript');
 
       setTranslationProgress(100);
       setShowTranslatePopover(false);
+      setAudioSttTeaserText(
+        missing > 0
+          ? 'Translated ' + byIndex.size + ' of ' + linesToTranslate.length + ' lines to ' + toLangName + ' - ' + missing + ' could not be translated.'
+          : 'Translated ' + byIndex.size + ' lines to ' + toLangName + '.'
+      );
     } catch (err) {
-      console.error('Translation error:', err);
+      console.error('Translation failed:', err);
+      setAudioSttTeaserText(String(err?.message || err));
     } finally {
       setTimeout(() => {
         setIsTranslating(false);
@@ -1866,7 +2151,7 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
         setTranslationProgress(0);
       }, 600);
     }
-  }, [displayTranscriptLines, transcription, notesContent, summary, saveProp]);
+  }, [displayTranscriptLines, transcription, saveProp, langCodeOf]);
 
   /* TASK-MN-NOTES-013A: Extract text from Notes blocks (paragraphs, headings, etc.) */
   const extractTextFromBlocks = useCallback((blocks) => {
@@ -1942,13 +2227,20 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
           model: pipe.model,
           baseUrl: pipe.baseUrl,
           pipeCount: pipes.length,
+          /* BRIS-AI-T159: dropping these here was the whole bug risk in
+             this migration — callers pass this object straight to
+             callZivaChat as a pipe, so a gateway pipe that lost its
+             configurationId would fall through to the direct fetch and
+             send an empty Authorization header. */
+          viaGateway: pipe.viaGateway === true,
+          configurationId: pipe.configurationId || '',
         };
       }
     } catch (e) {
       console.error('[Ziva] Provider routing failed for scope', scope, e);
     }
     /* No pipe. Reported to the user by the caller — never papered over. */
-    return { apiKey: '', provider: '', providerName: '', model: '', baseUrl: '', pipeCount: 0 };
+    return { apiKey: '', provider: '', providerName: '', model: '', baseUrl: '', pipeCount: 0, viaGateway: false, configurationId: '' };
   }, []);
 
   /* TASK-MN-BTN-009A / TASK-MN-PIPELINE-006: Non-blocking Generate Summary Workflow */
@@ -1994,11 +2286,57 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
    * Throws Error with `.status` set so callers can classify the failure.
    */
   const callZivaChat = useCallback(async (pipe, { system, user, maxTokens = 2048, onDelta }) => {
+    /* ══════════════════════════════════════════════════════════════
+       BRIS-AI-T159 — gateway path.
+
+       Taken whenever the pipe came from platform_config. The provider,
+       model, base URL and credential are all resolved server-side, so
+       nothing here needs (or has) them.
+
+       The gateway does not stream. onDelta is still honoured, but it
+       fires ONCE with the finished text instead of progressively — the
+       summary appears in one step rather than typing itself out. That is
+       a deliberate trade for keeping the key out of the browser, and
+       calling onDelta once keeps every existing caller working rather
+       than leaving the panel blank.
+       ══════════════════════════════════════════════════════════════ */
+    if (pipe?.viaGateway) {
+      const configurationId = pipe.configurationId || 'summarization';
+      const result = await executeAI({
+        configurationId,
+        input: { system, user: undefined, prompt: user, maxTokens, temperature: 0.3 },
+      });
+
+      if (!result.ok) {
+        /* The gateway's messages are already written to be read by a
+           person and are guaranteed free of credentials, so they are
+           surfaced verbatim rather than replaced with a generic one. */
+        const err = new Error(result.error?.message || 'The AI gateway returned no result.');
+        err.code = result.error?.code;
+        err.badModel = result.error?.code === 'model_not_found';
+        throw err;
+      }
+
+      if (onDelta) onDelta(result.text || '');
+      return result.text || '';
+    }
+
+    if (!pipe?.model) {
+      throw new Error(
+        (pipe?.providerName || 'The provider')
+        + ' has no model configured. Set one in Ziva API settings.'
+      );
+    }
     const response = await fetch(`${pipe.baseUrl.replace(/\/+$/, '')}/chat/completions`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${pipe.apiKey}` },
       body: JSON.stringify({
-        model: pipe.model || 'llama-3.3-70b-versatile',
+        /* BRIS-NN-T147: no hardcoded fallback. This used to substitute
+           'llama-3.3-70b-versatile' whenever the pipe carried no model —
+           and when that name is retired or not on the account, every call
+           404s with "the model does not exist". Guessing a model name is
+           how a configuration problem became a code problem. */
+        model: pipe.model,
         messages: [
           { role: 'system', content: system },
           { role: 'user', content: user },
@@ -2015,9 +2353,20 @@ export const MeetingNotesBlockBase = memo(function MeetingNotesBlockBase({ block
         const body = await response.json();
         reason = body?.error?.message || reason;
       } catch (e) { /* non-JSON error body — the status is enough */ }
-      const err = new Error(`${pipe.providerName}: ${reason}`);
+      /* BRIS-NN-T147: a 404 naming the model is a CONFIGURATION fault, not
+         a transient one. Say which model, on which provider, and where to
+         change it — the bare provider message left the user guessing. */
+      const looksLikeBadModel = response.status === 404
+        || /model .*(does not exist|not found)|decommissioned|deprecated/i.test(reason);
+      const message = looksLikeBadModel
+        ? `${pipe.providerName}: model "${pipe.model}" is not available on this account. `
+          + 'Open Ziva API settings and choose a model this key can use.'
+        : `${pipe.providerName}: ${reason}`;
+
+      const err = new Error(message);
       err.status = response.status;
       err.providerMessage = reason;
+      err.badModel = looksLikeBadModel;
       throw err;
     }
 
@@ -2401,6 +2750,7 @@ abbreviation of it.`;
      already uses this ref pattern for startRecording/stopRecording. */
   const generateSummaryRef = useRef(null);
   generateSummaryRef.current = handleGenerateSummary;
+
 
   const generateSummary = handleGenerateSummary;
 
@@ -3339,7 +3689,10 @@ ${text}`;
                   <Mic size={14} />
                   <span>Live, transcript only</span>
                 </div>
-                <div className="nnr-settings-flyout-item" onClick={(e) => { e.stopPropagation(); setShowSettingsPopover(false); startTranscribe(TRANSCRIBE_MODES.UPLOAD); }}>
+                {/* BRIS-NN-MNB-T131: restored. T127 removed the wrong one —
+                    this is the entry that was asked to be kept, and the
+                    parent split-button dropdown is the one that lost it. */}
+                <div className="nnr-settings-flyout-item" onClick={(e) => { e.stopPropagation(); setShowSettingsPopover(false); setShowInstructionsSubmenu(false); startTranscribe(TRANSCRIBE_MODES.UPLOAD); }}>
                   <Upload size={14} />
                   <span>Transcribe audio file</span>
                 </div>
@@ -3619,6 +3972,15 @@ ${text}`;
   /* BRIS-NN-MNB-T62: never surface 'Unknown' in the UI. */
   const transcriptUserName = currentSpeaker || 'Briselle';
 
+  /* T127: assigned HERE, below both values. Placing it earlier was itself
+     a temporal-dead-zone bug — a plain statement in the render body is
+     executed in source order, so it must sit after every name it reads,
+     not merely after the ones a linter checks. */
+  sttRefs.current = { getZivaApiConfig, transcriptUserName, callZivaChat };
+  /* T132: assigned here, below selectedLanguage. A plain render statement
+     runs in source order, so it must sit after every name it reads. */
+  selectedLanguageRef.current = selectedLanguage;
+
   /* BRIS-NN-MNB-T111: honour the Original / Translated switch.
      This always normalised displayTranscriptLines, so selecting the
      translated tab changed the highlighted pill and nothing else — the
@@ -3731,6 +4093,9 @@ ${text}`;
     /* BRIS-NN-MNB-T102 */
     promptLibraryMissing,
     promptDocLoading,
+    /* BRIS-NN-T144 */
+    promptLoadError,
+    retryPromptLoad,
     /* BRIS-NN-MNB-T82 */
     summarySteps,
     setSummaryStep,
@@ -3998,7 +4363,6 @@ ${text}`;
     setShowTimeline,
     setShowTranslatePopover,
     setShowUploadPopover,
-    setShowZivaApiSettingsModal,
     setSummaryDataState,
     setTimer,
     setTitle,
@@ -4044,7 +4408,6 @@ ${text}`;
     showTimeline,
     showTranslatePopover,
     showUploadPopover,
-    showZivaApiSettingsModal,
     speakerRef,
     splitFinalNotes,
     startRecording,
@@ -4106,6 +4469,23 @@ ${text}`;
             not tab state — switching to Summary or Notes must not remove
             the only visible Stop control. */}
         <RecordingOverlays />
+
+        {/* BRIS-NN-MNB-T130: the audio-file picker. Mounted HERE, not in
+            TranscribeControl, because every menu that opens it is available
+            when that component is unmounted. Hidden input, no layout cost. */}
+        <input
+          type="file"
+          ref={audioUploadRef}
+          accept="audio/*,video/*"
+          className="nnr-hidden-file-input"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            /* Reset first: picking the SAME file twice must still fire
+               onChange, and it will not if value still holds that path. */
+            e.target.value = '';
+            if (f) handleAudioUpload(f);
+          }}
+        />
 
         <MeetingHeader />
 

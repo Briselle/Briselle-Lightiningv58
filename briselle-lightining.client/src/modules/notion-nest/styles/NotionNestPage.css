@@ -13615,6 +13615,76 @@ kbd {
   color: inherit;
 }
 
+/* T144: retry for a failed prompt-library read. */
+.nnr-instr-retry {
+  margin-left: 4px;
+  padding: 2px 8px;
+  border: 1px solid #e3e3e1;
+  border-radius: 5px;
+  background: #ffffff;
+  color: #37352f;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.nnr-instr-retry:hover { background: #f1f1f0; }
+
+/* T134: anchors the From/To popover above the footer Translate button.
+   It opens upward because the footer is at the bottom of the block. */
+.nnr-footer-translate-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.nnr-footer-translate-wrap .nnr-translate-popover {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  right: 0;
+  left: auto;
+  top: auto;
+  z-index: 1400;
+}
+
+/* T130: the audio picker. Hidden but always mounted — its previous home
+   unmounted with the transcribe control, which is why Upload Audio stopped
+   working once a transcript existed. */
+.nnr-hidden-file-input {
+  display: none;
+}
+
+/* T127: file-transcription status strip. */
+.nnr-stt-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 10px var(--nnr-tab-gutter, 32px) 0;
+  padding: 8px 12px;
+  border: 1px solid #e9e9e7;
+  border-radius: 8px;
+  background: #fbfbfa;
+  color: #37352f;
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.nnr-stt-bar {
+  flex-shrink: 0;
+  width: 96px;
+  height: 4px;
+  border-radius: 999px;
+  background: #ececeb;
+  overflow: hidden;
+}
+
+.nnr-stt-bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: #37352f;
+  transition: width 0.25s ease;
+}
+
 /* T111: the language switch sits centred above the transcript text. */
 .nnr-transcript-langbar {
   display: flex;

@@ -37,6 +37,8 @@ export function TranscriptPanel() {
     activeTranscriptText,
     audioDuration,
     audioFiles,
+    audioSttTeaserText,
+    audioSttProgressPct,
     audioUploadRef,
     audioUrl,
     clearTranscript,
@@ -99,6 +101,20 @@ export function TranscriptPanel() {
 
               There is now exactly one playback surface:
               transcript/MeetingAudioPlayer.jsx, mounted by TranscriptToolbar. */}
+
+          {/* BRIS-NN-MNB-T127: file-transcription status. The upload path
+              now calls the STT provider, which takes real time and can
+              fail — silence during it would look like nothing happened. */}
+          {audioSttTeaserText && (
+            <div className="nnr-stt-status" role="status">
+              {isTranscribingAudioFile && (
+                <span className="nnr-stt-bar" aria-hidden="true">
+                  <span style={{ width: `${audioSttProgressPct || 0}%` }} />
+                </span>
+              )}
+              <span>{audioSttTeaserText}</span>
+            </div>
+          )}
 
           {/* BRIS-NN-MNB-T111: the Original / “In <native>” switch, centred
               directly above the text it applies to. It lived at the left

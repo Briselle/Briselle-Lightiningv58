@@ -3,6 +3,9 @@ import { Navigate, Route, Routes } from 'react-router-dom';
 import AppLayout from './layouts/AppLayout';
 import LoadingSpinner from './components/ui/LoadingSpinner';
 import ErrorBoundary from './components/ErrorBoundary';
+/* BRIS-AI-T200: platform-standard confirmations. Mounted at the root so
+   any screen can call useConfirm() without managing modal state. */
+import { ConfirmProvider } from './components/ui/ConfirmDialog';
 
 // Lazy-loaded pages
 const Dashboard = lazy(() => import('./pages/Dashboard'));
@@ -15,6 +18,11 @@ const ObjectConfig = lazy(() => import('./modules/objects/ObjectRelated/ObjectCo
 const RecordsList = lazy(() => import('./pages/records/RecordsList'));
 const RecordDetail = lazy(() => import('./pages/records/RecordDetail'));
 const Settings = lazy(() => import('./pages/settings/Settings'));
+/* BRIS-AI-T151: Settings sub-page. Route-level lazy, like every other page
+   here, so the AI config UI stays out of the initial bundle. */
+const AiProvidersConfigPage = lazy(() => import('./pages/settings/ai-providers/AiProvidersConfigPage'));
+/* BRIS-AI-T174: models are a sub-page of one provider, not a tab. */
+const ProviderModelsPage = lazy(() => import('./pages/settings/ai-providers/ProviderModelsPage'));
 const UsersList = lazy(() => import('./pages/users/UsersList'));
 const UserDetail = lazy(() => import('./pages/users/UserDetail'));
 const Login = lazy(() => import('./pages/auth/Login'));
@@ -34,6 +42,7 @@ function App() {
   }
 
   return (
+    <ConfirmProvider>
     <ErrorBoundary>
       <AppLayout>
         <Suspense fallback={<LoadingSpinner />}>
@@ -63,6 +72,8 @@ function App() {
             
             {/* Settings routes */}
             <Route path="/settings" element={<Settings />} />
+            <Route path="/settings/ai-providers" element={<AiProvidersConfigPage />} />
+            <Route path="/settings/ai-providers/:providerId/models" element={<ProviderModelsPage />} />
             
             {/* Users routes */}
             <Route path="/users" element={<UsersList />} />
@@ -74,6 +85,7 @@ function App() {
         </Suspense>
       </AppLayout>
     </ErrorBoundary>
+    </ConfirmProvider>
   );
 }
 

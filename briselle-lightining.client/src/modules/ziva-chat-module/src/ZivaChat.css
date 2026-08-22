@@ -1494,3 +1494,68 @@
   color: var(--ziva-text-muted, #94a3b8);
   line-height: 1.4;
 }
+
+/* ============================================================
+   BRIS-AI-T163 — AI Settings entry point.
+
+   Replaces the old in-panel provider configuration modal. The cog
+   reveals a single labelled tag which navigates to
+   Settings > AI Providers Config.
+
+   .ziva-chat-settings-btn previously carried NO rule here at all — it
+   relied entirely on an inline style attribute. Moving it into the sheet
+   is what lets the inline styles go, per the no-inline-CSS rule.
+   ============================================================ */
+.ziva-chat-ai-settings-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.ziva-chat-settings-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  color: var(--ziva-text-muted);
+  padding: 4px 8px;
+  border-radius: var(--ziva-radius-md);
+  cursor: pointer;
+  font-size: 0.875rem;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ziva-chat-settings-btn:hover,
+.ziva-chat-settings-btn[aria-expanded='true'] {
+  background: var(--ziva-surface-alt, rgba(0, 0, 0, 0.04));
+  color: var(--ziva-brand);
+}
+
+/* Anchored to the cog and right-aligned so it cannot overflow the panel
+   edge, which is only a few pixels away. */
+.ziva-chat-ai-settings-tag {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 11px;
+  border: 1px solid var(--ziva-brand);
+  border-radius: 999px;
+  background: #ffffff;
+  color: var(--ziva-brand);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-decoration: none;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.ziva-chat-ai-settings-tag:hover {
+  background: var(--ziva-brand);
+  color: #ffffff;
+}

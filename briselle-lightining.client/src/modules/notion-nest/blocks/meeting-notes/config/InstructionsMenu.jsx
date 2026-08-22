@@ -54,6 +54,8 @@ export function InstructionsMenu({ onDone }) {
     instructionIcons,
     activePromptDoc,
     promptLibraryMissing,
+    promptLoadError,
+    retryPromptLoad,
   } = useMeetingNotes();
 
   const [query, setQuery] = useState('');
@@ -221,7 +223,17 @@ export function InstructionsMenu({ onDone }) {
       {/* T102: the library lives only in the database. If the migration has
           not been run there is nothing to offer, and saying so beats an
           empty menu with no explanation. */}
-      {promptLibraryMissing && (
+      {/* T144: a dropped request costs this menu, not the page. */}
+      {promptLoadError && (
+        <div className="nnr-instr-empty">
+          {promptLoadError}{' '}
+          <button type="button" className="nnr-instr-retry" onClick={retryPromptLoad}>
+            Retry
+          </button>
+        </div>
+      )}
+
+      {promptLibraryMissing && !promptLoadError && (
         <div className="nnr-instr-empty">
           Prompt library not installed. Run
           {' '}<code>database/019_add_ai_prompts_config_type.sql</code> in Supabase.

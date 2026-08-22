@@ -11,6 +11,7 @@
 import { useMeetingNotes } from '../context/MeetingNotesContext';
 import { Loader2, Sparkles } from 'lucide-react';
 import { SummaryProgress } from '../summary/SummaryProgress';
+import { normaliseHeadingLevels } from '../promptSerializer';
 
 export function SummaryTab() {
   const {
@@ -62,7 +63,13 @@ export function SummaryTab() {
               never on screen next to progress for its replacement. */}
           {!isGeneratingSummary && (summary || block.summary) && (
             <div className="nnr-summary-content">
-              <div className="mt-rich-text" dangerouslySetInnerHTML={{ __html: renderMd(summary || block.summary) }} />
+              {/* T124: normalise heading depth first. The model picks its
+                  own level — one summary opens with ##, the next with ### —
+                  and the two then render at different sizes. */}
+              <div
+                className="mt-rich-text"
+                dangerouslySetInnerHTML={{ __html: renderMd(normaliseHeadingLevels(summary || block.summary)) }}
+              />
             </div>
           )}
 

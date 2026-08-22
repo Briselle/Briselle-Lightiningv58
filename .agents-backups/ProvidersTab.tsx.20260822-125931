@@ -1,0 +1,494 @@
+/* ============================================================
+   Briselle Enterprise Platform — Settings / AI Providers Config
+   ProvidersTab.tsx — provider CRUD
+   Created At: 2026-08-22 | Last Modified: 2026-08-22
+   Previous Version Back URL: (new file — no previous version)
+
+   Task: BRIS-AI-T155
+
+   ── Credentials ────────────────────────────────────────────────
+   The API key field is WRITE-ONLY. A stored key is never read back
+   into this component — it cannot be, the RPC that returns a secret is
+   granted to service_role alone. The list shows "Configured" or
+   "No credential", which is all a person needs to see.
+
+   Test Connection runs in the ai-gateway Edge Function, not here.
+   ============================================================ */
+import { useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, ArrowRightLeft, Check, KeyRound, Loader2, Pencil, Plug, Plus, Trash2, X } from 'lucide-react';
+import type { AiProvider, ProviderType } from '../../../services/platformAiConfigTypes';
+import { canDeleteProvider, validateProvider } from '../../../services/platformAiConfigValidation';
+import {
+  credentialExists,
+  deleteCredential,
+  deleteProvider,
+  setProviderEnabled,
+  storeCredential,
+  upsertProvider,
+} from '../../../services/platformAiConfigService';
+import { testProviderConnection } from '../../../services/aiGatewayClient';
+/* BRIS-AI-T160: the legacy registry lives in localStorage inside the chat
+   module, so that module owns reading it. Nothing about the legacy shape
+   belongs in this page. */
+import { ZivaApiRouterService } from '../../../modules/ziva-chat-module/src/zivaApiRouterService.js';
+import type { AiConfigState } from './useAiConfig';
+
+const PROVIDER_TYPES: Array<{ value: ProviderType; label: string; hint: string }> = [
+  { value: 'openai-compatible', label: 'OpenAI-compatible', hint: 'Groq, OpenAI, Together, OpenRouter, vLLM, LM Studio, Ollama' },
+  { value: 'anthropic', label: 'Anthropic', hint: 'Anthropic Messages API' },
+  { value: 'custom', label: 'Custom', hint: 'Any other endpoint speaking the OpenAI HTTP shape' },
+];
+
+function blankProvider(): AiProvider {
+  return {
+    id: '', name: '', type: 'openai-compatible', baseUrl: '',
+    credentialRef: '', enabled: true, capabilities: [], priority: undefined,
+  };
+}
+
+export function ProvidersTab({ state }: { state: AiConfigState }) {
+  const { doc, run, setError } = state;
+
+  const [editing, setEditing] = useState<AiProvider | null>(null);
+  const [isNew, setIsNew] = useState(false);
+  const [secretInput, setSecretInput] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  /* Vault presence per provider. Asked of Vault rather than inferred
+     from credentialRef, because the pointer can outlive the secret. */
+  const [hasCredential, setHasCredential] = useState<Record<string, boolean>>({});
+  const [testing, setTesting] = useState<string>('');
+
+  /* T160: legacy registry migration. Offered only when there is something
+     to migrate, so a clean install never sees it. */
+  const [legacyCount, setLegacyCount] = useState(0);
+  const [migrating, setMigrating] = useState(false);
+  const [migrateNote, setMigrateNote] = useState('');
+  const [testResult, setTestResult] = useState<Record<string, { ok: boolean; message: string }>>({});
+
+  const providerIds = useMemo(() => doc.providers.map((p) => p.id).join('|'), [doc.providers]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const entries = await Promise.all(
+        doc.providers.map(async (p) => [p.id, await credentialExists(p.id)] as const)
+      );
+      if (!cancelled) setHasCredential(Object.fromEntries(entries));
+    })();
+    return () => { cancelled = true; };
+    /* Keyed on the id list, not the array identity — reloading the
+       document after an unrelated edit must not re-query Vault. */
+  }, [providerIds]);
+
+  useEffect(() => {
+    try {
+      setLegacyCount(ZivaApiRouterService.readLegacyRegistry().length);
+    } catch {
+      setLegacyCount(0);
+    }
+  }, []);
+
+  const migrate = async () => {
+    setMigrating(true);
+    setMigrateNote('');
+    try {
+      const result = await ZivaApiRouterService.migrateLegacyRegistry();
+      setMigrateNote(result.message);
+      if (result.ok) {
+        /* Reload so the migrated rows appear without a page refresh — an
+           admin who migrated and saw nothing would reasonably conclude it
+           had failed. */
+        await state.reload();
+        setLegacyCount(0);
+      }
+    } finally {
+      setMigrating(false);
+    }
+  };
+
+  const startNew = () => {
+    setEditing(blankProvider());
+    setIsNew(true);
+    setSecretInput('');
+    setError('');
+  };
+
+  const startEdit = (p: AiProvider) => {
+    setEditing({ ...p, capabilities: [...(p.capabilities || [])] });
+    setIsNew(false);
+    setSecretInput('');
+    setError('');
+  };
+
+  const cancel = () => {
+    setEditing(null);
+    setIsNew(false);
+    /* Clear the secret from component state the moment the form closes.
+       Leaving it there would keep a plaintext key in a React fibre for
+       as long as the page stayed open. */
+    setSecretInput('');
+  };
+
+  const save = async () => {
+    if (!editing) return;
+    setError('');
+
+    if (isNew && doc.providers.some((p) => p.id.toLowerCase() === editing.id.trim().toLowerCase())) {
+      setError(`A provider with id "${editing.id}" already exists.`);
+      return;
+    }
+
+    const issues = validateProvider(editing).filter((i) => i.severity === 'error');
+    if (issues.length) {
+      setError(issues.map((i) => i.message).join(' '));
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const ok = await run(() => upsertProvider(editing), isNew ? 'Provider created.' : 'Provider saved.');
+      if (!ok) return;
+
+      /* The credential is stored separately, and only when one was
+         typed — an empty field on an edit means "leave the existing key
+         alone", never "delete it". */
+      const secret = secretInput.trim();
+      if (secret) {
+        const stored = await run(() => storeCredential(editing.id, secret), 'Provider saved and credential stored in Vault.');
+        setSecretInput('');
+        if (!stored) return;
+        setHasCredential((prev) => ({ ...prev, [editing.id]: true }));
+      }
+      cancel();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (p: AiProvider) => {
+    const check = canDeleteProvider(doc, p.id);
+    if (!check.allowed) {
+      setError(`${check.message} In use by: ${check.blockedBy.join(', ')}.`);
+      return;
+    }
+    if (!window.confirm(`Delete provider "${p.name}"? Its Vault credential is removed as well.`)) return;
+    /* Credential first. If the row went first and this failed, the Vault
+       entry would be orphaned with nothing left pointing at it. */
+    if (String(p.credentialRef || '').trim()) {
+      await deleteCredential(p.id);
+    }
+    await run(() => deleteProvider(p.id), 'Provider deleted.');
+  };
+
+  const removeCredential = async (p: AiProvider) => {
+    if (!window.confirm(`Remove the stored credential for "${p.name}"? It cannot be recovered.`)) return;
+    const ok = await run(() => deleteCredential(p.id), 'Credential removed from Vault.');
+    if (ok) setHasCredential((prev) => ({ ...prev, [p.id]: false }));
+  };
+
+  const test = async (p: AiProvider) => {
+    setTesting(p.id);
+    setTestResult((prev) => ({ ...prev, [p.id]: { ok: false, message: 'Testing…' } }));
+    try {
+      /* Test against a real model where one exists, so a pass means the
+         provider can actually serve a call rather than merely that the
+         URL resolves. */
+      const model = doc.models.find((m) => m.providerId === p.id && m.enabled !== false);
+      const result = await testProviderConnection(p.id, model?.name);
+      setTestResult((prev) => ({ ...prev, [p.id]: { ok: result.ok, message: result.message } }));
+    } finally {
+      setTesting('');
+    }
+  };
+
+  const toggleCapability = (capId: string) => {
+    setEditing((prev) => {
+      if (!prev) return prev;
+      const current = prev.capabilities || [];
+      return {
+        ...prev,
+        capabilities: current.includes(capId) ? current.filter((c) => c !== capId) : [...current, capId],
+      };
+    });
+  };
+
+  return (
+    <div className="aipc-tab">
+      <div className="aipc-tab-head">
+        <div>
+          <h2 className="aipc-tab-title">Providers</h2>
+          <p className="aipc-tab-sub">
+            An AI service endpoint and its credential. The credential is stored in Supabase Vault and is
+            never returned to this page.
+          </p>
+        </div>
+        <button type="button" className="aipc-btn aipc-btn-primary" onClick={startNew}>
+          <Plus size={15} /> Add provider
+        </button>
+      </div>
+
+      {/* ══════════════════════════════════════════════════════════════
+          BRIS-AI-T160 — move the existing configuration in.
+
+          Shown only while a legacy browser registry exists, so a clean
+          install never sees it. The key warning is stated up front
+          rather than after the fact: structure migrates, credentials do
+          not, because the legacy keys are plaintext in localStorage and
+          re-importing them would carry that forward.
+          ══════════════════════════════════════════════════════════════ */}
+      {legacyCount > 0 && (
+        <div className="aipc-notice warn">
+          <ArrowRightLeft size={15} />
+          <div>
+            <strong>{legacyCount} provider(s) found in this browser&apos;s legacy configuration.</strong>
+            <div>
+              Move them here to administer them centrally. Provider names, endpoints, models and module
+              scopes are copied. <strong>API keys are not</strong> — they are stored in plaintext in the
+              browser, which is exactly what this page replaces, so each key must be re-entered once
+              into Vault.
+            </div>
+            {migrateNote && <div className="aipc-test bad">{migrateNote}</div>}
+            <button
+              type="button"
+              className="aipc-btn aipc-btn-ghost aipc-mt-8"
+              onClick={migrate}
+              disabled={migrating}
+            >
+              {migrating ? <Loader2 size={14} className="aipc-spin" /> : <ArrowRightLeft size={14} />}
+              Move providers into this page
+            </button>
+          </div>
+        </div>
+      )}
+
+      {editing && (
+        <div className="aipc-form">
+          <div className="aipc-form-head">
+            <h3>{isNew ? 'New provider' : `Edit ${editing.name || editing.id}`}</h3>
+            <button type="button" className="aipc-icon-btn" onClick={cancel} aria-label="Close">
+              <X size={16} />
+            </button>
+          </div>
+
+          <div className="aipc-grid">
+            <label className="aipc-field">
+              <span className="aipc-label">Provider id</span>
+              <input
+                className="aipc-input"
+                value={editing.id}
+                disabled={!isNew}
+                placeholder="groq-primary"
+                onChange={(e) => setEditing({ ...editing, id: e.target.value })}
+              />
+              <span className="aipc-hint">
+                {isNew ? 'Stable, lowercase. Used by models and configurations.' : 'The id cannot change — models and configurations reference it.'}
+              </span>
+            </label>
+
+            <label className="aipc-field">
+              <span className="aipc-label">Display name</span>
+              <input
+                className="aipc-input"
+                value={editing.name}
+                placeholder="Groq (Production)"
+                onChange={(e) => setEditing({ ...editing, name: e.target.value })}
+              />
+            </label>
+
+            <label className="aipc-field">
+              <span className="aipc-label">Type</span>
+              <select
+                className="aipc-input"
+                value={editing.type}
+                onChange={(e) => setEditing({ ...editing, type: e.target.value as ProviderType })}
+              >
+                {PROVIDER_TYPES.map((t) => (
+                  <option key={t.value} value={t.value}>{t.label}</option>
+                ))}
+              </select>
+              <span className="aipc-hint">{PROVIDER_TYPES.find((t) => t.value === editing.type)?.hint}</span>
+            </label>
+
+            <label className="aipc-field">
+              <span className="aipc-label">Base URL</span>
+              <input
+                className="aipc-input"
+                value={editing.baseUrl}
+                placeholder="https://api.groq.com/openai/v1"
+                onChange={(e) => setEditing({ ...editing, baseUrl: e.target.value })}
+              />
+              <span className="aipc-hint">No trailing slash. Must be https outside local development.</span>
+            </label>
+
+            <label className="aipc-field aipc-field-wide">
+              <span className="aipc-label">
+                <KeyRound size={13} /> API key {isNew ? '' : '(leave blank to keep the existing key)'}
+              </span>
+              <input
+                className="aipc-input"
+                type="password"
+                autoComplete="new-password"
+                value={secretInput}
+                placeholder={hasCredential[editing.id] ? '•••••••• stored in Vault' : 'Paste the provider API key'}
+                onChange={(e) => setSecretInput(e.target.value)}
+              />
+              <span className="aipc-hint">
+                Written straight to Supabase Vault. It is never saved into the configuration document,
+                never written to browser storage, and cannot be read back by this page.
+              </span>
+            </label>
+
+            <label className="aipc-field">
+              <span className="aipc-label">Priority</span>
+              <input
+                className="aipc-input"
+                type="number"
+                value={editing.priority ?? ''}
+                placeholder="1"
+                onChange={(e) => setEditing({ ...editing, priority: e.target.value === '' ? undefined : Number(e.target.value) })}
+              />
+              <span className="aipc-hint">Lower runs first when several providers serve one capability.</span>
+            </label>
+
+            <label className="aipc-field aipc-field-inline">
+              <input
+                type="checkbox"
+                checked={editing.enabled}
+                onChange={(e) => setEditing({ ...editing, enabled: e.target.checked })}
+              />
+              <span className="aipc-label">Enabled</span>
+            </label>
+
+            <div className="aipc-field aipc-field-wide">
+              <span className="aipc-label">Capabilities</span>
+              <div className="aipc-chips">
+                {doc.capabilities.map((cap) => {
+                  const on = (editing.capabilities || []).includes(cap.id);
+                  return (
+                    <button
+                      key={cap.id}
+                      type="button"
+                      className={`aipc-chip${on ? ' on' : ''}`}
+                      title={cap.description}
+                      onClick={() => toggleCapability(cap.id)}
+                    >
+                      {on && <Check size={12} />} {cap.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <span className="aipc-hint">What this provider may be used for. A capability is a task, not a module.</span>
+            </div>
+          </div>
+
+          <div className="aipc-form-actions">
+            <button type="button" className="aipc-btn" onClick={cancel} disabled={saving}>Cancel</button>
+            <button type="button" className="aipc-btn aipc-btn-primary" onClick={save} disabled={saving}>
+              {saving ? <Loader2 size={15} className="aipc-spin" /> : <Check size={15} />}
+              {isNew ? 'Create provider' : 'Save provider'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {doc.providers.length === 0 ? (
+        <div className="aipc-empty">
+          <Plug size={26} />
+          <p>No providers yet.</p>
+          <p className="aipc-empty-sub">
+            Add one with its base URL and API key. Nothing is preconfigured — a shipped provider with a
+            guessed model id fails on its first call, which is worse than an empty list.
+          </p>
+        </div>
+      ) : (
+        <div className="aipc-table-wrap">
+          <table className="aipc-table">
+            <thead>
+              <tr>
+                <th>Provider</th>
+                <th>Type</th>
+                <th>Base URL</th>
+                <th>Credential</th>
+                <th>Capabilities</th>
+                <th>Status</th>
+                <th className="aipc-col-actions">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {doc.providers.map((p) => {
+                const configured = hasCredential[p.id] === true;
+                const result = testResult[p.id];
+                return (
+                  <tr key={p.id} className={p.enabled ? '' : 'aipc-row-off'}>
+                    <td>
+                      <div className="aipc-cell-name">{p.name}</div>
+                      <div className="aipc-cell-id">{p.id}</div>
+                    </td>
+                    <td>{PROVIDER_TYPES.find((t) => t.value === p.type)?.label || p.type}</td>
+                    <td className="aipc-cell-url">{p.baseUrl}</td>
+                    <td>
+                      {configured ? (
+                        <span className="aipc-badge ok"><KeyRound size={11} /> Configured</span>
+                      ) : (
+                        <span className="aipc-badge warn"><AlertTriangle size={11} /> No credential</span>
+                      )}
+                    </td>
+                    <td>
+                      <div className="aipc-chips small">
+                        {(p.capabilities || []).length === 0
+                          ? <span className="aipc-muted">—</span>
+                          : (p.capabilities || []).map((c) => (
+                              <span key={c} className="aipc-chip static">
+                                {doc.capabilities.find((x) => x.id === c)?.label || c}
+                              </span>
+                            ))}
+                      </div>
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className={`aipc-toggle${p.enabled ? ' on' : ''}`}
+                        onClick={() => run(() => setProviderEnabled(p.id, !p.enabled), p.enabled ? 'Provider disabled.' : 'Provider enabled.')}
+                        aria-label={p.enabled ? 'Disable provider' : 'Enable provider'}
+                      >
+                        <span />
+                      </button>
+                      {result && (
+                        <div className={`aipc-test ${result.ok ? 'ok' : 'bad'}`}>{result.message}</div>
+                      )}
+                    </td>
+                    <td className="aipc-col-actions">
+                      <button
+                        type="button"
+                        className="aipc-icon-btn"
+                        title={configured ? 'Test connection (server-side)' : 'Save an API key before testing'}
+                        disabled={!configured || testing === p.id}
+                        onClick={() => test(p)}
+                      >
+                        {testing === p.id ? <Loader2 size={15} className="aipc-spin" /> : <Plug size={15} />}
+                      </button>
+                      <button type="button" className="aipc-icon-btn" title="Edit" onClick={() => startEdit(p)}>
+                        <Pencil size={15} />
+                      </button>
+                      {configured && (
+                        <button type="button" className="aipc-icon-btn" title="Remove stored credential" onClick={() => removeCredential(p)}>
+                          <KeyRound size={15} />
+                        </button>
+                      )}
+                      <button type="button" className="aipc-icon-btn danger" title="Delete" onClick={() => remove(p)}>
+                        <Trash2 size={15} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default ProvidersTab;

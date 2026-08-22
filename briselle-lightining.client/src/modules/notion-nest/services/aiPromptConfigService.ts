@@ -131,7 +131,38 @@ async function fetchRow(): Promise<any | null> {
  * installed — rather than silently running on a compiled-in copy that would
  * then diverge from whatever the database eventually holds.
  */
+/* ══════════════════════════════════════════════════════════════════
+   BRIS-NN-T141 — one query per page load, not one per block.
+
+   Every MeetingNotesBlock calls loadPromptDocument() on mount. A page with
+   three meeting blocks therefore issued three identical platform_config
+   queries, and they were part of the request burst that produced the long
+   spinner and the intermittent "TypeError: Failed to fetch".
+
+   The PROMISE is cached, not just the result, so blocks mounting in the
+   same tick share the in-flight request rather than starting their own.
+
+   Every write path invalidates it, so an edited prompt is visible
+   immediately — a stale library would be a far worse bug than a slow one.
+   ══════════════════════════════════════════════════════════════════ */
+let docPromise: Promise<PromptDocument> | null = null;
+
+/** Drop the cache. Called by every mutation below. */
+export function invalidatePromptCache(): void {
+  docPromise = null;
+}
+
 export async function loadPromptDocument(): Promise<PromptDocument> {
+  /* Share an in-flight or completed read. */
+  if (docPromise) return docPromise;
+  docPromise = loadPromptDocumentUncached();
+  /* A failed read must not be cached as the answer forever. */
+  docPromise.then((doc) => { if (doc.missing) docPromise = null; })
+    .catch(() => { docPromise = null; });
+  return docPromise;
+}
+
+async function loadPromptDocumentUncached(): Promise<PromptDocument> {
   try {
     const row = await fetchRow();
     if (!row) {
@@ -164,6 +195,7 @@ export async function savePromptDocument(doc: PromptDocument): Promise<boolean> 
         config_json: doc,
       });
       if (error) throw new Error(error.message);
+      invalidatePromptCache();
       return true;
     }
 
@@ -173,6 +205,9 @@ export async function savePromptDocument(doc: PromptDocument): Promise<boolean> 
       .eq('config_id', row.config_id);
 
     if (error) throw new Error(error.message);
+    /* T141: every mutation funnels through here, so one invalidation covers
+       upsert, delete and reset. */
+    invalidatePromptCache();
     return true;
   } catch (e) {
     console.error('[AIPrompts] savePromptDocument failed:', e);

@@ -1,0 +1,270 @@
+/* ============================================================
+   Briselle Enterprise Platform — Settings / AI Providers Config
+   ModulesTab.tsx — Briselle Platform Modules
+   Created At: 2026-08-22 | Last Modified: 2026-08-22
+   Previous Version Back URL: (new file — replaces the AI Configurations
+   tab, pages/settings/ai-providers/ConfigurationsTab.tsx)
+
+   Task: BRIS-AI-T179 / T180 / T187
+
+   ── What a Platform Module is ─────────────────────────────────
+   One of the AI FUNCTIONS in ai.capabilities — Speech to Text,
+   Summarization, Translation Engine, Chat Orchestrator, Schema
+   Controller, Embeddings, Vision, Tool / MCP Access.
+
+   Deliberately NOT a product area. "Summarization" is the module;
+   Meeting Notes is one consumer of it and other blocks can consume the
+   same one. That is why this layer still references no product feature.
+
+   ── Two conditions, in order ──────────────────────────────────
+     1. Enable AI function.  Off means the module fails closed.
+     2. Link a provider and a model.
+   Both must hold, so the readiness column reports which one is missing
+   rather than a single opaque "not working".
+
+   ── T187: this replaces the AI Configurations tab ─────────────
+   Linking a module writes an AI configuration whose id IS the module id.
+   The concept survives underneath because the gateway, executeAI() and
+   the routing bridge all resolve through configurationId — so nothing
+   downstream changed. What went away is a second screen asking the
+   administrator to assemble by hand what this one derives.
+   ============================================================ */
+import { useMemo, useState } from 'react';
+import { AlertTriangle, Check, Layers, Loader2, Power } from 'lucide-react';
+import { moduleReadiness } from '../../../services/platformAiConfigTypes';
+import {
+  linkModule,
+  reorderCapabilities,
+  setModuleAiEnabled,
+} from '../../../services/platformAiConfigService';
+import { useDragReorder } from '../../../components/ui/useDragReorder';
+import { DragHandle } from '../../../components/ui/DragHandle';
+import type { AiConfigState } from './useAiConfig';
+
+export function ModulesTab({ state }: { state: AiConfigState }) {
+  const { doc, run } = state;
+  const [busy, setBusy] = useState('');
+
+  const modules = useMemo(
+    () => [...doc.capabilities].sort((a, b) => a.order - b.order),
+    [doc.capabilities]
+  );
+
+  const drag = useDragReorder({
+    count: modules.length,
+    onReorder: (from, to) => {
+      void run(() => reorderCapabilities(from, to), 'Module order updated.');
+    },
+  });
+
+  /** The configuration that currently resolves this module, if any. */
+  const linkFor = (capId: string) => doc.configurations.find((c) => c.id === capId);
+
+  /**
+   * Models a module may be linked to.
+   *
+   * Filtered by the model's own moduleTags where the admin has set them;
+   * when a provider's models carry no tags at all, every model is
+   * offered rather than none — an empty dropdown would look like a bug
+   * and there is no way to tell from here whether tagging was skipped
+   * deliberately.
+   */
+  const modelsFor = (providerId: string, capId: string) => {
+    const mine = doc.models
+      .filter((m) => m.providerId === providerId)
+      .sort((a, b) => a.order - b.order);
+    const tagged = mine.filter((m) => (m.moduleTags || []).includes(capId));
+    return tagged.length ? tagged : mine;
+  };
+
+  const onToggle = async (capId: string, next: boolean) => {
+    setBusy(capId);
+    try {
+      await run(
+        () => setModuleAiEnabled(capId, next),
+        next ? 'AI enabled for this module.' : 'AI disabled for this module.'
+      );
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const onLink = async (capId: string, providerId: string, modelId: string) => {
+    setBusy(capId);
+    try {
+      /* Changing the provider clears the model, so the intermediate state
+         is a provider with no model rather than a cross-provider pair
+         that would only fail at call time. */
+      await run(
+        () => linkModule(capId, providerId, modelId),
+        modelId ? 'Module linked.' : 'Module link cleared.'
+      );
+    } finally {
+      setBusy('');
+    }
+  };
+
+  const enabledCount = modules.filter((m) => m.aiEnabled).length;
+  const readyCount = modules.filter((m) => moduleReadiness(doc, m.id).ready).length;
+
+  return (
+    <div className="aipc-tab">
+      <div className="aipc-tab-head">
+        <div>
+          <h2 className="aipc-tab-title">Briselle Platform Modules</h2>
+          <p className="aipc-tab-sub">
+            The AI functions the platform offers. A module needs its AI function switched on
+            <em> and </em> a linked provider and model before anything that calls it will work.
+            Drag rows to set the order.
+          </p>
+        </div>
+        <div className="aipc-summary-pills">
+          <span className="aipc-badge neutral">{modules.length} modules</span>
+          <span className={`aipc-badge ${enabledCount ? 'ok' : 'warn'}`}>{enabledCount} enabled</span>
+          <span className={`aipc-badge ${readyCount ? 'ok' : 'warn'}`}>{readyCount} ready</span>
+        </div>
+      </div>
+
+      {doc.providers.length === 0 && (
+        <div className="aipc-notice warn">
+          <AlertTriangle size={15} />
+          <span>
+            No providers exist yet. Add one on the Providers tab, give it a model, then link it here.
+          </span>
+        </div>
+      )}
+
+      {modules.length === 0 ? (
+        <div className="aipc-empty">
+          <Layers size={26} />
+          <p>No platform modules defined.</p>
+          <p className="aipc-empty-sub">
+            Run <code className="aipc-code">database/021_platform_ai_config.sql</code> to seed the
+            module vocabulary.
+          </p>
+        </div>
+      ) : (
+        <div className="aipc-table-wrap">
+          <table className="aipc-table">
+            <thead>
+              <tr>
+                <th className="aipc-col-grip">Order</th>
+                <th>Platform Module</th>
+                <th>Enable AI function</th>
+                <th>Provider</th>
+                <th>Model</th>
+                <th>Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {modules.map((cap, index) => {
+                const link = linkFor(cap.id);
+                const readiness = moduleReadiness(doc, cap.id);
+                const providerId = link?.providerId || '';
+                const modelId = link?.modelId || '';
+                const candidates = providerId ? modelsFor(providerId, cap.id) : [];
+                const working = busy === cap.id;
+
+                return (
+                  <tr
+                    key={cap.id}
+                    {...drag.getRowProps(index)}
+                    tabIndex={0}
+                    className={cap.aiEnabled ? '' : 'aipc-row-off'}
+                    aria-label={`${cap.label}, order ${index + 1}`}
+                  >
+                    <td className="aipc-col-grip">
+                      <DragHandle position={index + 1} label="Reorder module" />
+                    </td>
+
+                    <td>
+                      <div className="aipc-cell-name">{cap.label}</div>
+                      <div className="aipc-cell-id">{cap.id}</div>
+                      {cap.description && <div className="aipc-cell-desc">{cap.description}</div>}
+                    </td>
+
+                    <td>
+                      <button
+                        type="button"
+                        className={`aipc-toggle${cap.aiEnabled ? ' on' : ''}`}
+                        disabled={working}
+                        onClick={() => onToggle(cap.id, !cap.aiEnabled)}
+                        aria-label={cap.aiEnabled ? `Disable AI for ${cap.label}` : `Enable AI for ${cap.label}`}
+                      >
+                        <span />
+                      </button>
+                    </td>
+
+                    <td>
+                      <select
+                        className="aipc-input aipc-input-compact"
+                        value={providerId}
+                        disabled={working || doc.providers.length === 0}
+                        onChange={(e) => onLink(cap.id, e.target.value, '')}
+                        aria-label={`Provider for ${cap.label}`}
+                      >
+                        <option value="">— not linked —</option>
+                        {doc.providers.map((p) => (
+                          <option key={p.id} value={p.id}>
+                            {p.name}{p.enabled ? '' : ' (disabled)'}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+
+                    <td>
+                      <select
+                        className="aipc-input aipc-input-compact"
+                        value={modelId}
+                        disabled={working || !providerId}
+                        onChange={(e) => onLink(cap.id, providerId, e.target.value)}
+                        aria-label={`Model for ${cap.label}`}
+                      >
+                        <option value="">{providerId ? '— choose a model —' : '— pick a provider —'}</option>
+                        {candidates.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.displayName || m.name}{m.enabled ? '' : ' (disabled)'}
+                          </option>
+                        ))}
+                      </select>
+                      {providerId && candidates.length === 0 && (
+                        <div className="aipc-test bad">
+                          This provider has no models yet — add one from the Providers tab.
+                        </div>
+                      )}
+                    </td>
+
+                    <td>
+                      {working ? (
+                        <Loader2 size={14} className="aipc-spin" />
+                      ) : readiness.ready ? (
+                        <span className="aipc-badge ok"><Check size={11} /> Ready</span>
+                      ) : (
+                        <>
+                          <span className="aipc-badge warn">
+                            {cap.aiEnabled ? <AlertTriangle size={11} /> : <Power size={11} />}
+                            {cap.aiEnabled ? 'Incomplete' : 'Off'}
+                          </span>
+                          <div className="aipc-test bad">{readiness.reason}</div>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      <p className="aipc-footnote">
+        Linking a module stores an AI configuration named after it, which is what the platform's
+        modules call at runtime. Turning a module off makes every call to it fail with a named
+        reason rather than silently returning nothing — a silent no-op is indistinguishable from
+        a bug.
+      </p>
+    </div>
+  );
+}
+
+export default ModulesTab;

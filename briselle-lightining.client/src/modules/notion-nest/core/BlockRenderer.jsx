@@ -7,6 +7,7 @@ import { usePageContext } from './PageContext';
 import { TextBlock, ListBlock, TodoBlock, ToggleBlock, QuoteBlock, CalloutBlock, DividerBlock, CodeBlock, ImageBlock, BookmarkBlock, TableBlock, ColumnsBlock, TocBlock, VideoBlock, AudioBlock, FileBlock, EquationBlock, ToggleHeadingBlock, SubPageBlock, LinkEmbedBlock, ButtonBlock, MeetingNotesBlock } from '../blocks/index';
 import TabBlock from '../menus/TabBlock';
 import { slashMenuSections } from './utils';
+import { blockIdOf } from './crossBlockSelection';
 import { POPULAR_FONTS } from '../pages/NotionNestPage';
 
 const BLOCK_MAP = {
@@ -140,6 +141,28 @@ const BlockRenderer = memo(function BlockRenderer({ block, blocksArray, blockInd
     }
 
     if (e.shiftKey) {
+      /* ══════════════════════════════════════════════════════════════
+         BRIS-NN-T125 — the rule is SAME BLOCK vs DIFFERENT BLOCK.
+
+         Originally every shift+mousedown became a block-range selection,
+         and its preventDefault() stopped the browser's native
+         shift-extend — so extending a text selection inside one block
+         selected whole blocks instead. T123 fixed that by requiring an
+         existing block selection, which threw away the other half: a
+         shift+click on a DIFFERENT block no longer extended anything,
+         because the browser cannot extend a text selection across two
+         editing hosts either. Both behaviours are wanted:
+
+           shift+click in the SAME block  → the browser extends the text
+           shift+click in ANOTHER block   → extend the block selection
+
+         The meeting block is a single block, so all of its internal text
+         — summary, transcript, labels — falls under the first case.
+         ══════════════════════════════════════════════════════════════ */
+      const sel = window.getSelection();
+      const anchorBlockId = sel && sel.anchorNode ? blockIdOf(sel.anchorNode) : null;
+      if (anchorBlockId && anchorBlockId === block.id) return;
+
       e.preventDefault();
       e.stopPropagation();
       const startId = selectionStartId || activeBlockId || (selectedBlockIds && selectedBlockIds[0]);

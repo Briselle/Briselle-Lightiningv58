@@ -11,6 +11,8 @@ import {
     Building2,
     Package,
     Table,
+    ChevronDown,
+    BrainCircuit,
 } from 'lucide-react';
 import { cn } from '../../utils/helpers';
 import { supabase } from '../../utils/supabase';
@@ -25,6 +27,10 @@ interface NavItem {
   title: string;
   path: string;
   icon: React.ReactNode;
+  /* BRIS-AI-T150: optional sub-items. Every existing entry omits this and
+     renders exactly as before — the group branch in the nav below is only
+     reached by an item that actually declares children. */
+  children?: NavItem[];
 }
 
 function Sidebar({ isOpen, currentPath }: SidebarProps) {
@@ -151,6 +157,13 @@ function Sidebar({ isOpen, currentPath }: SidebarProps) {
       title: 'Settings',
       path: '/settings',
       icon: <Settings size={20} />,
+      children: [
+        {
+          title: 'AI Providers Config',
+          path: '/settings/ai-providers',
+          icon: <BrainCircuit size={18} />,
+        },
+      ],
     },
     {
       title: 'Master Template',
@@ -158,6 +171,23 @@ function Sidebar({ isOpen, currentPath }: SidebarProps) {
       icon: <Table size={20} />,
     },
   ];
+
+  /* BRIS-AI-T150: which nav groups are expanded.
+     Derived rather than stored: the default is "open when you are inside
+     it", and the map holds only explicit overrides. An effect syncing a
+     boolean against currentPath would fight the user every time they
+     collapsed a group they were still browsing. */
+  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>({});
+
+  const isGroupOpen = (item: NavItem): boolean =>
+    openGroups[item.path] ?? currentPath.startsWith(item.path);
+
+  const toggleGroup = (path: string) => {
+    setOpenGroups((prev) => ({
+      ...prev,
+      [path]: !(prev[path] ?? currentPath.startsWith(path)),
+    }));
+  };
 
   const isItemActive = (itemPath: string): boolean => {
     if (/^\/objects\/[^/]+\/records$/.test(itemPath)) {
@@ -197,21 +227,66 @@ function Sidebar({ isOpen, currentPath }: SidebarProps) {
 
       <nav className="mt-6 px-2">
         <ul className="space-y-2">
-          {navItems.map((item) => (
-            <li key={item.path}>
-              <Link
-                to={item.path}
-                className={cn(
-                  'sidebar-item',
-                  isItemActive(item.path) && 'active',
-                  !isOpen && 'justify-center px-2'
+          {navItems.map((item) => {
+            const hasChildren = Array.isArray(item.children) && item.children.length > 0;
+            /* Children are only shown when the rail is expanded. Collapsed,
+               there is no room for a legible second level — the parent link
+               still works, and the Settings page itself lists its sections. */
+            const showChildren = hasChildren && isOpen && isGroupOpen(item);
+
+            return (
+              <li key={item.path}>
+                <div className="flex items-center">
+                  <Link
+                    to={item.path}
+                    className={cn(
+                      'sidebar-item',
+                      isItemActive(item.path) && 'active',
+                      !isOpen && 'justify-center px-2',
+                      hasChildren && isOpen && 'flex-1'
+                    )}
+                  >
+                    <span>{item.icon}</span>
+                    {isOpen && <span>{item.title}</span>}
+                  </Link>
+
+                  {/* A sibling button, not a nested one: a <button> inside an
+                      <a> is invalid markup, and the caret must expand the
+                      group without also navigating. */}
+                  {hasChildren && isOpen && (
+                    <button
+                      type="button"
+                      onClick={() => toggleGroup(item.path)}
+                      className="p-1 mr-1 rounded text-gray-400 hover:text-gray-700 hover:bg-gray-100"
+                      aria-expanded={showChildren}
+                      aria-label={showChildren ? `Collapse ${item.title}` : `Expand ${item.title}`}
+                    >
+                      <ChevronDown
+                        size={16}
+                        className={cn('transition-transform', showChildren ? '' : '-rotate-90')}
+                      />
+                    </button>
+                  )}
+                </div>
+
+                {showChildren && (
+                  <ul className="mt-1 ml-4 space-y-1 border-l border-gray-200 pl-2">
+                    {item.children!.map((child) => (
+                      <li key={child.path}>
+                        <Link
+                          to={child.path}
+                          className={cn('sidebar-item text-sm', isItemActive(child.path) && 'active')}
+                        >
+                          <span>{child.icon}</span>
+                          <span>{child.title}</span>
+                        </Link>
+                      </li>
+                    ))}
+                  </ul>
                 )}
-              >
-                <span>{item.icon}</span>
-                {isOpen && <span>{item.title}</span>}
-              </Link>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       </nav>
     </aside>

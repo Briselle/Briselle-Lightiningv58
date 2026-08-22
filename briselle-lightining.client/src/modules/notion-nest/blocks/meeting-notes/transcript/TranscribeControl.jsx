@@ -12,7 +12,7 @@
    Transcript tab. That tab is hidden until transcription starts, so a
    control nested within it could never be reached.
    ============================================================ */
-import { ChevronDown, FileAudio, Mic, Pause, Play, Square, Upload } from 'lucide-react';
+import { ChevronDown, FileAudio, Mic, Pause, Play, Square } from 'lucide-react';
 import { useMeetingNotes } from '../context/MeetingNotesContext';
 import { Waveform } from './Waveform';
 
@@ -107,31 +107,25 @@ export function TranscribeControl({ variant = 'both' }) {
                   <Mic size={14} />
                   <span>Live, transcript only</span>
                 </button>
-                <button
-                  type="button"
-                  className="nnr-transcribe-menu-item"
-                  role="menuitem"
-                  onClick={() => startTranscribe(TRANSCRIBE_MODES.UPLOAD)}
-                >
-                  <Upload size={14} />
-                  <span>Transcribe audio file</span>
-                </button>
+                {/* BRIS-NN-MNB-T131: "Transcribe audio file" removed from THIS
+                    dropdown. It lives under the slider menu's Resume
+                    Transcription submenu, which is where it belongs — this
+                    button is for starting a LIVE session, and offering a file
+                    here made the two look like the same operation. */}
               </div>
             )}
           </div>
         ) : null}
 
-        {/* Upload Audio File */}
-        <input
-          type="file"
-          ref={audioUploadRef}
-          accept="audio/*,video/*"
-          style={{ display: 'none' }}
-          onChange={e => {
-            const f = e.target.files?.[0];
-            if (f) handleAudioUpload(f);
-          }}
-        />
+        {/* BRIS-NN-MNB-T130: the file input moved to MeetingNotesBlockBase.
+
+            It lived here, but this component is mounted conditionally —
+            MeetingTabBar renders it only while `recording || !transcriptStarted`
+            and TranscriptToolbar only while recording. Once a transcript
+            existed and recording had stopped, the input did not exist, so
+            audioUploadRef.current?.click() from the slider menu was a silent
+            no-op. That is why "Upload Audio" stopped working. The Base is
+            always mounted, so the ref is always live. */}
 
     </>
   );

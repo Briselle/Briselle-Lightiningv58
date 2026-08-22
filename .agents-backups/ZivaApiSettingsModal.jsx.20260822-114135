@@ -134,6 +134,32 @@ export default function ZivaApiSettingsModal({ isOpen, onClose }) {
 
         {/* Body */}
         <div className="ziva-settings-modal-body">
+          {/* ══════════════════════════════════════════════════════════
+              BRIS-AI-T159 — this screen is superseded.
+
+              Providers are now administered in Settings > AI Providers
+              Config, where credentials go to Supabase Vault instead of
+              localStorage and calls run through the ai-gateway Edge
+              Function instead of from the browser.
+
+              This screen still works, and is deliberately left working —
+              routing falls back to it whenever the platform document has
+              no configurations, so an install that has not migrated yet
+              is not broken. But anything saved here keeps the API key in
+              this browser in plaintext, and an operator deserves to know
+              that at the point of typing it rather than afterwards.
+              ══════════════════════════════════════════════════════════ */}
+          <div className="ziva-settings-legacy-notice">
+            <i className="fas fa-exclamation-triangle" />
+            <div>
+              <strong>This screen is superseded.</strong> Providers are now configured in{' '}
+              <strong>Settings &gt; AI Providers Config</strong>, which stores API keys in Supabase Vault
+              rather than in this browser and runs every AI call server-side. Keys saved here remain in
+              this browser in plaintext. Once a configuration exists on the new page, it takes
+              precedence over anything set here.
+            </div>
+          </div>
+
           {/* Action Bar */}
           {!isEditing && (
             <div className="ziva-settings-action-bar">

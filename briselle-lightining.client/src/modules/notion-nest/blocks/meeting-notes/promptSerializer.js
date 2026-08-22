@@ -172,6 +172,35 @@ export function blocksToMarkdown(blocks) {
   return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+/* ══════════════════════════════════════════════════════════════════
+   BRIS-NN-MNB-T124 — one visual weight for a summary's top sections.
+
+   The model decides its own heading depth. One run opens sections with
+   `##`, the next with `###`, and both are valid markdown — but they
+   render at different sizes, so two summaries side by side look like
+   two different features. That is the "some are better and some bad".
+
+   Rather than fight the model with prompt wording, the levels are
+   normalised on the way in: whatever the SHALLOWEST heading in the
+   document is becomes h2, and everything below keeps its relative
+   depth. A summary that already leads with `##` is untouched.
+   ══════════════════════════════════════════════════════════════════ */
+export function normaliseHeadingLevels(md) {
+  if (!md) return '';
+  const text = String(md);
+
+  const levels = [...text.matchAll(/^(#{1,6})[ \t]+\S/gm)].map(m => m[1].length);
+  if (!levels.length) return text;
+
+  const shallowest = Math.min(...levels);
+  /* Already leading with h1 or h2 — leave it alone. */
+  if (shallowest <= 2) return text;
+
+  const shift = shallowest - 2;
+  return text.replace(/^(#{1,6})([ \t]+)/gm, (_m, hashes, space) =>
+    '#'.repeat(Math.max(1, hashes.length - shift)) + space);
+}
+
 /** Blocks for an instruction, deriving them from its text on first edit. */
 export function instructionToBlocks(entry) {
   if (entry && Array.isArray(entry.blocks) && entry.blocks.length) return entry.blocks;

@@ -55,7 +55,6 @@ export function MeetingTabBar() {
     setSelectedWizardInstruction,
     setShowParticipantsPanel,
     setShowSettingsPopover,
-    setShowZivaApiSettingsModal,
     setViewMode,
     settingsWrapRef,
     showParticipantsPanel,

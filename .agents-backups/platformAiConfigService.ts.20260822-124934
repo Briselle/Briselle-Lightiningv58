@@ -1,0 +1,560 @@
+/* ============================================================
+   Briselle Enterprise Platform — Platform Services
+   platformAiConfigService.ts — read/write the AI configuration document
+   Created At: 2026-08-22 | Last Modified: 2026-08-22
+   Previous Version Back URL: (new file — no previous version)
+
+   Task: BRIS-AI-T153 / T160
+
+   ── Where it lives ─────────────────────────────────────────────
+   Table  : platform_config
+   Scope  : entity_id    per-entity (see AI_CONFIG_ENTITY_ID below)
+            dobj_id      1000000003
+            config_type  10  (AIProvidersLoader)
+   Name   : 'PlatformAIConfig'
+
+   See database/021_platform_ai_config.sql.
+
+   ── Credentials are NOT here ───────────────────────────────────
+   This service reads and writes structure only. Secrets go to Supabase
+   Vault through the RPCs in database/022_ai_credentials_vault.sql, and
+   the only function that can read one back is granted to service_role
+   alone. Nothing in this file can obtain an API key, which is the point.
+
+   ── One query per page load ────────────────────────────────────
+   The PROMISE is cached, not just the result, so callers mounting in
+   the same tick share one in-flight request. Every write invalidates
+   it. This is the T141 lesson applied up front: three meeting blocks on
+   one page used to mean three identical platform_config queries, which
+   was part of the request burst behind the long spinner and the
+   intermittent "TypeError: Failed to fetch".
+   ============================================================ */
+import { supabase } from '../utils/supabase';
+import {
+  AI_DOC_VERSION,
+  FALLBACK_CAPABILITIES,
+  emptyAiDocument,
+  credentialRefFor,
+} from './platformAiConfigTypes';
+import type {
+  AiCapability,
+  AiConfiguration,
+  AiDocument,
+  AiModel,
+  AiProvider,
+  McpServerConfig,
+} from './platformAiConfigTypes';
+import { validateAiDocument } from './platformAiConfigValidation';
+
+/** platform_config.config_type — 10 = AIProvidersLoader. */
+export const AI_CONFIG_TYPE = 10;
+export const AI_CONFIG_NAME = 'PlatformAIConfig';
+export const AI_CONFIG_DOBJ_ID = 1000000003;
+
+/**
+ * FLAGGED: single-tenant placeholder.
+ *
+ * The design is per-entity — each entity gets its own AI Providers page,
+ * administered by that entity's admin. The platform has no role model or
+ * current-entity resolver in the client yet, so this is pinned to the
+ * Briselle org. When one exists, replace this constant with a lookup;
+ * every read and write below already goes through getEntityId(), so this
+ * is the only line that changes.
+ */
+export const AI_CONFIG_ENTITY_ID = 1000000000;
+
+let entityOverride: number | null = null;
+
+/** Point the service at another entity. For when a resolver exists. */
+export function setAiConfigEntityId(entityId: number | null): void {
+  if (entityOverride !== entityId) {
+    entityOverride = entityId;
+    invalidateAiConfigCache();
+  }
+}
+
+export function getEntityId(): number {
+  return entityOverride ?? AI_CONFIG_ENTITY_ID;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Normalisation — callers never handle a half-shape.
+   ══════════════════════════════════════════════════════════════════ */
+
+const str = (v: unknown, fallback = ''): string =>
+  (typeof v === 'string' ? v : v == null ? '' : String(v)).trim() || fallback;
+
+const bool = (v: unknown, fallback = true): boolean =>
+  typeof v === 'boolean' ? v : fallback;
+
+const numOrNull = (v: unknown): number | null => {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+};
+
+function normalizeProvider(raw: any): AiProvider {
+  return {
+    id: str(raw?.id),
+    name: str(raw?.name, str(raw?.id)),
+    type: (['openai-compatible', 'anthropic', 'custom'].includes(raw?.type) ? raw.type : 'openai-compatible'),
+    baseUrl: str(raw?.baseUrl),
+    credentialRef: str(raw?.credentialRef),
+    enabled: bool(raw?.enabled),
+    priority: numOrNull(raw?.priority) ?? undefined,
+    capabilities: Array.isArray(raw?.capabilities) ? raw.capabilities.map((c: unknown) => str(c)).filter(Boolean) : [],
+    notes: str(raw?.notes) || undefined,
+    updatedAt: raw?.updatedAt || null,
+    updatedBy: raw?.updatedBy || null,
+  };
+}
+
+function normalizeModel(raw: any): AiModel {
+  const name = str(raw?.name, str(raw?.id));
+  return {
+    id: str(raw?.id),
+    providerId: str(raw?.providerId),
+    name,
+    displayName: str(raw?.displayName, name),
+    type: (['chat', 'stt', 'tts', 'embedding', 'vision', 'other'].includes(raw?.type) ? raw.type : 'chat'),
+    enabled: bool(raw?.enabled),
+    contextWindow: numOrNull(raw?.contextWindow),
+    updatedAt: raw?.updatedAt || null,
+    updatedBy: raw?.updatedBy || null,
+  };
+}
+
+function normalizeConfiguration(raw: any): AiConfiguration {
+  const p = raw?.parameters || {};
+  return {
+    id: str(raw?.id),
+    name: str(raw?.name, str(raw?.id)),
+    description: str(raw?.description) || undefined,
+    providerId: str(raw?.providerId),
+    modelId: str(raw?.modelId),
+    parameters: {
+      temperature: numOrNull(p?.temperature) ?? undefined,
+      maxTokens: numOrNull(p?.maxTokens) ?? undefined,
+      topP: numOrNull(p?.topP) ?? undefined,
+      extra: p?.extra && typeof p.extra === 'object' ? p.extra : undefined,
+    },
+    enabled: bool(raw?.enabled),
+    capabilities: Array.isArray(raw?.capabilities) ? raw.capabilities.map((c: unknown) => str(c)).filter(Boolean) : [],
+    priority: numOrNull(raw?.priority) ?? undefined,
+    updatedAt: raw?.updatedAt || null,
+    updatedBy: raw?.updatedBy || null,
+  };
+}
+
+function normalizeMcpServer(raw: any): McpServerConfig {
+  return {
+    id: str(raw?.id),
+    name: str(raw?.name, str(raw?.id)),
+    description: str(raw?.description) || undefined,
+    transport: (['http', 'sse', 'stdio'].includes(raw?.transport) ? raw.transport : 'http'),
+    url: str(raw?.url) || undefined,
+    command: str(raw?.command) || undefined,
+    args: Array.isArray(raw?.args) ? raw.args.map((a: unknown) => str(a)).filter(Boolean) : [],
+    credentialRef: str(raw?.credentialRef) || undefined,
+    authHeader: str(raw?.authHeader) || undefined,
+    enabled: bool(raw?.enabled),
+    allowedTools: Array.isArray(raw?.allowedTools) ? raw.allowedTools.map((t: unknown) => str(t)).filter(Boolean) : [],
+    capabilities: Array.isArray(raw?.capabilities) ? raw.capabilities.map((c: unknown) => str(c)).filter(Boolean) : [],
+    updatedAt: raw?.updatedAt || null,
+    updatedBy: raw?.updatedBy || null,
+  };
+}
+
+function normalizeCapabilities(raw: any): AiCapability[] {
+  if (!Array.isArray(raw) || !raw.length) return FALLBACK_CAPABILITIES;
+  const out = raw
+    .map((c: any) => ({
+      id: str(c?.id),
+      label: str(c?.label, str(c?.id)),
+      description: str(c?.description) || undefined,
+    }))
+    .filter((c) => c.id);
+  return out.length ? out : FALLBACK_CAPABILITIES;
+}
+
+function normalizeDocument(rawConfigJson: any): AiDocument {
+  const ai = rawConfigJson?.ai;
+  if (!ai || typeof ai !== 'object') return emptyAiDocument();
+
+  return {
+    version: numOrNull(ai.version) ?? AI_DOC_VERSION,
+    providers: (Array.isArray(ai.providers) ? ai.providers : []).map(normalizeProvider).filter((p: AiProvider) => p.id),
+    models: (Array.isArray(ai.models) ? ai.models : []).map(normalizeModel).filter((m: AiModel) => m.id),
+    configurations: (Array.isArray(ai.configurations) ? ai.configurations : []).map(normalizeConfiguration).filter((c: AiConfiguration) => c.id),
+    mcpServers: (Array.isArray(ai.mcpServers) ? ai.mcpServers : []).map(normalizeMcpServer).filter((s: McpServerConfig) => s.id),
+    capabilities: normalizeCapabilities(ai.capabilities),
+    missing: false,
+  };
+}
+
+/**
+ * Strip anything that must never be persisted, then serialise.
+ *
+ * `missing` is a runtime flag, not data. And the secret-bearing key names
+ * are deleted rather than trusted absent — the database trigger rejects
+ * the whole write if one slips through, so an admin would see a raw
+ * Postgres error instead of a saved page.
+ */
+const SECRET_KEYS = [
+  'apiKey', 'api_key', 'secret', 'secretKey', 'secret_key',
+  'token', 'accessToken', 'access_token', 'password', 'bearer', 'authorization',
+];
+
+function stripSecrets<T extends object>(rec: T): T {
+  const copy: any = { ...rec };
+  SECRET_KEYS.forEach((k) => { delete copy[k]; });
+  Object.keys(copy).forEach((k) => {
+    if (SECRET_KEYS.some((s) => s.toLowerCase() === k.toLowerCase())) delete copy[k];
+  });
+  return copy;
+}
+
+function serialize(doc: AiDocument): any {
+  return {
+    ai: {
+      version: doc.version || AI_DOC_VERSION,
+      providers: (doc.providers || []).map(stripSecrets),
+      models: (doc.models || []).map(stripSecrets),
+      configurations: (doc.configurations || []).map(stripSecrets),
+      mcpServers: (doc.mcpServers || []).map(stripSecrets),
+      capabilities: doc.capabilities || FALLBACK_CAPABILITIES,
+    },
+  };
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Read
+   ══════════════════════════════════════════════════════════════════ */
+
+async function fetchRow(): Promise<{ config_id: number; config_json: any } | null> {
+  const { data, error } = await supabase
+    .from('platform_config')
+    .select('config_id, config_json')
+    .eq('entity_id', getEntityId())
+    .eq('dobj_id', AI_CONFIG_DOBJ_ID)
+    .eq('config_type', AI_CONFIG_TYPE)
+    .maybeSingle();
+
+  if (error) {
+    console.warn('[PlatformAI] platform_config read failed:', error.message);
+    return null;
+  }
+  return (data as any) || null;
+}
+
+let docPromise: Promise<AiDocument> | null = null;
+
+/** Drop the cache. Called by every mutation below. */
+export function invalidateAiConfigCache(): void {
+  docPromise = null;
+  notifyChanged();
+}
+
+export async function loadAiDocument(): Promise<AiDocument> {
+  if (docPromise) return docPromise;
+  docPromise = loadAiDocumentUncached();
+  /* A failed or absent read must not be cached as the answer forever. */
+  docPromise
+    .then((doc) => { if (doc.missing) docPromise = null; })
+    .catch(() => { docPromise = null; });
+  return docPromise;
+}
+
+async function loadAiDocumentUncached(): Promise<AiDocument> {
+  try {
+    const row = await fetchRow();
+    if (!row) {
+      console.warn(
+        `[PlatformAI] No PlatformAIConfig row for entity ${getEntityId()}. ` +
+        'Run database/021_platform_ai_config.sql.'
+      );
+      return emptyAiDocument();
+    }
+    return normalizeDocument(row.config_json);
+  } catch (e) {
+    console.error('[PlatformAI] loadAiDocument failed:', e);
+    return emptyAiDocument();
+  }
+}
+
+/* ── Change notification ─────────────────────────────────────────
+   Consumers holding a synchronous snapshot (the Ziva router bridge)
+   need to know when the document changed. A save in the settings page
+   must not leave a module calling the old provider. */
+type ChangeListener = () => void;
+const listeners = new Set<ChangeListener>();
+
+export function onAiConfigChanged(fn: ChangeListener): () => void {
+  listeners.add(fn);
+  return () => { listeners.delete(fn); };
+}
+
+function notifyChanged(): void {
+  listeners.forEach((fn) => { try { fn(); } catch { /* a bad listener must not block the rest */ } });
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Write
+   ══════════════════════════════════════════════════════════════════ */
+
+export interface SaveResult {
+  ok: boolean;
+  /** Validation errors, when the save was refused before touching the DB. */
+  errors?: string[];
+  message?: string;
+}
+
+/**
+ * Persist the whole document, validated first.
+ *
+ * Validation runs BEFORE the write, not after — a document that fails
+ * referential integrity must never reach the table, because the next
+ * reader would then have to cope with it.
+ */
+export async function saveAiDocument(doc: AiDocument): Promise<SaveResult> {
+  const result = validateAiDocument(doc);
+  if (!result.ok) {
+    return { ok: false, errors: result.errors.map((e) => e.message), message: 'Configuration was not saved.' };
+  }
+
+  try {
+    const row = await fetchRow();
+    const payload = serialize(doc);
+
+    if (!row) {
+      const { error } = await supabase.from('platform_config').insert({
+        entity_id: getEntityId(),
+        dobj_id: AI_CONFIG_DOBJ_ID,
+        config_name: AI_CONFIG_NAME,
+        config_type: AI_CONFIG_TYPE,
+        config_description: 'Platform AI provider, model, configuration and MCP connector registry',
+        is_default: true,
+        is_active: true,
+        config_json: payload,
+      });
+      if (error) throw new Error(error.message);
+    } else {
+      const { error } = await supabase
+        .from('platform_config')
+        .update({ config_json: payload, lastmodified_ts: new Date().toISOString() })
+        .eq('config_id', row.config_id);
+      if (error) throw new Error(error.message);
+    }
+
+    invalidateAiConfigCache();
+    return { ok: true };
+  } catch (e: any) {
+    const message = String(e?.message || e || 'unknown error');
+    console.error('[PlatformAI] saveAiDocument failed:', message);
+    return { ok: false, message };
+  }
+}
+
+/* ── Record-level helpers ────────────────────────────────────────
+   Each loads, mutates and saves, so the caller cannot forget to
+   invalidate the cache or skip validation. */
+
+async function mutate(fn: (doc: AiDocument) => void): Promise<SaveResult> {
+  const loaded = await loadAiDocument();
+
+  /* Bootstrap rather than refuse.
+     saveAiDocument() already inserts when no row exists, so the page can
+     create its own document and is usable before 021 has been run. This
+     used to hard-refuse, which meant an admin could not move an existing
+     configuration in until someone had run SQL by hand.
+
+     021 is still worth running: it installs the plaintext-credential
+     TRIGGER, which is a database-level guarantee this client cannot
+     provide, plus the config_type COMMENT. And 022 is REQUIRED before any
+     credential can be stored, because that is where the Vault RPCs live. */
+  const base: AiDocument = loaded.missing
+    ? { ...emptyAiDocument(), missing: false }
+    : loaded;
+
+  /* Deep clone so a failed save leaves the cached document untouched.
+     Without it, a rejected edit would still be visible in the UI until
+     the next reload — the worst kind of "did that save?" ambiguity. */
+  const next: AiDocument = JSON.parse(JSON.stringify(base));
+  fn(next);
+  return saveAiDocument(next);
+}
+
+export function upsertProvider(provider: AiProvider): Promise<SaveResult> {
+  return mutate((doc) => {
+    const idx = doc.providers.findIndex((p) => p.id === provider.id);
+    const record = normalizeProvider({ ...provider, updatedAt: new Date().toISOString() });
+    if (idx >= 0) doc.providers[idx] = record; else doc.providers.push(record);
+  });
+}
+
+export function upsertModel(model: AiModel): Promise<SaveResult> {
+  return mutate((doc) => {
+    const idx = doc.models.findIndex((m) => m.id === model.id);
+    const record = normalizeModel({ ...model, updatedAt: new Date().toISOString() });
+    if (idx >= 0) doc.models[idx] = record; else doc.models.push(record);
+  });
+}
+
+export function upsertConfiguration(config: AiConfiguration): Promise<SaveResult> {
+  return mutate((doc) => {
+    const idx = doc.configurations.findIndex((c) => c.id === config.id);
+    const record = normalizeConfiguration({ ...config, updatedAt: new Date().toISOString() });
+    if (idx >= 0) doc.configurations[idx] = record; else doc.configurations.push(record);
+  });
+}
+
+export function upsertMcpServer(server: McpServerConfig): Promise<SaveResult> {
+  return mutate((doc) => {
+    const idx = doc.mcpServers.findIndex((s) => s.id === server.id);
+    const record = normalizeMcpServer({ ...server, updatedAt: new Date().toISOString() });
+    if (idx >= 0) doc.mcpServers[idx] = record; else doc.mcpServers.push(record);
+  });
+}
+
+export function deleteProvider(providerId: string): Promise<SaveResult> {
+  return mutate((doc) => { doc.providers = doc.providers.filter((p) => p.id !== providerId); });
+}
+
+export function deleteModel(modelId: string): Promise<SaveResult> {
+  return mutate((doc) => { doc.models = doc.models.filter((m) => m.id !== modelId); });
+}
+
+export function deleteConfiguration(configurationId: string): Promise<SaveResult> {
+  return mutate((doc) => { doc.configurations = doc.configurations.filter((c) => c.id !== configurationId); });
+}
+
+export function deleteMcpServer(serverId: string): Promise<SaveResult> {
+  return mutate((doc) => { doc.mcpServers = doc.mcpServers.filter((s) => s.id !== serverId); });
+}
+
+/* Enable / disable are separate from upsert so a toggle cannot
+   accidentally write a half-edited form back over the stored record. */
+export function setProviderEnabled(providerId: string, enabled: boolean): Promise<SaveResult> {
+  return mutate((doc) => {
+    const p = doc.providers.find((x) => x.id === providerId);
+    if (p) { p.enabled = enabled; p.updatedAt = new Date().toISOString(); }
+  });
+}
+
+export function setModelEnabled(modelId: string, enabled: boolean): Promise<SaveResult> {
+  return mutate((doc) => {
+    const m = doc.models.find((x) => x.id === modelId);
+    if (m) { m.enabled = enabled; m.updatedAt = new Date().toISOString(); }
+  });
+}
+
+export function setConfigurationEnabled(configurationId: string, enabled: boolean): Promise<SaveResult> {
+  return mutate((doc) => {
+    const c = doc.configurations.find((x) => x.id === configurationId);
+    if (c) { c.enabled = enabled; c.updatedAt = new Date().toISOString(); }
+  });
+}
+
+export function setMcpServerEnabled(serverId: string, enabled: boolean): Promise<SaveResult> {
+  return mutate((doc) => {
+    const s = doc.mcpServers.find((x) => x.id === serverId);
+    if (s) { s.enabled = enabled; s.updatedAt = new Date().toISOString(); }
+  });
+}
+
+/** Duplicate a configuration under a new id. */
+export function cloneConfiguration(configurationId: string, newId: string, newName: string): Promise<SaveResult> {
+  return mutate((doc) => {
+    const src = doc.configurations.find((c) => c.id === configurationId);
+    if (!src) return;
+    doc.configurations.push(normalizeConfiguration({
+      ...JSON.parse(JSON.stringify(src)),
+      id: newId,
+      name: newName,
+      updatedAt: new Date().toISOString(),
+    }));
+  });
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Credentials — Vault only
+   ══════════════════════════════════════════════════════════════════ */
+
+/**
+ * Store or rotate a provider credential.
+ *
+ * The secret goes straight to Vault via RPC and is never held in state,
+ * never written to the config document, and never logged. The caller
+ * should clear its input field immediately afterwards.
+ */
+export async function storeCredential(providerId: string, secret: string): Promise<SaveResult> {
+  const ref = credentialRefFor(getEntityId(), providerId);
+  const value = String(secret || '').trim();
+  if (!value) return { ok: false, message: 'A credential value is required.' };
+
+  try {
+    const { error } = await supabase.rpc('ai_credential_set', { p_ref: ref, p_secret: value });
+    if (error) throw new Error(error.message);
+  } catch (e: any) {
+    /* Deliberately does not include the secret, nor its length, in the
+       message or the log line. */
+    const message = String(e?.message || e || 'unknown error');
+    console.error('[PlatformAI] storeCredential failed for provider', providerId, ':', message);
+
+    /* The overwhelmingly likely cause on a fresh install is that the Vault
+       RPCs do not exist yet. Postgres reports that as a "function not
+       found" / schema-cache miss, which tells an admin nothing — name the
+       migration instead. */
+    if (/could not find the function|function .* does not exist|schema cache|pgrst202/i.test(message)) {
+      return {
+        ok: false,
+        message: 'Credential storage is not installed. Run database/022_ai_credentials_vault.sql '
+          + 'in the Supabase SQL editor, then save the key again.',
+      };
+    }
+    return { ok: false, message: `Could not store the credential: ${message}` };
+  }
+
+  /* Record the pointer on the provider so it becomes callable. */
+  const attach = await mutate((doc) => {
+    const p = doc.providers.find((x) => x.id === providerId);
+    if (p) { p.credentialRef = ref; p.updatedAt = new Date().toISOString(); }
+  });
+  if (!attach.ok) return attach;
+
+  return { ok: true };
+}
+
+export async function deleteCredential(providerId: string): Promise<SaveResult> {
+  const ref = credentialRefFor(getEntityId(), providerId);
+  try {
+    const { error } = await supabase.rpc('ai_credential_delete', { p_ref: ref });
+    if (error) throw new Error(error.message);
+  } catch (e: any) {
+    const message = String(e?.message || e || 'unknown error');
+    console.error('[PlatformAI] deleteCredential failed:', message);
+    return { ok: false, message };
+  }
+  return mutate((doc) => {
+    const p = doc.providers.find((x) => x.id === providerId);
+    if (p) { p.credentialRef = ''; p.updatedAt = new Date().toISOString(); }
+  });
+}
+
+/**
+ * Is a credential stored? A boolean, never the value.
+ *
+ * Note this asks Vault rather than trusting credentialRef, because the
+ * pointer can outlive the secret — a Vault entry deleted out of band
+ * would otherwise still read as "Configured".
+ */
+export async function credentialExists(providerId: string): Promise<boolean> {
+  const ref = credentialRefFor(getEntityId(), providerId);
+  try {
+    const { data, error } = await supabase.rpc('ai_credential_exists', { p_ref: ref });
+    if (error) throw new Error(error.message);
+    return data === true;
+  } catch (e: any) {
+    console.warn('[PlatformAI] credentialExists check failed:', String(e?.message || e));
+    return false;
+  }
+}
