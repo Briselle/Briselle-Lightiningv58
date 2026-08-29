@@ -4,6 +4,6 @@ By default, this template supports JSX syntax with Tailwind CSS classes, React h
 
 Use icons from lucide-react for logos.
 
-Thou we are copying Salesforce, let all the css be built in react. 
+Implement styling in React (Tailwind classes), not separate global theme CSS files.
 
-Makes sure everything we build will be templatized and re-used as a components similar to salesforce lighting Design 2 library https://www.lightningdesignsystem.com/2e1ef8501/p/755aff-components and sub items.
+Templatize and reuse UI as components, following patterns similar to the Lightning Design System component set: https://www.lightningdesignsystem.com/2e1ef8501/p/755aff-components

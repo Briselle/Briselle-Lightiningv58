@@ -1,0 +1,14 @@
+{
+  "service": {
+    "host": "127.0.0.1",
+    "port": 5199,
+    "apiBaseUrl": "http://127.0.0.1:5199/api/ziva"
+  },
+  "groq": {
+    "model": "llama-3.1-8b-instant"
+  },
+  "product": {
+    "name": "Briselle",
+    "baseSiteUrl": "https://www.briselle.com"
+  }
+}

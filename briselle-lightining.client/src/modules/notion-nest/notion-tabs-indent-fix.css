@@ -1,0 +1,382 @@
+/**
+ * Tab panel layout — loads AFTER @blocknote/mantine/style.css.
+ * L1 = notionTabs card body; L2 = notionTabPanel content column (Notion-style).
+ * User blocks and block controls live only inside L2, not on the page left gutter.
+ */
+
+.notion-nest-shell .bn-block-outer.notion-tabs-outer,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) {
+    --notion-tab-inner-padding-x: 12px;
+    --notion-tab-inner-padding-y: 4px;
+    --notion-tab-empty-min-height: 2rem;
+    --notion-tab-side-menu-width: 1.375rem;
+    --notion-tab-block-gap: 0.25rem;
+    --notion-tab-row-padding-y: 2px;
+    --notion-tab-row-gap: 0.2rem;
+    /* Baseline: empty hint + BlockNote "/" placeholder share one typographic row */
+    --notion-tab-placeholder-font-size: 16px;
+    --notion-tab-placeholder-line-height: 1.5;
+    --notion-tab-placeholder-color: rgba(55, 53, 47, 0.375);
+}
+
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .bn-block-group .bn-block-group,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .bn-block-group .bn-block-group {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+}
+
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .bn-block-group .bn-block-group > .bn-block-outer:not([data-prev-depth-changed])::before,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .bn-block-group .bn-block-group > .bn-block-outer:not([data-prev-depth-changed])::before,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer > .bn-block > .bn-block-group > .bn-block-outer.notion-tab-panel-outer:not([data-prev-depth-changed])::before,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) > .bn-block > .bn-block-group > .bn-block-outer.notion-tab-panel-outer:not([data-prev-depth-changed])::before {
+    content: none !important;
+    display: none !important;
+    border: none !important;
+    visibility: hidden !important;
+}
+
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .bn-block-group > .bn-block-outer.notion-tab-panel-outer,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .bn-block-group .bn-block-group > .bn-block-outer {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+}
+
+/* L1 body: one content slot — inactive panel shells out of flow (no drift per tab count) */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer > .bn-block > .bn-block-group,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) > .bn-block > .bn-block-group {
+    display: block !important;
+    position: relative !important;
+    overflow: visible !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    min-height: 0;
+    cursor: text;
+}
+
+.notion-nest-shell .bn-block-outer.notion-tabs-outer > .bn-block > .bn-block-group > .bn-block-outer.notion-tab-panel-outer:not(.is-active-tab-panel),
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) > .bn-block > .bn-block-group > .bn-block-outer.notion-tab-panel-outer:not(.is-active-tab-panel) {
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    pointer-events: none !important;
+}
+
+.notion-nest-shell .bn-block-outer.notion-tabs-outer > .bn-block > .bn-block-group > .bn-block-outer.notion-tab-panel-outer.is-active-tab-panel,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) > .bn-block > .bn-block-group > .bn-block-outer.notion-tab-panel-outer.is-active-tab-panel {
+    position: relative !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    width: auto !important;
+    z-index: 1;
+}
+
+/* L2 active panel with content */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel:not([data-tab-active-empty]) > .bn-block > .bn-block-group,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel:not([data-tab-active-empty]) > .bn-block > .bn-block-group {
+    margin: 0 !important;
+    padding: var(--notion-tab-inner-padding-y) 0 !important;
+    min-height: 0 !important;
+    box-sizing: border-box;
+}
+
+/* Empty tab: hide panel anchor when L2 group shows the CSS ::after hint (keep React hint in content as fallback) */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty]:has(> .bn-block > .bn-block-group) > .bn-block > .bn-block-content .notion-tab-panel-anchor,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty]:has(> .bn-block > .bn-block-group) > .bn-block > .bn-block-content .notion-tab-panel-content-anchor,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty]:has(> .bn-block > .bn-block-group) > .bn-block > .bn-block-content .notion-tab-panel-anchor,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty]:has(> .bn-block > .bn-block-group) > .bn-block > .bn-block-content .notion-tab-panel-content-anchor {
+    display: none !important;
+    height: 0 !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+}
+
+/* CSS ::after hint on empty L2 group — hide React duplicate */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty]:has(> .bn-block > .bn-block-group:not(:has(> .bn-block-outer))) .notion-tab-panel-empty-hint--react,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty]:has(> .bn-block > .bn-block-group:not(:has(> .bn-block-outer))) .notion-tab-panel-empty-hint--react {
+    display: none !important;
+}
+
+/* BlockNote omits .bn-block-group when panel has zero children — CSS hint only (no React duplicate) */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty]:not(:has(> .bn-block > .bn-block-group)) .notion-tab-panel-empty-hint--react,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty]:not(:has(> .bn-block > .bn-block-group)) .notion-tab-panel-empty-hint--react {
+    display: none !important;
+}
+
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty]:not(:has(> .bn-block > .bn-block-group)) > .bn-block,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty]:not(:has(> .bn-block > .bn-block-group)) > .bn-block {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: flex-start !important;
+    gap: var(--notion-tab-row-gap) !important;
+    margin: 0 !important;
+    padding: var(--notion-tab-inner-padding-y) 0 var(--notion-tab-row-padding-y) !important;
+    min-height: 1.5em !important;
+    box-sizing: border-box !important;
+    cursor: text !important;
+    pointer-events: auto !important;
+}
+
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty]:not(:has(> .bn-block > .bn-block-group)) > .bn-block > .bn-block-content,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty]:not(:has(> .bn-block > .bn-block-group)) > .bn-block > .bn-block-content {
+    display: contents !important;
+    height: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    opacity: 1 !important;
+    pointer-events: auto !important;
+}
+
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty]:has(> .bn-block > .bn-block-group) .notion-tab-panel-empty-hint--react,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty]:has(> .bn-block > .bn-block-group) .notion-tab-panel-empty-hint--react {
+    display: none !important;
+}
+
+
+
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty] > .bn-block > .bn-block-group:not(:has(> .bn-block-outer)),
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty] > .bn-block > .bn-block-group:not(:has(> .bn-block-outer)) {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: flex-start !important;
+    gap: var(--notion-tab-row-gap) !important;
+    margin: 0 !important;
+    padding: var(--notion-tab-inner-padding-y) 0 var(--notion-tab-row-padding-y) !important;
+    min-height: 1.5em !important;
+    box-sizing: border-box !important;
+    cursor: text !important;
+    pointer-events: auto !important;
+}
+
+/* Side-menu gutter + label (identical flex row to seeded paragraph) */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty] > .bn-block > .bn-block-group:not(:has(> .bn-block-outer))::before,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty] > .bn-block > .bn-block-group:not(:has(> .bn-block-outer))::before {
+    content: '' !important;
+    display: block !important;
+    flex: 0 0 var(--notion-tab-side-menu-width) !important;
+    width: var(--notion-tab-side-menu-width) !important;
+    min-width: var(--notion-tab-side-menu-width) !important;
+    max-width: var(--notion-tab-side-menu-width) !important;
+    min-height: calc(var(--notion-tab-placeholder-font-size) * var(--notion-tab-placeholder-line-height)) !important;
+    pointer-events: none !important;
+}
+
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty] > .bn-block > .bn-block-group:not(:has(> .bn-block-outer))::after,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty] > .bn-block > .bn-block-group:not(:has(> .bn-block-outer))::after {
+    content: 'Empty tab. Click or drop blocks inside.' !important;
+    display: block !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-family: inherit !important;
+    font-size: var(--notion-tab-placeholder-font-size) !important;
+    line-height: var(--notion-tab-placeholder-line-height) !important;
+    font-weight: inherit !important;
+    font-style: normal !important;
+    color: var(--notion-tab-placeholder-color) !important;
+    pointer-events: none !important;
+    user-select: none !important;
+}
+
+/* Do not hide real block outers while typing — only the static ::before/::after hint row shows when empty. */
+
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty] > .bn-block > .bn-block-group:has(> .bn-block-outer),
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty] > .bn-block > .bn-block-group:has(> .bn-block-outer) {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: flex-start !important;
+    gap: var(--notion-tab-row-gap) !important;
+    margin: 0 !important;
+    padding: var(--notion-tab-inner-padding-y) 0 var(--notion-tab-row-padding-y) !important;
+    min-height: 1.5em !important;
+    box-sizing: border-box !important;
+    cursor: text !important;
+    pointer-events: auto !important;
+}
+
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty] > .bn-block > .bn-block-group:has(> .bn-block-outer)::before,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty] > .bn-block > .bn-block-group:has(> .bn-block-outer)::before {
+    content: '' !important;
+    display: block !important;
+    flex: 0 0 var(--notion-tab-side-menu-width) !important;
+    width: var(--notion-tab-side-menu-width) !important;
+    min-width: var(--notion-tab-side-menu-width) !important;
+    max-width: var(--notion-tab-side-menu-width) !important;
+    min-height: calc(var(--notion-tab-placeholder-font-size) * var(--notion-tab-placeholder-line-height)) !important;
+    pointer-events: none !important;
+}
+
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty] > .bn-block > .bn-block-group:has(> .bn-block-outer)::after,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty] > .bn-block > .bn-block-group:has(> .bn-block-outer)::after {
+    content: 'Empty tab. Click or drop blocks inside.' !important;
+    display: block !important;
+    flex: 1 1 auto !important;
+    min-width: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    font-family: inherit !important;
+    font-size: var(--notion-tab-placeholder-font-size) !important;
+    line-height: var(--notion-tab-placeholder-line-height) !important;
+    font-weight: inherit !important;
+    font-style: normal !important;
+    color: var(--notion-tab-placeholder-color, rgba(55, 53, 47, 0.375)) !important;
+    pointer-events: none !important;
+    user-select: none !important;
+}
+
+/* React fallback row (no L2 group in DOM) — same metrics as CSS hint */
+.notion-nest-shell .bn-block-outer.notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty] > .bn-block > .bn-block-content .notion-tab-panel-empty-hint--react,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel[data-tab-active-empty] > .bn-block > .bn-block-content .notion-tab-panel-empty-hint--react {
+    display: flex !important;
+    flex: 1 1 auto;
+    flex-direction: row;
+    align-items: flex-start;
+    gap: var(--notion-tab-row-gap);
+    box-sizing: border-box;
+    width: 100%;
+    min-width: 0;
+    margin: 0;
+    padding: 0;
+    font-family: inherit;
+    font-size: var(--notion-tab-placeholder-font-size);
+    line-height: var(--notion-tab-placeholder-line-height);
+    font-weight: inherit;
+    font-style: normal;
+    color: var(--notion-tab-placeholder-color);
+    cursor: text;
+    user-select: none;
+    pointer-events: auto;
+}
+
+.notion-nest-shell .notion-tab-panel-empty-hint__gutter {
+    flex: 0 0 var(--notion-tab-side-menu-width);
+    width: var(--notion-tab-side-menu-width);
+    min-width: var(--notion-tab-side-menu-width);
+    max-width: var(--notion-tab-side-menu-width);
+}
+
+.notion-nest-shell .notion-tab-panel-empty-hint__text {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+/* BlockNote "/" placeholder — match empty hint typography in tab panels */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel .bn-block-group > .bn-block-outer .bn-inline-content,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel .bn-block-group > .bn-block-outer .bn-inline-content {
+    font-size: var(--notion-tab-placeholder-font-size);
+    line-height: var(--notion-tab-placeholder-line-height);
+}
+
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel .bn-block-group > .bn-block-outer .bn-inline-content::placeholder,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel .bn-block-group > .bn-block-outer .bn-inline-content::placeholder,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel .bn-block-group > .bn-block-outer .ProseMirror p.is-empty::before,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel .bn-block-group > .bn-block-outer .ProseMirror p.is-empty::before,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel .bn-block-group > .bn-block-outer .ProseMirror p.is-editor-empty:first-child::before,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel .bn-block-group > .bn-block-outer .ProseMirror p.is-editor-empty:first-child::before {
+    font-family: inherit !important;
+    font-size: var(--notion-tab-placeholder-font-size) !important;
+    line-height: var(--notion-tab-placeholder-line-height) !important;
+    font-weight: inherit !important;
+    font-style: normal !important;
+    color: var(--notion-tab-placeholder-color) !important;
+}
+
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel[data-tab-empty='false'] > .bn-block::before,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel[data-tab-empty='false'] > .bn-block::before,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel[data-tab-empty='false'] > .bn-block > .bn-block-group::before,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel[data-tab-empty='false'] > .bn-block > .bn-block-group::before {
+    content: none !important;
+    display: none !important;
+}
+
+.notion-nest-shell .notion-tab-panel-content-anchor {
+    height: 0 !important;
+    max-height: 0 !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+}
+
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel .bn-block-group > .bn-block-outer,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel .bn-block-group > .bn-block-outer {
+    margin-top: var(--notion-tab-block-gap) !important;
+    margin-bottom: var(--notion-tab-block-gap) !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+}
+
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel .bn-block-group > .bn-block-outer:first-child,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel .bn-block-group > .bn-block-outer:first-child {
+    margin-top: 0 !important;
+}
+
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel .bn-block-group > .bn-block-outer .bn-block-content:not(.notion-tab-panel-content-anchor),
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel .bn-block-group > .bn-block-outer .bn-block-content:not(.notion-tab-panel-content-anchor) {
+    display: flex !important;
+    flex-direction: row !important;
+    align-items: flex-start !important;
+    gap: var(--notion-tab-row-gap) !important;
+    min-height: 1.5em !important;
+    padding: var(--notion-tab-row-padding-y) 0 !important;
+    margin: 0 !important;
+    position: relative !important;
+}
+
+/* Nested blocks inside a tab — no cumulative page gutter indent */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel .bn-block-group .bn-block-group {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+}
+
+/* Nested tabs cards: no extra nest indent (clone .blocks-container padding 0) */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel .bn-block-group > .bn-block-outer.notion-tabs-outer,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .bn-block-outer.notion-tabs-outer .bn-block-group {
+    margin-left: 0 !important;
+    padding-left: 0 !important;
+}
+
+/* Page-level nested blocks — gutter for six-dot handle (outside tabs only) */
+.notion-nest-shell .bn-editor > .bn-block-group > .bn-block-outer:not(.notion-tabs-outer) .bn-block-group {
+    margin-left: 1.375rem !important;
+    padding-left: 0 !important;
+}
+
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel .bn-block-group > .bn-block-outer .bn-block-content:not(.notion-tab-panel-content-anchor) {
+    padding-left: 0 !important;
+}
+
+/* Side menu / drag handle inside L2 tab bounds (not page left edge) */
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel .bn-block-group > .bn-block-outer .bn-block-content:not(.notion-tab-panel-content-anchor) > .bn-side-menu,
+.notion-nest-shell .bn-block-outer.notion-tabs-outer .notion-tab-panel-outer.is-active-tab-panel .bn-block-group > .bn-block-outer .bn-block-content:not(.notion-tab-panel-content-anchor) > .bn-drag-handle-menu,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel .bn-block-group > .bn-block-outer .bn-block-content:not(.notion-tab-panel-content-anchor) > .bn-side-menu,
+.notion-nest-shell .bn-block-outer:has([data-content-type='notionTabs']) .notion-tab-panel-outer.is-active-tab-panel .bn-block-group > .bn-block-outer .bn-block-content:not(.notion-tab-panel-content-anchor) > .bn-drag-handle-menu {
+    display: flex !important;
+    flex: 0 0 var(--notion-tab-side-menu-width) !important;
+    width: var(--notion-tab-side-menu-width) !important;
+    min-width: var(--notion-tab-side-menu-width) !important;
+    max-width: var(--notion-tab-side-menu-width) !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: visible !important;
+    pointer-events: auto !important;
+    position: static !important;
+    left: auto !important;
+    right: auto !important;
+    transform: none !important;
+    opacity: 1 !important;
+}
+
+/* L1 hoisted blocks: visibility via data-tab-index + applyTabVisibility (not blanket display:none) */
+
+/* Nested tabs card border is in notion-nest.css — do not strip it here */

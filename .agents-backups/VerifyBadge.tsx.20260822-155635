@@ -1,0 +1,101 @@
+/* ============================================================
+   Briselle Enterprise Platform — Settings / AI Providers Config
+   VerifyBadge.tsx — the verification certificate indicator
+   Created At: 2026-08-22 | Last Modified: 2026-08-22
+   Previous Version Back URL: (new file — no previous version)
+
+   Task: BRIS-AI-T188
+
+   The rule the platform owner specified, in one place:
+
+     Provider  coloured only when the endpoint + key verified.
+     Model     coloured only when the model verified AND its parent
+               provider verified — a tick on an unverified endpoint
+               would claim more than was actually tested.
+     Count     verified-model count beside the provider badge:
+               grey at 0, green above 0.
+
+   One component so the providers list, the models list and the models
+   sub-page header cannot drift apart on what "verified" looks like.
+   ============================================================ */
+import { BadgeCheck, ShieldQuestion } from 'lucide-react';
+import type { VerifyStamp } from '../../../services/platformAiConfigTypes';
+
+/** Relative age, so a stale pass does not read as a live guarantee. */
+function ago(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return '';
+  const mins = Math.floor((Date.now() - then) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+export interface VerifyBadgeProps {
+  stamp?: VerifyStamp | null;
+  /**
+   * For a model: whether its parent provider is verified. A model can
+   * only show as verified when this is true.
+   */
+  parentVerified?: boolean;
+  label?: string;
+}
+
+export function VerifyBadge({ stamp, parentVerified = true, label = 'Verified' }: VerifyBadgeProps) {
+  const active = stamp?.ok === true && parentVerified;
+
+  if (!stamp) {
+    return (
+      <span className="aipc-verify is-unknown" title="Not verified yet — press Verify.">
+        <ShieldQuestion size={13} />
+        <span>Not verified</span>
+      </span>
+    );
+  }
+
+  /* Passed on its own but the provider has not — say so explicitly
+     rather than showing a bare grey tick the admin cannot interpret. */
+  if (stamp.ok && !parentVerified) {
+    return (
+      <span
+        className="aipc-verify is-pending"
+        title={`This model responded, but its provider has not been verified. ${stamp.message || ''}`.trim()}
+      >
+        <BadgeCheck size={13} />
+        <span>Provider unverified</span>
+      </span>
+    );
+  }
+
+  return (
+    <span
+      className={`aipc-verify ${active ? 'is-ok' : 'is-bad'}`}
+      title={`${stamp.message || (active ? 'Verified.' : 'Verification failed.')} (${ago(stamp.at)})`}
+    >
+      <BadgeCheck size={13} />
+      <span>{active ? label : 'Failed'}</span>
+      <span className="aipc-verify-age">{ago(stamp.at)}</span>
+    </span>
+  );
+}
+
+export interface VerifiedCountProps {
+  verified: number;
+  total: number;
+}
+
+/** Verified-model count. Grey at zero, green above it. */
+export function VerifiedModelCount({ verified, total }: VerifiedCountProps) {
+  return (
+    <span
+      className={`aipc-verify-count ${verified > 0 ? 'is-ok' : 'is-zero'}`}
+      title={`${verified} of ${total} model(s) verified against this provider.`}
+    >
+      {verified}/{total} models
+    </span>
+  );
+}
+
+export default VerifyBadge;

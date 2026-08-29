@@ -1,0 +1,173 @@
+/* ============================================================
+   Briselle Enterprise Platform — Platform Services
+   platformAiConfigTypes.ts — AI configuration document shape
+   Created At: 2026-08-22 | Last Modified: 2026-08-22
+   Previous Version Back URL: (new file — no previous version)
+
+   Task: BRIS-AI-T153
+
+   The shape of the `ai` document stored in platform_config
+   (config_type 10 = AIProvidersLoader). See
+   database/021_platform_ai_config.sql.
+
+   ── This file names no module ──────────────────────────────────
+   Nothing here references NotionNest, Ziva, meeting notes or any
+   other feature. Modules are consumers of this registry; the
+   registry knows nothing about them. A `capability` tag is the only
+   vocabulary shared across the boundary, and a capability is a thing
+   a model can do — not a place in the product that wants it.
+   ============================================================ */
+
+/** Provider families we know how to talk to. Open for extension. */
+export type ProviderType = 'openai-compatible' | 'anthropic' | 'custom';
+
+/** What a model can be used for. Drives which models a configuration offers. */
+export type ModelType = 'chat' | 'stt' | 'tts' | 'embedding' | 'vision' | 'other';
+
+/** How a client reaches an MCP server. */
+export type McpTransport = 'http' | 'sse' | 'stdio';
+
+export interface AiProvider {
+  id: string;
+  name: string;
+  type: ProviderType;
+  baseUrl: string;
+  /**
+   * Opaque pointer into Supabase Vault — `ai:<entityId>:<providerId>`.
+   * NEVER the secret itself. The database trigger in migration 021
+   * rejects any row carrying a plaintext credential field.
+   */
+  credentialRef: string;
+  enabled: boolean;
+  /** Lower runs first when several providers serve one capability. */
+  priority?: number;
+  /** Capability tags this provider is permitted to serve. */
+  capabilities?: string[];
+  notes?: string;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+}
+
+export interface AiModel {
+  id: string;
+  providerId: string;
+  /** The wire id sent to the provider, e.g. `llama-3.1-8b-instant`. */
+  name: string;
+  /** What an admin reads in a dropdown. */
+  displayName: string;
+  type: ModelType;
+  enabled: boolean;
+  /** Optional ceiling used to warn before a provider rejects the request. */
+  contextWindow?: number | null;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+}
+
+export interface AiConfigurationParameters {
+  temperature?: number;
+  maxTokens?: number;
+  topP?: number;
+  /** Provider-specific extras passed through untouched. */
+  extra?: Record<string, unknown>;
+}
+
+/**
+ * The reusable abstraction a module actually consumes. A module names a
+ * configuration (or asks for a capability); it never names a provider,
+ * a model, a URL or a key.
+ */
+export interface AiConfiguration {
+  id: string;
+  name: string;
+  description?: string;
+  providerId: string;
+  modelId: string;
+  parameters: AiConfigurationParameters;
+  enabled: boolean;
+  /** Capability tags this configuration answers for. */
+  capabilities?: string[];
+  /** Lower wins when several configurations serve one capability. */
+  priority?: number;
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+}
+
+export interface McpServerConfig {
+  id: string;
+  name: string;
+  description?: string;
+  transport: McpTransport;
+  /** For http / sse transports. */
+  url?: string;
+  /** For stdio transport. */
+  command?: string;
+  args?: string[];
+  /** Vault pointer, same contract as a provider. Optional — not every
+      MCP server needs auth. */
+  credentialRef?: string;
+  /** Header name the credential is sent under, when the server wants a
+      non-standard one. Defaults to Authorization: Bearer. */
+  authHeader?: string;
+  enabled: boolean;
+  /** Tool names to expose. Empty means all. */
+  allowedTools?: string[];
+  capabilities?: string[];
+  updatedAt?: string | null;
+  updatedBy?: string | null;
+}
+
+export interface AiCapability {
+  id: string;
+  label: string;
+  description?: string;
+}
+
+export interface AiDocument {
+  version: number;
+  providers: AiProvider[];
+  models: AiModel[];
+  configurations: AiConfiguration[];
+  mcpServers: McpServerConfig[];
+  capabilities: AiCapability[];
+  /** true when no platform_config row exists — the UI must say so
+      rather than let an admin edit a document that will not persist. */
+  missing?: boolean;
+}
+
+export const AI_DOC_VERSION = 1;
+
+/**
+ * Fallback capability vocabulary, used ONLY to label a document whose
+ * row predates migration 021's seed. It is a display vocabulary, not
+ * configuration: no provider, model, key or endpoint is implied by it,
+ * so nothing here can turn into a call that fails at runtime. Providers,
+ * models and configurations are never defaulted in code.
+ */
+export const FALLBACK_CAPABILITIES: AiCapability[] = [
+  { id: 'stt', label: 'Speech to Text', description: 'Audio transcription and live speech engines' },
+  { id: 'summarization', label: 'Summarization', description: 'Long-form text and notes summarisation' },
+  { id: 'translation', label: 'Translation Engine', description: 'Multilingual text translation' },
+  { id: 'chat', label: 'Chat Orchestrator', description: 'Interactive conversational responses' },
+  { id: 'schema_controller', label: 'Schema Controller', description: 'Structured schema and attribute generation' },
+  { id: 'embedding', label: 'Embeddings', description: 'Vector embeddings for search and retrieval' },
+  { id: 'vision', label: 'Vision', description: 'Image and document understanding' },
+  { id: 'tools', label: 'Tool / MCP Access', description: 'External tool and MCP connector access' },
+];
+
+/** An empty document. Returned when the platform_config row is absent. */
+export function emptyAiDocument(): AiDocument {
+  return {
+    version: AI_DOC_VERSION,
+    providers: [],
+    models: [],
+    configurations: [],
+    mcpServers: [],
+    capabilities: FALLBACK_CAPABILITIES,
+    missing: true,
+  };
+}
+
+/** Build the Vault pointer for a provider. Derived, never random. */
+export function credentialRefFor(entityId: number | string, providerId: string): string {
+  return `ai:${entityId}:${providerId}`;
+}

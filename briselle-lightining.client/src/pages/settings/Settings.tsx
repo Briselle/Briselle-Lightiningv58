@@ -1,5 +1,6 @@
 import React from 'react';
-import { Settings as SettingsIcon } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { BrainCircuit, ChevronRight, Settings as SettingsIcon } from 'lucide-react';
 
 const Settings = () => {
   return (
@@ -9,6 +10,30 @@ const Settings = () => {
         <h1 className="text-2xl font-semibold text-gray-900">Settings</h1>
       </div>
       
+      {/* BRIS-AI-T152: sub-page index. The sidebar group is one route in;
+          this is the other, so a bookmarked /settings still reaches them. */}
+      <div className="mb-6">
+        <h2 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-3">Configuration</h2>
+        <div className="grid gap-4 md:grid-cols-2">
+          <Link
+            to="/settings/ai-providers"
+            className="flex items-start gap-3 p-4 bg-white rounded-lg shadow hover:shadow-md transition-shadow group"
+          >
+            <span className="p-2 rounded-md bg-teal-50 text-teal-700">
+              <BrainCircuit className="w-5 h-5" />
+            </span>
+            <span className="flex-1 min-w-0">
+              <span className="block text-sm font-medium text-gray-900">AI Providers Config</span>
+              <span className="block text-sm text-gray-500 mt-0.5">
+                Providers, models, reusable AI configurations and MCP connectors. Credentials are held in
+                Supabase Vault.
+              </span>
+            </span>
+            <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-gray-500 mt-1" />
+          </Link>
+        </div>
+      </div>
+
       <div className="grid gap-6 md:grid-cols-2">
         <section className="p-6 bg-white rounded-lg shadow">
           <h2 className="text-lg font-medium text-gray-900 mb-4">General Settings</h2>

@@ -5,7 +5,15 @@ import { TableConfig } from '../../ConfigurableListTemplate';
 import { getDefaultPreset } from '../utils/presets';
 import { TAB_ICON_CUSTOM_KEY, TabBarIcon, TabIconPickerSelect } from '../utils/tabBarIcons';
 import type { TableQueryState } from '../utils/tableUserViewStorage';
-import { appendPresetToDB, removePresetFromDB, updateSinglePresetInDB, savePresetOrderToDB, DB_ENTITY_ID, DB_DOBJ_ID } from '../utils/configService';
+import {
+    appendPresetToDB,
+    removePresetFromDB,
+    updateSinglePresetInDB,
+    savePresetOrderToDB,
+    DB_ENTITY_ID,
+    DB_DOBJ_ID,
+    type PlatformConfigScope,
+} from '../utils/configService';
 
 interface PresetSettingsSectionProps {
     selectedPreset: string;
@@ -23,6 +31,7 @@ interface PresetSettingsSectionProps {
     onPresetSelect?: (presetId: string) => void;
     modalHeaderFontSize?: number;
     modalContentFontSize?: number;
+    platformConfigScope?: PlatformConfigScope;
 }
 
 const PresetSettingsSection: React.FC<PresetSettingsSectionProps> = ({
@@ -40,7 +49,9 @@ const PresetSettingsSection: React.FC<PresetSettingsSectionProps> = ({
     onPresetSelect,
     modalHeaderFontSize,
     modalContentFontSize,
+    platformConfigScope = { entityId: DB_ENTITY_ID, dobjId: DB_DOBJ_ID },
 }) => {
+    const { entityId: pcEntityId, dobjId: pcDobjId } = platformConfigScope;
     const [showJsonEditor, setShowJsonEditor] = useState<string | null>(null);
     const [jsonContent, setJsonContent] = useState('');
     const [editingPreset, setEditingPreset] = useState<TablePreset | null>(null);
@@ -76,7 +87,7 @@ const PresetSettingsSection: React.FC<PresetSettingsSectionProps> = ({
             if (onPresetSelect) onPresetSelect(editingPreset.id);
 
             // Push only this preset's config to DB
-            updateSinglePresetInDB(editingPreset.id, { config: parsedConfig }).then(({ error }) => {
+            updateSinglePresetInDB(editingPreset.id, { config: parsedConfig }, pcEntityId, pcDobjId).then(({ error }) => {
                 if (error) alert(error);
             });
 
@@ -110,7 +121,7 @@ const PresetSettingsSection: React.FC<PresetSettingsSectionProps> = ({
         onPresetsChange?.(updated);
 
         // Push rename to DB
-        updateSinglePresetInDB(editingNameId, { name: trimmed }).then(({ error }) => {
+        updateSinglePresetInDB(editingNameId, { name: trimmed }, pcEntityId, pcDobjId).then(({ error }) => {
             if (error) console.warn('[PresetSettings] DB rename failed:', error);
         });
 
@@ -190,13 +201,13 @@ const PresetSettingsSection: React.FC<PresetSettingsSectionProps> = ({
             customIcon: newPresetIconKey === TAB_ICON_CUSTOM_KEY ? newPresetCustomIcon.trim() || undefined : undefined,
         };
 
-        const { success, error: dbError } = await appendPresetToDB(newPreset);
+        const { success, error: dbError } = await appendPresetToDB(newPreset, pcEntityId, pcDobjId);
         if (!success) {
             console.error('[PresetSettings] DB append failed:', dbError);
             alert(
                 `Preset was not saved to the database.\n\n${
                     dbError || 'Unknown error'
-                }\n\nCheck the browser console and ensure platform_config has a row for entity ${DB_ENTITY_ID}, dobj ${DB_DOBJ_ID}, config_type 3.`
+                }\n\nCheck the browser console and ensure platform_config has a row for entity ${pcEntityId}, dobj ${pcDobjId}, config_type 3.`
             );
             return;
         }
@@ -237,7 +248,7 @@ const PresetSettingsSection: React.FC<PresetSettingsSectionProps> = ({
         onPresetsChange?.(reordered);
 
         // Push reorder to DB
-        savePresetOrderToDB(reordered, selectedPreset || 'default').then(({ error }) => {
+        savePresetOrderToDB(reordered, selectedPreset || 'default', pcEntityId, pcDobjId).then(({ error }) => {
             if (error) console.warn('[PresetSettings] DB reorder failed:', error);
         });
     };
@@ -257,7 +268,7 @@ const PresetSettingsSection: React.FC<PresetSettingsSectionProps> = ({
         onPresetsChange?.(updated);
 
         // Push icon change to DB
-        updateSinglePresetInDB(preset.id, { iconKey, customIcon: c || 'none' }).then(({ error }) => {
+        updateSinglePresetInDB(preset.id, { iconKey, customIcon: c || 'none' }, pcEntityId, pcDobjId).then(({ error }) => {
             if (error) console.warn('[PresetSettings] DB icon update failed:', error);
         });
     };

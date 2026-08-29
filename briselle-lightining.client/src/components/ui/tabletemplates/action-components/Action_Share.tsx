@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Share2, Link2, Lock, RefreshCw, Code, Copy, X } from 'lucide-react';
+import { Share2, Link2, Lock, RefreshCw, Code, Copy, X, Trash2 } from 'lucide-react';
 import { cn } from '../../../../utils/helpers';
 
 export type ShareOption = 'create-link' | 'private-link' | 'sync' | 'embed';
@@ -18,6 +18,22 @@ interface Action_ShareProps {
     shareRestrictEmail?: string;
     config?: Record<string, unknown>;
     onConfigChange?: (partial: Record<string, unknown>) => void;
+    onCreateShareTokenSettings?: (token: string, settings: {
+        restrictCopy: boolean;
+        panelAllowed: boolean;
+        scope?: string;
+        linkName?: string;
+        presetId?: string;
+        lockedPresetId?: string;
+        lockedTabId?: string;
+        requireCredentials?: boolean;
+        allowedEmailOrDomain?: string;
+    }) => Promise<boolean>;
+    onDeleteShareToken?: (token: string) => Promise<boolean>;
+    onDeleteAllShareTokens?: () => Promise<boolean>;
+    shareGeneratedLinks?: Array<{ token: string; linkName: string; url: string; createdAt?: string }>;
+    activePresetId?: string;
+    activeTabIdForShare?: string;
 }
 
 const DISCLAIMER = 'Data shared via this link may move outside of the Briselle Platform. Ensure you have proper consent and governance.';
@@ -68,14 +84,31 @@ const Action_Share: React.FC<Action_ShareProps> = ({
     shareRestrictEmail = '',
     config,
     onConfigChange,
+    onCreateShareTokenSettings,
+    onDeleteShareToken,
+    onDeleteAllShareTokens,
+    shareGeneratedLinks = [],
+    activePresetId = 'default',
+    activeTabIdForShare,
 }) => {
     const [showDropdown, setShowDropdown] = useState(false);
     const [showShareLinkSettings, setShowShareLinkSettings] = useState(false);
     const [emailError, setEmailError] = useState<string | null>(null);
+    const [linkName, setLinkName] = useState('');
+    const [linkNameError, setLinkNameError] = useState<string | null>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
+    const menuPanelRef = useRef<HTMLDivElement>(null);
+    const settingsPanelRef = useRef<HTMLDivElement>(null);
 
     const emailRequired = shareRestrictByPasswordOrDomain;
     const canGenerate = !emailRequired || !!shareRestrictEmail?.trim();
+
+    useEffect(() => {
+        if (showShareLinkSettings) {
+            const next = `Link ${Math.min(shareGeneratedLinks.length + 1, 5)}`;
+            setLinkName((prev) => prev || next);
+        }
+    }, [showShareLinkSettings, shareGeneratedLinks.length]);
 
     useEffect(() => {
         const handleClickOutside = (e: MouseEvent) => {
@@ -94,29 +127,90 @@ const Action_Share: React.FC<Action_ShareProps> = ({
         return () => document.removeEventListener('actionButtonClick', close);
     }, []);
 
+    useEffect(() => {
+        if (!showDropdown && !showShareLinkSettings) return;
+        const panelEl = (showShareLinkSettings ? settingsPanelRef.current : menuPanelRef.current) as HTMLElement | null;
+        const actionPanelEl = document.querySelector('.relative.z-\\[110\\].px-4.py-2.border-b.border-gray-200') as HTMLElement | null;
+        const buttonEl = dropdownRef.current?.querySelector('button') as HTMLElement | null;
+        const panelRect = panelEl?.getBoundingClientRect() ?? null;
+        const buttonRect = buttonEl?.getBoundingClientRect() ?? null;
+        const actionRect = actionPanelEl?.getBoundingClientRect() ?? null;
+        const panelStyle = panelEl ? window.getComputedStyle(panelEl) : null;
+        const actionStyle = actionPanelEl ? window.getComputedStyle(actionPanelEl) : null;
+        const parentStyle = dropdownRef.current ? window.getComputedStyle(dropdownRef.current) : null;
+    }, [showDropdown, showShareLinkSettings]);
+
     if (!enableShare) return null;
 
     const update = (updates: Record<string, unknown>) => {
         onConfigChange?.({ ...config, ...updates });
     };
 
-    const generateLink = () => {
+    const generateLink = async () => {
+        const trimmedName = linkName.trim();
+        if (!trimmedName) {
+            setLinkNameError('Please enter a short link name.');
+            return;
+        }
+        if (shareGeneratedLinks.length >= 5) {
+            alert('Only 5 links are allowed, please try after deleting the existing links.');
+            return;
+        }
         if (shareRestrictByPasswordOrDomain && !shareRestrictEmail?.trim()) {
             setEmailError('Email is required when restriction is enabled.');
             return;
         }
+        setLinkNameError(null);
         setEmailError(null);
         const base = typeof window !== 'undefined' ? window.location.origin + window.location.pathname : '';
-        const restrict = shareRestrictCopy ? '1' : '0';
-        const panel = shareActionPanelViewAllowed ? '1' : '0';
-        const url = `${base}?share=${Date.now()}&scope=title-to-footer&restrictCopy=${restrict}&panelAllowed=${panel}`;
+        const token =
+            typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function'
+                ? Array.from(crypto.getRandomValues(new Uint8Array(8))).map((b) => b.toString(16).padStart(2, '0')).join('')
+                : `${Date.now()}`;
+        const lockedPresetId = activePresetId;
+        const lockedTabId = activeTabIdForShare;
+        const persisted = await onCreateShareTokenSettings?.(token, {
+            restrictCopy: shareRestrictCopy,
+            panelAllowed: shareActionPanelViewAllowed,
+            scope: 'title-to-footer',
+            linkName: trimmedName,
+            presetId: activePresetId,
+            lockedPresetId,
+            lockedTabId,
+            requireCredentials: shareRestrictByPasswordOrDomain,
+            allowedEmailOrDomain: shareRestrictByPasswordOrDomain ? (shareRestrictEmail?.trim() || undefined) : undefined,
+        });
+        if (persisted === false) {
+            alert('Could not create secure share link right now. Please try again.');
+            return;
+        }
+        const url = `${base}?share=${encodeURIComponent(token)}`;
         update({ shareLinkUrl: url, shareLinkActive: true });
+        setLinkName(`Link ${Math.min(shareGeneratedLinks.length + 2, 5)}`);
+        if (shareRestrictByPasswordOrDomain && shareRestrictEmail?.trim()) {
+            alert(`Share invite sent to ${shareRestrictEmail.trim()} with one-time password.`);
+        }
     };
 
-    const disableLink = () => {
+    const handleDeleteAllLinks = async () => {
+        if (shareGeneratedLinks.length === 0) return;
+        const ok = await onDeleteAllShareTokens?.();
+        if (ok === false) {
+            alert('Could not delete links right now. Please try again.');
+            return;
+        }
         update({ shareLinkUrl: '', shareLinkActive: false });
-        setShowShareLinkSettings(false);
-        setShowDropdown(false);
+    };
+
+    const handleDeleteLink = async (token: string) => {
+        const ok = await onDeleteShareToken?.(token);
+        if (ok === false) {
+            alert('Could not delete this link right now. Please try again.');
+            return;
+        }
+        if (shareLinkUrl.includes(`share=${token}`)) {
+            update({ shareLinkUrl: '', shareLinkActive: false });
+        }
     };
 
     const copyLink = () => {
@@ -171,7 +265,7 @@ const Action_Share: React.FC<Action_ShareProps> = ({
             </button>
 
             {showDropdown && (
-                <div className={cn('absolute top-full mt-1 w-56 bg-white border border-gray-200 rounded-md shadow-lg z-50', alignClass)}>
+                <div ref={menuPanelRef} className={cn('absolute top-full mt-1 w-72 bg-white border border-gray-200 rounded-md shadow-lg z-50', alignClass)}>
                     <div className="py-1">
                         <button
                             onClick={openShareLinkSettings}
@@ -197,7 +291,7 @@ const Action_Share: React.FC<Action_ShareProps> = ({
             )}
 
             {showShareLinkSettings && (
-                <div className={cn('absolute top-full mt-1 min-w-[320px] w-max max-w-[90vw] bg-white border border-gray-200 rounded-md shadow-lg z-50', alignClass)}>
+                <div ref={settingsPanelRef} className={cn('absolute top-full mt-1 min-w-[224px] w-[420px] max-w-[63vw] bg-white border border-gray-200 rounded-md shadow-lg z-50', alignClass)}>
                     <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
                         <h3 className="text-sm font-semibold text-gray-900">Share Link Settings</h3>
                         <button
@@ -226,6 +320,21 @@ const Action_Share: React.FC<Action_ShareProps> = ({
                         </div>
 
                         <div className="text-xs font-medium text-gray-700">Link Settings</div>
+
+                        <div>
+                            <label className="block text-xs text-gray-600 mb-1">Link name <span className="text-red-500">*</span></label>
+                            <input
+                                type="text"
+                                value={linkName}
+                                onChange={(e) => {
+                                    setLinkName(e.target.value);
+                                    setLinkNameError(null);
+                                }}
+                                placeholder="Link 1"
+                                className={cn('w-full text-sm border rounded px-2 py-1.5', linkNameError ? 'border-red-500' : 'border-gray-200')}
+                            />
+                            {linkNameError && <p className="text-xs text-red-500 mt-1">{linkNameError}</p>}
+                        </div>
 
                         <div className="flex items-center justify-between gap-3">
                             <span className="text-sm">Action panel view allowed</span>
@@ -274,16 +383,55 @@ const Action_Share: React.FC<Action_ShareProps> = ({
 
                         <div className="flex gap-2 pt-1 items-center">
                             <button
-                                onClick={generateLink}
+                                onClick={() => void generateLink()}
                                 disabled={!canGenerate}
                                 className={cn('flex-1 text-sm px-3 py-1.5 rounded', canGenerate ? 'bg-primary text-white hover:opacity-90' : 'bg-gray-200 text-gray-500 cursor-not-allowed')}
                             >
                                 Generate new link
                             </button>
-                            <button onClick={disableLink} className="flex items-center gap-1.5 px-2 py-1.5 border border-gray-300 rounded hover:bg-red-50 text-red-600 text-sm" title="Disable link">
+                            <button onClick={() => void handleDeleteAllLinks()} className="flex items-center gap-1.5 px-2 py-1.5 border border-gray-300 rounded hover:bg-red-50 text-red-600 text-sm" title="Delete all links">
                                 <X size={16} />
-                                <span>Disable link</span>
+                                <span>Delete All Links</span>
                             </button>
+                        </div>
+
+                        <div className="pt-2 border-t border-gray-100">
+                            <div className="flex items-center justify-between mb-2">
+                                <p className="text-xs font-medium text-gray-700">Generated links for this preset</p>
+                                <span className="text-[11px] text-gray-500">{shareGeneratedLinks.length}/5</span>
+                            </div>
+                            <div className="space-y-1 max-h-36 overflow-auto">
+                                {shareGeneratedLinks.length === 0 && (
+                                    <p className="text-xs text-gray-500">No links generated yet.</p>
+                                )}
+                                {shareGeneratedLinks.map((ln) => (
+                                    <div key={ln.token} className="flex items-center gap-2 text-xs">
+                                        <button
+                                            type="button"
+                                            className="flex-1 text-left truncate text-blue-600 hover:underline"
+                                            title={ln.linkName}
+                                        >
+                                            {ln.linkName}
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="text-gray-600 hover:text-gray-800"
+                                            onClick={() => void navigator.clipboard.writeText(ln.url)}
+                                            title="Copy link"
+                                        >
+                                            <Copy size={13} />
+                                        </button>
+                                        <button
+                                            type="button"
+                                            className="text-red-600 hover:text-red-700"
+                                            onClick={() => void handleDeleteLink(ln.token)}
+                                            title="Delete link"
+                                        >
+                                            <Trash2 size={13} />
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
 
                         <p className="text-xs text-gray-500 pt-2 border-t border-gray-100">{DISCLAIMER}</p>

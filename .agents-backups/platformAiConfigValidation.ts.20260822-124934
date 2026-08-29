@@ -1,0 +1,428 @@
+/* ============================================================
+   Briselle Enterprise Platform — Platform Services
+   platformAiConfigValidation.ts — AI document validation rules
+   Created At: 2026-08-22 | Last Modified: 2026-08-22
+   Previous Version Back URL: (new file — no previous version)
+
+   Task: BRIS-AI-T154
+
+   Every validation rule as a PURE function. No imports, no DOM, no
+   Supabase — so each rule can be exercised directly without a browser
+   or a database, which is the only way this stays trustworthy as the
+   rule list grows.
+
+   Rules implemented (from the approved plan, section 17 of the spec):
+     - provider ids unique, model ids unique, configuration ids unique
+     - a model must reference an existing provider
+     - a configuration must reference an existing provider AND model,
+       and the model must belong to that provider
+     - a disabled provider cannot be executed against
+     - a referenced provider / model cannot be deleted
+     - base URL must be https for production use
+     - document version validated before save
+   ============================================================ */
+import type {
+  AiConfiguration,
+  AiDocument,
+  AiModel,
+  AiProvider,
+  McpServerConfig,
+} from './platformAiConfigTypes';
+import { AI_DOC_VERSION } from './platformAiConfigTypes';
+
+export type IssueSeverity = 'error' | 'warning';
+
+export interface ValidationIssue {
+  severity: IssueSeverity;
+  /** Which collection the issue belongs to, for routing to the right tab. */
+  scope: 'document' | 'provider' | 'model' | 'configuration' | 'mcpServer';
+  /** Record id, when the issue is about one record. */
+  id?: string;
+  /** Field name, when the issue is about one field. */
+  field?: string;
+  message: string;
+}
+
+export interface ValidationResult {
+  ok: boolean;
+  errors: ValidationIssue[];
+  warnings: ValidationIssue[];
+}
+
+const ID_RE = /^[a-z0-9][a-z0-9._-]{0,63}$/i;
+
+function err(scope: ValidationIssue['scope'], message: string, id?: string, field?: string): ValidationIssue {
+  return { severity: 'error', scope, message, id, field };
+}
+function warn(scope: ValidationIssue['scope'], message: string, id?: string, field?: string): ValidationIssue {
+  return { severity: 'warning', scope, message, id, field };
+}
+
+function collect(issues: ValidationIssue[]): ValidationResult {
+  const errors = issues.filter((i) => i.severity === 'error');
+  const warnings = issues.filter((i) => i.severity === 'warning');
+  return { ok: errors.length === 0, errors, warnings };
+}
+
+/** Duplicate ids in a collection, case-insensitively. */
+function duplicateIds(items: Array<{ id?: string }>): string[] {
+  const seen = new Set<string>();
+  const dupes = new Set<string>();
+  items.forEach((i) => {
+    const k = String(i?.id || '').trim().toLowerCase();
+    if (!k) return;
+    if (seen.has(k)) dupes.add(k);
+    seen.add(k);
+  });
+  return [...dupes];
+}
+
+/* ── Single-record rules ─────────────────────────────────────────── */
+
+export function validateProvider(p: Partial<AiProvider>): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const id = String(p?.id || '').trim();
+
+  if (!id) issues.push(err('provider', 'Provider id is required.', id, 'id'));
+  else if (!ID_RE.test(id)) {
+    issues.push(err('provider', 'Provider id may contain letters, digits, dot, underscore and hyphen only (max 64).', id, 'id'));
+  }
+
+  if (!String(p?.name || '').trim()) {
+    issues.push(err('provider', 'Provider name is required.', id, 'name'));
+  }
+
+  const baseUrl = String(p?.baseUrl || '').trim();
+  if (!baseUrl) {
+    issues.push(err('provider', 'Base URL is required.', id, 'baseUrl'));
+  } else {
+    let parsed: URL | null = null;
+    try { parsed = new URL(baseUrl); } catch { parsed = null; }
+    if (!parsed) {
+      issues.push(err('provider', `Base URL "${baseUrl}" is not a valid URL.`, id, 'baseUrl'));
+    } else if (parsed.protocol === 'http:') {
+      /* localhost over http is a legitimate development setup; anything
+         else sends a credential over the wire in the clear. */
+      const local = /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(parsed.hostname);
+      if (local) {
+        issues.push(warn('provider', 'Base URL uses http. Acceptable for local development only.', id, 'baseUrl'));
+      } else {
+        issues.push(err('provider', 'Base URL must use https. An http endpoint would transmit the credential in clear text.', id, 'baseUrl'));
+      }
+    }
+  }
+
+  /* A provider with no credentialRef cannot be called. Not an error at
+     save time — the admin may be creating the provider before pasting
+     the key — but it must be visible. */
+  if (!String(p?.credentialRef || '').trim()) {
+    issues.push(warn('provider', 'No credential stored. This provider cannot be called until a key is saved.', id, 'credentialRef'));
+  }
+
+  return issues;
+}
+
+export function validateModel(m: Partial<AiModel>, providers: AiProvider[]): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const id = String(m?.id || '').trim();
+
+  if (!id) issues.push(err('model', 'Model id is required.', id, 'id'));
+  else if (!ID_RE.test(id)) {
+    issues.push(err('model', 'Model id may contain letters, digits, dot, underscore and hyphen only (max 64).', id, 'id'));
+  }
+
+  /* `name` is the wire id sent to the provider. Deliberately unconstrained
+     beyond non-empty: vendors use slashes, colons and version suffixes, and
+     a pattern here would be the thing blocking a brand-new model name. */
+  if (!String(m?.name || '').trim()) {
+    issues.push(err('model', 'Model name (the id sent to the provider) is required.', id, 'name'));
+  }
+
+  const providerId = String(m?.providerId || '').trim();
+  if (!providerId) {
+    issues.push(err('model', 'Model must be assigned to a provider.', id, 'providerId'));
+  } else {
+    const provider = providers.find((p) => p.id === providerId);
+    if (!provider) {
+      issues.push(err('model', `Model references provider "${providerId}", which does not exist.`, id, 'providerId'));
+    } else if (provider.enabled === false && m?.enabled !== false) {
+      issues.push(warn('model', `Provider "${provider.name}" is disabled, so this model cannot be called.`, id, 'providerId'));
+    }
+  }
+
+  return issues;
+}
+
+export function validateConfiguration(
+  c: Partial<AiConfiguration>,
+  providers: AiProvider[],
+  models: AiModel[]
+): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const id = String(c?.id || '').trim();
+
+  if (!id) issues.push(err('configuration', 'Configuration id is required.', id, 'id'));
+  else if (!ID_RE.test(id)) {
+    issues.push(err('configuration', 'Configuration id may contain letters, digits, dot, underscore and hyphen only (max 64).', id, 'id'));
+  }
+
+  if (!String(c?.name || '').trim()) {
+    issues.push(err('configuration', 'Configuration name is required.', id, 'name'));
+  }
+
+  const providerId = String(c?.providerId || '').trim();
+  const modelId = String(c?.modelId || '').trim();
+
+  const provider = providerId ? providers.find((p) => p.id === providerId) : undefined;
+  const model = modelId ? models.find((m) => m.id === modelId) : undefined;
+
+  if (!providerId) {
+    issues.push(err('configuration', 'Configuration must reference a provider.', id, 'providerId'));
+  } else if (!provider) {
+    issues.push(err('configuration', `Configuration references provider "${providerId}", which does not exist.`, id, 'providerId'));
+  }
+
+  if (!modelId) {
+    issues.push(err('configuration', 'Configuration must reference a model.', id, 'modelId'));
+  } else if (!model) {
+    issues.push(err('configuration', `Configuration references model "${modelId}", which does not exist.`, id, 'modelId'));
+  }
+
+  /* The mismatch that produces a runtime 404: a valid provider and a
+     valid model that belong to different providers. */
+  if (provider && model && model.providerId !== provider.id) {
+    issues.push(err(
+      'configuration',
+      `Model "${model.displayName || model.name}" belongs to a different provider. Pick a model from "${provider.name}".`,
+      id,
+      'modelId'
+    ));
+  }
+
+  if (c?.enabled !== false) {
+    if (provider && provider.enabled === false) {
+      issues.push(warn('configuration', `Provider "${provider.name}" is disabled, so this configuration cannot execute.`, id, 'providerId'));
+    }
+    if (model && model.enabled === false) {
+      issues.push(warn('configuration', `Model "${model.displayName || model.name}" is disabled, so this configuration cannot execute.`, id, 'modelId'));
+    }
+    if (provider && !String(provider.credentialRef || '').trim()) {
+      issues.push(warn('configuration', `Provider "${provider.name}" has no stored credential, so this configuration cannot execute.`, id, 'providerId'));
+    }
+  }
+
+  const params = c?.parameters || {};
+  const t = params.temperature;
+  if (t !== undefined && t !== null && (typeof t !== 'number' || Number.isNaN(t) || t < 0 || t > 2)) {
+    issues.push(err('configuration', 'Temperature must be a number between 0 and 2.', id, 'temperature'));
+  }
+  const mt = params.maxTokens;
+  if (mt !== undefined && mt !== null && (typeof mt !== 'number' || !Number.isInteger(mt) || mt < 1)) {
+    issues.push(err('configuration', 'Max tokens must be a positive whole number.', id, 'maxTokens'));
+  }
+  const tp = params.topP;
+  if (tp !== undefined && tp !== null && (typeof tp !== 'number' || Number.isNaN(tp) || tp < 0 || tp > 1)) {
+    issues.push(err('configuration', 'Top P must be a number between 0 and 1.', id, 'topP'));
+  }
+
+  if (model && typeof model.contextWindow === 'number' && typeof mt === 'number' && mt > model.contextWindow) {
+    issues.push(warn(
+      'configuration',
+      `Max tokens (${mt}) exceeds the model's ${model.contextWindow} context window. The provider will reject the request.`,
+      id,
+      'maxTokens'
+    ));
+  }
+
+  return issues;
+}
+
+export function validateMcpServer(s: Partial<McpServerConfig>): ValidationIssue[] {
+  const issues: ValidationIssue[] = [];
+  const id = String(s?.id || '').trim();
+
+  if (!id) issues.push(err('mcpServer', 'Connector id is required.', id, 'id'));
+  else if (!ID_RE.test(id)) {
+    issues.push(err('mcpServer', 'Connector id may contain letters, digits, dot, underscore and hyphen only (max 64).', id, 'id'));
+  }
+
+  if (!String(s?.name || '').trim()) {
+    issues.push(err('mcpServer', 'Connector name is required.', id, 'name'));
+  }
+
+  const transport = String(s?.transport || '').trim();
+  if (!['http', 'sse', 'stdio'].includes(transport)) {
+    issues.push(err('mcpServer', 'Transport must be http, sse or stdio.', id, 'transport'));
+  }
+
+  if (transport === 'http' || transport === 'sse') {
+    const url = String(s?.url || '').trim();
+    if (!url) {
+      issues.push(err('mcpServer', `A ${transport} connector requires a server URL.`, id, 'url'));
+    } else {
+      let parsed: URL | null = null;
+      try { parsed = new URL(url); } catch { parsed = null; }
+      if (!parsed) {
+        issues.push(err('mcpServer', `Server URL "${url}" is not a valid URL.`, id, 'url'));
+      } else if (parsed.protocol === 'http:' && !/^(localhost|127\.0\.0\.1|\[::1\])$/i.test(parsed.hostname)) {
+        issues.push(err('mcpServer', 'Server URL must use https outside local development.', id, 'url'));
+      }
+    }
+  } else if (transport === 'stdio') {
+    if (!String(s?.command || '').trim()) {
+      issues.push(err('mcpServer', 'A stdio connector requires a command.', id, 'command'));
+    }
+    /* Worth saying plainly: a stdio connector runs a process, so it cannot
+       be served by the browser or by an Edge Function. It is configuration
+       for a host that has a shell. */
+    issues.push(warn('mcpServer', 'A stdio connector runs a local process. It can only be used by a host with shell access, not by the browser or the AI gateway.', id, 'transport'));
+  }
+
+  return issues;
+}
+
+/* ── Whole-document rules ────────────────────────────────────────── */
+
+export function validateAiDocument(doc: AiDocument): ValidationResult {
+  const issues: ValidationIssue[] = [];
+
+  if (!doc || typeof doc !== 'object') {
+    return collect([err('document', 'AI configuration document is missing or not an object.')]);
+  }
+
+  /* Version is checked BEFORE anything else is trusted. A document written
+     by a newer client may hold fields this build would silently drop on
+     save, which is data loss disguised as a successful write. */
+  const version = Number(doc.version);
+  if (!Number.isInteger(version) || version < 1) {
+    issues.push(err('document', `Document version "${doc.version}" is not a positive integer.`, undefined, 'version'));
+  } else if (version > AI_DOC_VERSION) {
+    issues.push(err(
+      'document',
+      `Document version ${version} was written by a newer build (this build understands ${AI_DOC_VERSION}). Saving would discard fields it does not recognise — update the application first.`,
+      undefined,
+      'version'
+    ));
+  }
+
+  const providers = Array.isArray(doc.providers) ? doc.providers : [];
+  const models = Array.isArray(doc.models) ? doc.models : [];
+  const configurations = Array.isArray(doc.configurations) ? doc.configurations : [];
+  const mcpServers = Array.isArray(doc.mcpServers) ? doc.mcpServers : [];
+
+  duplicateIds(providers).forEach((id) =>
+    issues.push(err('provider', `Duplicate provider id "${id}".`, id, 'id')));
+  duplicateIds(models).forEach((id) =>
+    issues.push(err('model', `Duplicate model id "${id}".`, id, 'id')));
+  duplicateIds(configurations).forEach((id) =>
+    issues.push(err('configuration', `Duplicate configuration id "${id}".`, id, 'id')));
+  duplicateIds(mcpServers).forEach((id) =>
+    issues.push(err('mcpServer', `Duplicate connector id "${id}".`, id, 'id')));
+
+  providers.forEach((p) => issues.push(...validateProvider(p)));
+  models.forEach((m) => issues.push(...validateModel(m, providers)));
+  configurations.forEach((c) => issues.push(...validateConfiguration(c, providers, models)));
+  mcpServers.forEach((s) => issues.push(...validateMcpServer(s)));
+
+  /* Belt and braces against the plaintext-credential rule the database
+     trigger also enforces. Catching it here gives the admin a field-level
+     message instead of a raw Postgres exception. */
+  const SECRET_KEYS = new Set([
+    'apikey', 'api_key', 'secret', 'secretkey', 'secret_key',
+    'token', 'accesstoken', 'access_token', 'password', 'bearer', 'authorization',
+  ]);
+  [...providers, ...mcpServers].forEach((rec: any) => {
+    Object.keys(rec || {}).forEach((k) => {
+      if (SECRET_KEYS.has(k.toLowerCase())) {
+        issues.push(err(
+          'provider',
+          `Field "${k}" would store a credential in the configuration document. Credentials belong in Vault, referenced by credentialRef.`,
+          rec?.id,
+          k
+        ));
+      }
+    });
+  });
+
+  return collect(issues);
+}
+
+/* ── Referential integrity on delete ─────────────────────────────── */
+
+export interface DeleteCheck {
+  allowed: boolean;
+  /** Human-readable names of the records blocking the delete. */
+  blockedBy: string[];
+  message: string;
+}
+
+export function canDeleteProvider(doc: AiDocument, providerId: string): DeleteCheck {
+  const models = (doc.models || []).filter((m) => m.providerId === providerId);
+  const configs = (doc.configurations || []).filter((c) => c.providerId === providerId);
+  const blockedBy = [
+    ...models.map((m) => `Model: ${m.displayName || m.name}`),
+    ...configs.map((c) => `Configuration: ${c.name}`),
+  ];
+  return {
+    allowed: blockedBy.length === 0,
+    blockedBy,
+    message: blockedBy.length === 0
+      ? ''
+      : `This provider is in use by ${blockedBy.length} record(s). Remove or reassign them first — deleting it would leave them pointing at nothing.`,
+  };
+}
+
+export function canDeleteModel(doc: AiDocument, modelId: string): DeleteCheck {
+  const configs = (doc.configurations || []).filter((c) => c.modelId === modelId);
+  const blockedBy = configs.map((c) => `Configuration: ${c.name}`);
+  return {
+    allowed: blockedBy.length === 0,
+    blockedBy,
+    message: blockedBy.length === 0
+      ? ''
+      : `This model is used by ${blockedBy.length} configuration(s). Reassign them first.`,
+  };
+}
+
+/**
+ * A configuration is the leaf of the chain, so nothing inside this
+ * document can block deleting it. A MODULE may still name it, and this
+ * registry cannot know that — by design, since knowing would mean
+ * referencing modules. The UI warns accordingly.
+ */
+export function canDeleteConfiguration(_doc: AiDocument, _configurationId: string): DeleteCheck {
+  return {
+    allowed: true,
+    blockedBy: [],
+    message: 'Modules reference configurations by id. If a module names this configuration, its AI calls will fail until it is pointed at another one.',
+  };
+}
+
+/**
+ * Can this configuration actually execute right now? Used by the gateway
+ * and by the UI's status column, so both answer the question identically.
+ */
+export function canExecuteConfiguration(
+  doc: AiDocument,
+  configurationId: string
+): { ok: boolean; reason: string } {
+  const config = (doc.configurations || []).find((c) => c.id === configurationId);
+  if (!config) return { ok: false, reason: `No AI configuration with id "${configurationId}".` };
+  if (config.enabled === false) return { ok: false, reason: `Configuration "${config.name}" is disabled.` };
+
+  const provider = (doc.providers || []).find((p) => p.id === config.providerId);
+  if (!provider) return { ok: false, reason: `Configuration "${config.name}" references a provider that no longer exists.` };
+  if (provider.enabled === false) return { ok: false, reason: `Provider "${provider.name}" is disabled.` };
+  if (!String(provider.credentialRef || '').trim()) {
+    return { ok: false, reason: `Provider "${provider.name}" has no stored credential.` };
+  }
+
+  const model = (doc.models || []).find((m) => m.id === config.modelId);
+  if (!model) return { ok: false, reason: `Configuration "${config.name}" references a model that no longer exists.` };
+  if (model.enabled === false) return { ok: false, reason: `Model "${model.displayName || model.name}" is disabled.` };
+  if (model.providerId !== provider.id) {
+    return { ok: false, reason: `Model "${model.displayName || model.name}" does not belong to provider "${provider.name}".` };
+  }
+
+  return { ok: true, reason: '' };
+}

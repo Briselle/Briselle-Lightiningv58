@@ -28,7 +28,8 @@ export const useTableData = (
 
         return filteredBySearch.filter((row) => {
             return filterCriteria.every((filter, index) => {
-                const value = row[filter.column]?.toString().toLowerCase() ?? '';
+                const rawValue = row[filter.column]?.toString() ?? '';
+                const value = rawValue.toLowerCase();
                 const filterValue = filter.value.toLowerCase();
 
                 let matches = false;
@@ -54,6 +55,28 @@ export const useTableData = (
                     case 'lessThan':
                         matches = parseFloat(value) < parseFloat(filterValue);
                         break;
+                    case 'dateBetween': {
+                        const [startISO, endISO] = filter.value.split(',');
+                        const sDate = startISO ? String(startISO).slice(0, 10) : '';
+                        const eDate = endISO ? String(endISO).slice(0, 10) : '';
+                        const rowStr = String(rawValue);
+                        const direct = rowStr.match(/^(\d{4}-\d{2}-\d{2})/);
+                        const toDateOnly = (v: string) => {
+                            const m = v.match(/^(\d{4}-\d{2}-\d{2})/);
+                            if (m) return m[1];
+                            const d = new Date(v);
+                            if (Number.isNaN(d.getTime())) return '';
+                            const yyyy = d.getFullYear();
+                            const mm = String(d.getMonth() + 1).padStart(2, '0');
+                            const dd = String(d.getDate()).padStart(2, '0');
+                            return `${yyyy}-${mm}-${dd}`;
+                        };
+                        const rowDate = direct ? direct[1] : toDateOnly(rowStr);
+                        matches = Boolean(
+                            rowDate && sDate && eDate && rowDate >= sDate && rowDate <= eDate,
+                        );
+                        break;
+                    }
                     default:
                         matches = value.includes(filterValue);
                 }

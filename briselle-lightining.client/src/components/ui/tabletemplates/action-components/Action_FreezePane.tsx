@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { PanelsTopLeft } from 'lucide-react';
 import { cn } from '../../../../utils/helpers';
+import { applyFreezePaneConsistency } from '../utils/freezePaneConfigSync';
 
 interface Action_FreezePaneProps {
-    enableFreezePane: boolean;
+    /** Kept for API compatibility; table freeze on/off is Display “Enable Freeze Pane”, not button visibility. */
+    enableFreezePane?: boolean;
     freezePaneType: 'icon' | 'button';
     freezePaneAlign: 'left' | 'right';
     enableFreezePaneRowHeader: boolean;
@@ -38,7 +40,6 @@ const ToggleSwitch = ({
 );
 
 const Action_FreezePane: React.FC<Action_FreezePaneProps> = ({
-    enableFreezePane,
     freezePaneType,
     freezePaneAlign,
     enableFreezePaneRowHeader,
@@ -51,15 +52,16 @@ const Action_FreezePane: React.FC<Action_FreezePaneProps> = ({
     const [showFreezePaneDropdown, setShowFreezePaneDropdown] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
+    const emit = (patch: Record<string, unknown>) => {
+        onConfigChange(applyFreezePaneConsistency({ ...config, ...patch }));
+    };
+
     // Clamp freezePaneColumnIndexNo when maxColumnIndex changes
     useEffect(() => {
         if (maxColumnIndex && maxColumnIndex > 0 && enablefreezePaneColumnIndex) {
             const currentIndex = freezePaneColumnIndexNo || 1;
             if (currentIndex > maxColumnIndex) {
-                onConfigChange({
-                    ...config,
-                    freezePaneColumnIndexNo: maxColumnIndex,
-                });
+                emit({ freezePaneColumnIndexNo: maxColumnIndex });
             }
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -92,8 +94,6 @@ const Action_FreezePane: React.FC<Action_FreezePaneProps> = ({
             document.removeEventListener('actionButtonClick', handleButtonClick);
         };
     }, []);
-
-    if (!enableFreezePane) return null;
 
     const getButtonContent = (icon: React.ReactNode, text: string, buttonType: 'icon' | 'button') => {
         if (buttonType === 'button') {
@@ -144,12 +144,11 @@ const Action_FreezePane: React.FC<Action_FreezePaneProps> = ({
                             {/* Clear All */}
                             <button
                                 onClick={() => {
-                                    console.log('[FreezePane] Clear All');
-                                    onConfigChange({
-                                        ...config,
+                                    emit({
+                                        enableFreezePane: false,
                                         enableFreezePaneRowHeader: false,
                                         enablefreezePaneColumnIndex: false,
-                                        freezePaneColumnIndexNo: 1, // Reset to default
+                                        freezePaneColumnIndexNo: 1,
                                     });
                                 }}
                                 className="text-xs px-2 py-1 border border-gray-300 rounded text-gray-600 hover:bg-gray-50"
@@ -168,11 +167,7 @@ const Action_FreezePane: React.FC<Action_FreezePaneProps> = ({
                             <ToggleSwitch
                                 checked={enableFreezePaneRowHeader}
                                 onChange={(value) => {
-                                    console.log('[FreezePane] Header →', value);
-                                    onConfigChange({
-                                        ...config,
-                                        enableFreezePaneRowHeader: value,
-                                    });
+                                    emit({ enableFreezePaneRowHeader: value });
                                 }}
                             />
                         </div>
@@ -211,11 +206,7 @@ const Action_FreezePane: React.FC<Action_FreezePaneProps> = ({
                                                 const clampedValue = Math.max(1, Math.min(value, maxVal));
                                                 
                                                 
-                                                // Update with clamped value
-                                                onConfigChange({
-                                                    ...config,
-                                                    freezePaneColumnIndexNo: clampedValue,
-                                                });
+                                                emit({ freezePaneColumnIndexNo: clampedValue });
                                             }}
                                             onKeyDown={(e) => {
                                                 // Prevent arrow keys from exceeding bounds
@@ -232,15 +223,9 @@ const Action_FreezePane: React.FC<Action_FreezePaneProps> = ({
                                                 const value = parseInt(e.target.value, 10);
                                                 const maxVal = (maxColumnIndex && maxColumnIndex > 0) ? maxColumnIndex : 999;
                                                 if (isNaN(value) || value < 1) {
-                                                    onConfigChange({
-                                                        ...config,
-                                                        freezePaneColumnIndexNo: 1,
-                                                    });
+                                                    emit({ freezePaneColumnIndexNo: 1 });
                                                 } else if (value > maxVal && maxVal > 0) {
-                                                    onConfigChange({
-                                                        ...config,
-                                                        freezePaneColumnIndexNo: maxVal,
-                                                    });
+                                                    emit({ freezePaneColumnIndexNo: maxVal });
                                                 }
                                             }}
                                             className="w-16 px-2 py-1 text-xs border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
@@ -251,11 +236,11 @@ const Action_FreezePane: React.FC<Action_FreezePaneProps> = ({
                                 <ToggleSwitch
                                     checked={enablefreezePaneColumnIndex}
                                     onChange={(value) => {
-                                        console.log('[FreezePane] Column →', value);
-                                        onConfigChange({
-                                            ...config,
+                                        emit({
                                             enablefreezePaneColumnIndex: value,
-                                            freezePaneColumnIndexNo: value ? (freezePaneColumnIndexNo || 1) : freezePaneColumnIndexNo,
+                                            freezePaneColumnIndexNo: value
+                                                ? freezePaneColumnIndexNo || 1
+                                                : freezePaneColumnIndexNo,
                                         });
                                     }}
                                 />

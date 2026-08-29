@@ -32,6 +32,11 @@ export interface ButtonDefinition {
     disabled?: boolean;
     /** When true: enable checkbox is checked+disabled (frozen); type/align remain editable */
     frozenEnableOnly?: boolean;
+    /**
+     * When true: button stays in the action panel even if `enableKey` is false on config.
+     * Used for Freeze Pane — Display “Enable Freeze Pane” gates table behavior only, not toolbar visibility.
+     */
+    ignoreEnableKeyForPanel?: boolean;
 }
 
 export const BUTTON_DEFINITIONS: Record<string, Omit<ButtonDefinition, 'key'>> = {
@@ -39,8 +44,14 @@ export const BUTTON_DEFINITIONS: Record<string, Omit<ButtonDefinition, 'key'>> =
     sort: { label: 'Sort', typeKey: 'sortButtonType', alignKey: 'sortButtonAlign', enableKey: 'enableSort' },
     filter: { label: 'Filter', typeKey: 'filterButtonType', alignKey: 'filterButtonAlign', enableKey: 'enableFilter' },
     group: { label: 'Group', typeKey: 'groupButtonType', alignKey: 'groupButtonAlign', enableKey: 'enableGroup' },
-    columnVisibility: { label: 'Hide Fields', typeKey: 'columnVisibilityButtonType', alignKey: 'columnVisibilityButtonAlign', enableKey: 'enableColumnVisibility' },
-    freezePane: { label: 'Freeze Pane', typeKey: 'freezePaneType', alignKey: 'freezePaneAlign', enableKey: 'enableFreezePane' },
+    columnVisibility: { label: 'Column Visibilty', typeKey: 'columnVisibilityButtonType', alignKey: 'columnVisibilityButtonAlign', enableKey: 'enableColumnVisibility' },
+    freezePane: {
+        label: 'Freeze Pane',
+        typeKey: 'freezePaneType',
+        alignKey: 'freezePaneAlign',
+        enableKey: 'enableFreezePane',
+        ignoreEnableKeyForPanel: true,
+    },
     refresh: { label: 'Refresh', typeKey: 'refreshButtonType', alignKey: 'refreshButtonAlign', enableKey: 'enableRefresh' },
     export: { label: 'Export', typeKey: 'exportButtonType', alignKey: 'exportButtonAlign', enableKey: 'enableExport' },
     import: { label: 'Import', typeKey: 'importButtonType', alignKey: 'importButtonAlign', enableKey: 'enableImport' },

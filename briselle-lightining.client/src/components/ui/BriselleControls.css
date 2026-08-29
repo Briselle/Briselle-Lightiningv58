@@ -1,0 +1,470 @@
+/* ============================================================
+   Briselle Enterprise Platform — Shared UI
+   BriselleControls.css — styles for the shared UI primitives
+   Created At: 2026-08-22 | Last Modified: 2026-08-22
+   Task: BRIS-AI-T164 / T165
+
+   Covers DragHandle (useDragReorder) and TagMultiSelect.
+   All selectors are `bui-` prefixed so nothing can collide with the
+   NotionNest `nnr-`, AI config `aipc-` or Ziva `ziva-` sheets.
+
+   ── Tokens ────────────────────────────────────────────────────
+   Semantic tokens are declared once here and derive from the global
+   palette in src/index.css (`--color-primary` etc., space-separated RGB
+   for Tailwind's rgb(var(--x) / alpha) form). Component rules reference
+   only these names, so a theme change is one edit and dark mode is a
+   single media block rather than a hunt through every rule.
+
+   Every selector appears EXACTLY ONCE. Duplicate declarations of one
+   class have cost four separate debugging rounds on this codebase.
+   ============================================================ */
+
+:root {
+  --bui-brand: rgb(var(--color-primary, 1 118 211));
+  --bui-brand-soft: rgb(var(--color-primary, 1 118 211) / 0.08);
+  --bui-brand-ring: rgb(var(--color-primary, 1 118 211) / 0.18);
+
+  --bui-text: #1f2937;
+  --bui-text-muted: #6b7280;
+  --bui-text-faint: #9ca3af;
+
+  --bui-surface: #ffffff;
+  --bui-surface-alt: #f9fafb;
+  --bui-surface-sunken: #f3f4f6;
+
+  --bui-border: #d1d5db;
+  --bui-border-soft: #e5e7eb;
+
+  --bui-radius-sm: 5px;
+  --bui-radius-md: 6px;
+  --bui-radius-pill: 999px;
+  --bui-shadow-pop: 0 8px 24px rgb(15 23 42 / 0.14);
+  --bui-speed: 130ms;
+}
+
+/* ── Dark mode ────────────────────────────────────────────────
+   Only the tokens are redefined. No component rule below needs to
+   know that dark mode exists. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bui-text: #e5e7eb;
+    --bui-text-muted: #9ca3af;
+    --bui-text-faint: #6b7280;
+
+    --bui-surface: #111827;
+    --bui-surface-alt: #1f2937;
+    --bui-surface-sunken: #374151;
+
+    --bui-border: #4b5563;
+    --bui-border-soft: #374151;
+
+    --bui-shadow-pop: 0 8px 24px rgb(0 0 0 / 0.5);
+  }
+}
+
+/* ════════════════════════════════════════════════════════════
+   DragHandle — pairs with useDragReorder
+   ════════════════════════════════════════════════════════════ */
+.bui-drag-handle {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--bui-text-faint);
+  cursor: grab;
+  user-select: none;
+  transition: color var(--bui-speed) ease;
+}
+
+.bui-drag-handle.is-disabled {
+  cursor: default;
+  opacity: 0.4;
+}
+
+.bui-drag-position {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--bui-text-muted);
+}
+
+/* Row states, driven by the data-* attributes useDragReorder returns.
+   Attribute selectors rather than class names so a caller cannot forget
+   to wire them up — spreading getRowProps() is enough. */
+[data-dragging='true'] {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+
+[data-dragover='true'] {
+  /* An inset shadow rather than a border: a border changes row height and
+     makes the whole list jump by a pixel as the pointer moves. */
+  box-shadow: inset 0 2px 0 0 var(--bui-brand);
+  background: var(--bui-brand-soft);
+}
+
+[data-dragging='true'] .bui-drag-handle,
+tr:hover .bui-drag-handle,
+li:hover .bui-drag-handle {
+  color: var(--bui-brand);
+}
+
+/* Keyboard reordering must be as visible as the pointer route. */
+tr:focus-visible,
+li:focus-visible {
+  outline: 2px solid var(--bui-brand);
+  outline-offset: -2px;
+}
+
+/* ════════════════════════════════════════════════════════════
+   TagMultiSelect
+   ════════════════════════════════════════════════════════════ */
+.bui-tms {
+  position: relative;
+  width: 100%;
+}
+
+.bui-tms-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 34px;
+  padding: 5px 8px;
+  border: 1px solid var(--bui-border);
+  border-radius: var(--bui-radius-md);
+  background: var(--bui-surface);
+  color: var(--bui-text);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--bui-speed) ease, box-shadow var(--bui-speed) ease;
+}
+
+.bui-tms-trigger:hover:not(:disabled) { border-color: var(--bui-text-faint); }
+
+.bui-tms-trigger:focus-visible,
+.bui-tms-trigger[aria-expanded='true'] {
+  outline: none;
+  border-color: var(--bui-brand);
+  box-shadow: 0 0 0 3px var(--bui-brand-ring);
+}
+
+.bui-tms-trigger:disabled {
+  background: var(--bui-surface-sunken);
+  color: var(--bui-text-muted);
+  cursor: not-allowed;
+}
+
+.bui-tms-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.bui-tms-placeholder { color: var(--bui-text-faint); }
+
+.bui-tms-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 4px 2px 8px;
+  border-radius: var(--bui-radius-pill);
+  background: var(--bui-brand-soft);
+  color: var(--bui-brand);
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.bui-tms-chip-x {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  cursor: pointer;
+  transition: background var(--bui-speed) ease;
+}
+
+.bui-tms-chip-x:hover { background: var(--bui-brand); color: var(--bui-surface); }
+
+.bui-tms-caret {
+  flex: 0 0 auto;
+  color: var(--bui-text-faint);
+}
+
+/* ── Popover ──────────────────────────────────────────────── */
+.bui-tms-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  /* Bounded so a long option list scrolls INSIDE the popover rather than
+     running off the bottom of the page — the overflow bug the meeting
+     notes instruction dropdown had. */
+  max-height: 320px;
+  border: 1px solid var(--bui-border-soft);
+  border-radius: var(--bui-radius-md);
+  background: var(--bui-surface);
+  box-shadow: var(--bui-shadow-pop);
+  overflow: hidden;
+}
+
+.bui-tms-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 7px 9px;
+  border-bottom: 1px solid var(--bui-border-soft);
+  color: var(--bui-text-faint);
+}
+
+.bui-tms-search input {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: none;
+  outline: none;
+  background: transparent;
+  color: var(--bui-text);
+  font-family: inherit;
+  font-size: 13px;
+}
+
+.bui-tms-search-clear {
+  display: inline-flex;
+  align-items: center;
+  border: none;
+  background: transparent;
+  color: var(--bui-text-faint);
+  cursor: pointer;
+  padding: 2px;
+}
+
+.bui-tms-search-clear:hover { color: var(--bui-text); }
+
+.bui-tms-list {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.bui-tms-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 8px;
+  border: none;
+  border-radius: var(--bui-radius-sm);
+  background: transparent;
+  color: var(--bui-text);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--bui-speed) ease;
+}
+
+.bui-tms-option:hover { background: var(--bui-surface-alt); }
+.bui-tms-option:focus-visible { outline: 2px solid var(--bui-brand); outline-offset: -2px; }
+.bui-tms-option.is-on { background: var(--bui-brand-soft); }
+
+.bui-tms-tick {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  /* Reserved even when empty, so labels do not shift left and right as
+     items are ticked. */
+  width: 14px;
+  height: 18px;
+  flex: 0 0 auto;
+  color: var(--bui-brand);
+}
+
+.bui-tms-option-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.bui-tms-option-label { font-weight: 500; }
+
+.bui-tms-option-desc {
+  font-size: 11.5px;
+  color: var(--bui-text-muted);
+  line-height: 1.4;
+}
+
+.bui-tms-empty {
+  padding: 14px 10px;
+  color: var(--bui-text-muted);
+  font-size: 12.5px;
+  text-align: center;
+}
+
+.bui-tms-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex: 0 0 auto;
+  padding: 6px 10px;
+  border-top: 1px solid var(--bui-border-soft);
+  background: var(--bui-surface-alt);
+  color: var(--bui-text-muted);
+  font-size: 11.5px;
+}
+
+.bui-tms-clear {
+  border: none;
+  background: transparent;
+  color: var(--bui-brand);
+  font-family: inherit;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+.bui-tms-clear:hover { text-decoration: underline; }
+
+/* ════════════════════════════════════════════════════════════
+   BRIS-AI-T200 — ConfirmDialog.
+   Platform-standard confirmation, replacing window.confirm.
+   ════════════════════════════════════════════════════════════ */
+.bui-confirm-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgb(15 23 42 / 0.45);
+}
+
+.bui-confirm-card {
+  width: 100%;
+  max-width: 460px;
+  border: 1px solid var(--bui-border-soft);
+  border-radius: 10px;
+  background: var(--bui-surface);
+  box-shadow: 0 20px 50px rgb(15 23 42 / 0.28);
+  overflow: hidden;
+}
+
+.bui-confirm-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px 10px;
+}
+
+.bui-confirm-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--bui-surface-sunken);
+  color: var(--bui-text-muted);
+}
+
+.bui-confirm-card.is-danger .bui-confirm-icon {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.bui-confirm-title {
+  flex: 1 1 auto;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--bui-text);
+}
+
+.bui-confirm-x {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: var(--bui-radius-sm);
+  background: transparent;
+  color: var(--bui-text-faint);
+  cursor: pointer;
+}
+
+.bui-confirm-x:hover { background: var(--bui-surface-alt); color: var(--bui-text); }
+
+.bui-confirm-body {
+  padding: 0 16px 14px 56px;
+  color: var(--bui-text-muted);
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.bui-confirm-body p { margin: 0; }
+
+.bui-confirm-details {
+  margin: 10px 0 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+}
+
+.bui-confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--bui-border-soft);
+  background: var(--bui-surface-alt);
+}
+
+.bui-confirm-btn {
+  padding: 7px 14px;
+  border: 1px solid var(--bui-border);
+  border-radius: var(--bui-radius-md);
+  background: var(--bui-surface);
+  color: var(--bui-text);
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background var(--bui-speed) ease, border-color var(--bui-speed) ease;
+}
+
+.bui-confirm-btn:hover { background: var(--bui-surface-alt); border-color: var(--bui-text-faint); }
+
+.bui-confirm-btn.is-primary {
+  border-color: var(--bui-brand);
+  background: var(--bui-brand);
+  color: #ffffff;
+}
+
+.bui-confirm-btn.is-primary:hover { filter: brightness(0.94); }
+
+.bui-confirm-btn.is-primary.is-danger {
+  border-color: #b91c1c;
+  background: #b91c1c;
+}
+
+.bui-confirm-btn:focus-visible {
+  outline: 2px solid var(--bui-brand);
+  outline-offset: 2px;
+}

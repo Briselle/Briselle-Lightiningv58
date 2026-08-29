@@ -4,7 +4,7 @@
 
 @layer base {
     :root {
-        --color-primary: 1 118 211; /* Salesforce Blue */
+        --color-primary: 1 118 211; /* Primary brand blue */
         --color-secondary: 112 110 107; /* Gray */
         --color-accent: 72 26 90; /* Purple */
         --color-success: 4 132 75; /* Green */
@@ -18,6 +18,13 @@
         @apply bg-[#f3f3f3];
         @apply text-gray-900;
         @apply font-sans;
+        height: 100%;
+        overflow: hidden;
+    }
+
+    #root {
+        height: 100%;
+        overflow: hidden;
     }
 }
 
@@ -71,8 +78,8 @@
 
   .app-container {
     height: 100vh;
-    width: 100vw;
-    @apply overflow-hidden;
+    width: 100%;
+    overflow: hidden !important;
   }
 
   .sidebar-item {
@@ -299,6 +306,15 @@
   /* Table view sizes */
   .data-table.compact {
     @apply text-xs;
+  }
+
+  .data-table.max-compact {
+    @apply text-[11px];
+  }
+
+  .data-table.max-compact th,
+  .data-table.max-compact td {
+    @apply px-1 py-0.5;
   }
 
   .data-table.compact th,

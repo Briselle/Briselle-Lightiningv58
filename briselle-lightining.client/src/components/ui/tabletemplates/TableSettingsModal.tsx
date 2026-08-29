@@ -12,9 +12,9 @@ import PresetSettingsSection from './modal-settings-sections/PresetSettingsSecti
 import TabSettingsSection from './modal-settings-sections/TabSettingsSection';
 import DeviceSettingsSection from './modal-settings-sections/DeviceSettingsSection';
 
+import { cn } from '../../../utils/helpers';
 import { TablePreset } from './action-components/Action_Preset';
 import { DEFAULT_PRESETS, getDefaultPreset } from './utils/presets';
-import { mergeObjectTabBarIntoConfig } from './utils/mergePresetConfig';
 import { injectCanonicalDefaultTab, CANONICAL_DEFAULT_TAB_ITEM } from './utils/canonicalObjectLoaderDefaults';
 import {
     canonicalTabStyleForSave,
@@ -22,14 +22,23 @@ import {
     resolveTabShowUnderline,
     sanitizeTabListPresetIds,
 } from './utils/tabBarNormalize';
-import { stripSavedQueryStateFromConfig, type TableQueryState } from './utils/tableUserViewStorage';
+import {
+    stripSavedQueryStateFromConfig,
+    clearAllTableUserViewLocalStorage,
+    sanitizeTableQueryState,
+    type TableQueryState,
+} from './utils/tableUserViewStorage';
+import { applyFreezePaneConsistency } from './utils/freezePaneConfigSync';
 import {
     removePresetFromDB,
     appendPresetToDB,
     saveTableSettingsToDB,
     persistActiveContextToDB,
     resetDefaultToCodeInDB,
-    extractObjectTabBarFromConfig,
+    pruneObjectLoaderToDefaultOnlyInDB,
+    DB_ENTITY_ID,
+    DB_DOBJ_ID,
+    type PlatformConfigScope,
 } from './utils/configService';
 
 export interface TableSettingsModalProps {
@@ -39,12 +48,18 @@ export interface TableSettingsModalProps {
     onSave: (config: TableConfig) => void;
     presets?: TablePreset[];
     onPresetsChange?: (presets: TablePreset[]) => void;
+    /** After a successful DB save, re-fetch presets so bookmark `config` matches the server (no full page reload). */
+    onPresetsRefresh?: () => Promise<void>;
     activePresetId?: string;
     onPresetSelect?: (presetId: string) => void;
     /** Column keys to display labels (same as table headers); used for inline edit column list */
     fieldMappings?: Record<string, string>;
+    /** When set, inline-edit picker is limited to these keys (see BehaviorSettingsSection). */
+    inlineEditCandidateKeys?: string[] | null;
     /** Current runtime filter/sort/group/columns/search — embedded in new presets as `savedQueryState` */
     tableQueryState?: TableQueryState | null;
+    /** `platform_config` row scope for all ObjectLoader DB writes from this modal */
+    platformConfigScope?: PlatformConfigScope;
 }
 
 const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
@@ -54,14 +69,19 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
     onSave,
     presets = [],
     onPresetsChange,
+    onPresetsRefresh,
     activePresetId,
     onPresetSelect,
     fieldMappings,
+    inlineEditCandidateKeys = null,
     tableQueryState = null,
+    platformConfigScope = { entityId: DB_ENTITY_ID, dobjId: DB_DOBJ_ID },
 }) => {
     const [activeTab, setActiveTab] = useState('display');
     const [modalConfig, setModalConfig] = useState<TableConfig>(currentConfig);
     const [selectedPreset, setSelectedPreset] = useState('default');
+    /** Preset id that receives the main Save action (footer). */
+    const [saveTargetPresetId, setSaveTargetPresetId] = useState('');
     const [customPresets, setCustomPresets] = useState<any[]>([]);
     const [modalWidth, setModalWidth] = useState(45); // Default to 45%
     const [modalOverlayTransparency, setModalOverlayTransparency] = useState(60); // Default to 60%
@@ -88,6 +108,8 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
     const [menuStyle, setMenuStyle] = useState<'icon' | 'button'>('icon');
     const [showModalSettings, setShowModalSettings] = useState(false);
     const [showResetConfirm, setShowResetConfirm] = useState(false);
+    /** If true, reset from code default; if false, reset from DB default (with code fallback). */
+    const [eraseTheTrace, setEraseTheTrace] = useState(false);
     const [, setSearchParams] = useSearchParams();
     /** Active tab id for table tabs (mirrors URL `tableTab`); saved to DB on Save */
     const [modalDraftActiveTabId, setModalDraftActiveTabId] = useState<string | null>(null);
@@ -138,6 +160,13 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
             }
         }
         setModalConfig(configToSet);
+
+        const fromActive =
+            activePresetId && presets.some((p) => p.id === activePresetId)
+                ? activePresetId
+                : '';
+        const defaultPreset = presets.find((p) => p.id === 'default')?.id || '';
+        setSaveTargetPresetId(fromActive || defaultPreset || presets[0]?.id || '');
 
         const sp = typeof window !== 'undefined' ? new URLSearchParams(window.location.search) : null;
         const tabFromUrl = sp?.get(TABLE_TAB_URL_PARAM) ?? null;
@@ -204,9 +233,26 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
         }
     }, [activePresetId, presets]);
 
+    const handleFreezePaneMasterToggle = (enabled: boolean) => {
+        setModalConfig((prev) =>
+            enabled
+                ? applyFreezePaneConsistency({
+                      ...prev,
+                      enableFreezePane: true,
+                      enableFreezePaneRowHeader: true,
+                      enablefreezePaneColumnIndex: false,
+                      freezePaneColumnIndexNo: prev.freezePaneColumnIndexNo ?? 1,
+                  } as TableConfig)
+                : applyFreezePaneConsistency({
+                      ...prev,
+                      enableFreezePane: false,
+                  } as TableConfig),
+        );
+    };
+
     const handleChange = (key: keyof TableConfig, value: any) => {
         setModalConfig(prev => {
-            const next = { ...prev, [key]: value };
+            let next = { ...prev, [key]: value };
             // When table panel is disabled, auto-enable title panel so Settings/Preset move to title bar
             if (key === 'enableTablePanel' && value === false) {
                 next.enableTitle = true;
@@ -222,38 +268,35 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
                     },
                 ];
             }
-            return next;
-        });
-    };
-
-    /** Writes built-in Default preset + tab bar from code to platform_config; applies merged config to UI + URL. */
-    const pushCodeDefaultPresetToDatabaseAndUi = async (opts?: { announceSuccess?: boolean }) => {
-        const codeDefault = getDefaultPreset();
-        const { success, error } = await resetDefaultToCodeInDB(codeDefault);
-        const base = stripSavedQueryStateFromConfig(codeDefault.config as Record<string, unknown>) as TableConfig;
-        const tabBar = extractObjectTabBarFromConfig(codeDefault.config as Record<string, unknown>);
-        const merged = mergeObjectTabBarIntoConfig(base, tabBar);
-        if (!success) {
-            alert(
-                `Could not update the database (${error || 'unknown'}). The table switched to the code default locally only — try again when the connection is back.`
-            );
-        } else if (opts?.announceSuccess !== false) {
-            alert('The Default preset and tab bar were updated from code in the database.');
-        }
-        setModalConfig(merged);
-        setSelectedPreset('default');
-        setModalDraftActiveTabId(CANONICAL_DEFAULT_TAB_ITEM.id);
-        onSave(merged);
-        if (onPresetSelect) onPresetSelect('default');
-        setSearchParams((prev) => {
-            const next = new URLSearchParams(prev);
-            next.set('preset', 'default');
-            next.set(TABLE_TAB_URL_PARAM, CANONICAL_DEFAULT_TAB_ITEM.id);
+            if (key === 'enableFreezePane') {
+                next.enableFreezePane = value;
+                if (value === false) {
+                    next.enableFreezePaneRowHeader = false;
+                    next.enablefreezePaneColumnIndex = false;
+                }
+                return next;
+            }
+            if (key === 'enableFreezePaneRowHeader' || key === 'enablefreezePaneColumnIndex') {
+                const r =
+                    key === 'enableFreezePaneRowHeader' ? !!value : !!next.enableFreezePaneRowHeader;
+                const c =
+                    key === 'enablefreezePaneColumnIndex' ? !!value : !!next.enablefreezePaneColumnIndex;
+                next.enableFreezePane = !!(r || c);
+            }
             return next;
         });
     };
 
     const handleSave = async () => {
+        const targetId = saveTargetPresetId;
+        const targetPreset = presets.find((p) => p.id === targetId);
+        if (!targetId || !targetPreset) {
+            alert(
+                'Choose a preset/bookmark to save to.',
+            );
+            return;
+        }
+
         const placement =
             modalConfig.tabBarPlacement === 'left-of-table' ? 'left-of-table' : 'between-title-and-panel';
         const tabMenuStyleNormalized = normalizeTabMenuStyle(modalConfig.tabMenuStyle);
@@ -263,22 +306,34 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
                 ? modalConfig.tabShowUnderline
                 : resolveTabShowUnderline(undefined, modalConfig.tabStyle);
         const layoutConfig = stripSavedQueryStateFromConfig(modalConfig as Record<string, unknown>) as TableConfig;
-        const savedConfigNormalized: TableConfig = {
+        const savedConfigNormalized: TableConfig = applyFreezePaneConsistency({
             ...layoutConfig,
             tabBarPlacement: placement,
             tabMenuStyle: tabMenuStyleNormalized,
             tabStyle: tabStyleCanonical as TableConfig['tabStyle'],
             tabShowUnderline: tabShowSaved,
             tabList: injectCanonicalDefaultTab<TabItem>(layoutConfig.tabList),
-        };
+        } as TableConfig);
+
+        const fmKeys = Object.keys(fieldMappings ?? {});
+        const savedQueryStateForDb =
+            tableQueryState == null
+                ? undefined
+                : fmKeys.length
+                  ? sanitizeTableQueryState(tableQueryState, fmKeys)
+                  : tableQueryState;
 
         const { success, error: dbError, didSkipDefaultPresetBody } = await saveTableSettingsToDB(
-            selectedPreset,
+            targetId,
             savedConfigNormalized as Record<string, unknown>,
+            platformConfigScope.entityId,
+            platformConfigScope.dobjId,
             undefined,
-            undefined,
-            undefined,
-            { activeTabIdOverride: modalDraftActiveTabId },
+            {
+                activeTabIdOverride: modalDraftActiveTabId,
+                allowDefaultPresetBodyOverwrite: targetId === 'default',
+                savedQueryState: savedQueryStateForDb,
+            },
         );
         if (!success) {
             alert(
@@ -305,8 +360,13 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
         });
 
         onSave(savedConfigNormalized);
-        if (onPresetSelect) {
-            onPresetSelect(selectedPreset);
+
+        if (onPresetsRefresh) {
+            try {
+                await onPresetsRefresh();
+            } catch (e) {
+                console.warn('[TableSettings] Preset list refresh failed:', e);
+            }
         }
 
         // Save modal settings (menuStyle = modal nav icon/button — NOT table tab menu)
@@ -357,7 +417,12 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
         const tabs = modalConfig.tabList ?? [];
         const tabForPreset = tabs.find((t) => t.presetId === presetId);
         const tabId = tabForPreset?.id ?? tabs[0]?.id ?? null;
-        persistActiveContextToDB(presetId, tabId).then(({ error }) => {
+        persistActiveContextToDB(
+            presetId,
+            tabId,
+            platformConfigScope.entityId,
+            platformConfigScope.dobjId,
+        ).then(({ error }) => {
             if (error) console.warn('[TableSettings] DB active preset/tab update failed:', error);
         });
 
@@ -414,7 +479,11 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
             },
         };
 
-        const { success, error: dbError } = await appendPresetToDB(newPreset);
+        const { success, error: dbError } = await appendPresetToDB(
+            newPreset,
+            platformConfigScope.entityId,
+            platformConfigScope.dobjId,
+        );
         if (!success) {
             console.error('[TableSettings] DB append failed:', dbError);
             alert(
@@ -436,7 +505,7 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
             setCustomPresets(updatedPresets);
 
             // Remove from DB document
-            removePresetFromDB(presetId).then(({ error }) => {
+            removePresetFromDB(presetId, platformConfigScope.entityId, platformConfigScope.dobjId).then(({ error }) => {
                 if (error) console.warn('[TableSettings] DB delete failed:', error);
             });
 
@@ -447,12 +516,87 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
     };
 
     const handleFactoryReset = () => {
+        setEraseTheTrace(false);
         setShowResetConfirm(true);
+    };
+
+    /** After any successful platform reset: drop client caches and hard-reload so config_type=3 state is authoritative. */
+    const clearResetCachesAndFullReload = () => {
+        try {
+            clearAllTableUserViewLocalStorage();
+            localStorage.removeItem('customTablePresets');
+            localStorage.removeItem('presetIconOverrides');
+        } catch {
+            /* ignore */
+        }
+        onClose();
+        window.location.reload();
     };
 
     const confirmFactoryReset = async () => {
         setShowResetConfirm(false);
-        await pushCodeDefaultPresetToDatabaseAndUi({ announceSuccess: true });
+        if (eraseTheTrace) {
+            try {
+                const codeDefault = getDefaultPreset();
+                const { success, error } = await resetDefaultToCodeInDB(
+                    codeDefault,
+                    platformConfigScope.entityId,
+                    platformConfigScope.dobjId,
+                );
+                if (!success) {
+                    const retryDb = window.confirm(
+                        `System Code Default Preset could not be written (${error || 'unknown'}).\n\nRetry with Database Default Reset (keep only the default preset)?`
+                    );
+                    if (!retryDb) return;
+                    const pr = await pruneObjectLoaderToDefaultOnlyInDB(
+                        platformConfigScope.entityId,
+                        platformConfigScope.dobjId,
+                    );
+                    if (!pr.success) {
+                        alert(`Database Default Reset failed: ${pr.error || 'unknown'}.`);
+                        return;
+                    }
+                    clearResetCachesAndFullReload();
+                    return;
+                }
+                clearResetCachesAndFullReload();
+            } catch (e) {
+                const retryDb = window.confirm(
+                    `System Code Default Preset is in an error (${e instanceof Error ? e.message : String(e)}).\n\nRetry with Database Default Reset?`
+                );
+                if (!retryDb) return;
+                const pr = await pruneObjectLoaderToDefaultOnlyInDB(
+                    platformConfigScope.entityId,
+                    platformConfigScope.dobjId,
+                );
+                if (!pr.success) {
+                    alert(`Database Default Reset failed: ${pr.error || 'Unknown error'}.`);
+                    return;
+                }
+                clearResetCachesAndFullReload();
+            }
+            return;
+        }
+
+        const pr = await pruneObjectLoaderToDefaultOnlyInDB(
+            platformConfigScope.entityId,
+            platformConfigScope.dobjId,
+        );
+        if (!pr.success) {
+            alert(
+                `Database Default Reset failed: ${pr.error || 'Unknown error'}. Falling back to code default in the database.`
+            );
+            const { success, error } = await resetDefaultToCodeInDB(
+                getDefaultPreset(),
+                platformConfigScope.entityId,
+                platformConfigScope.dobjId,
+            );
+            if (!success) {
+                alert(`Could not apply code default to the database: ${error || 'unknown'}.`);
+                return;
+            }
+        }
+        clearResetCachesAndFullReload();
     };
 
     const tabItems = [
@@ -518,11 +662,13 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
 
     return (
         <>
-            <div className={`fixed inset-0 z-50 flex ${getModalAlignmentClasses()}`}
-                style={{ backgroundColor: `${overlayColor}${Math.round(modalOverlayTransparency * 2.55).toString(16).padStart(2, '0')}` }}>
+            <div
+                className={`fixed inset-0 z-[130] flex ${getModalAlignmentClasses()}`}
+                style={{ backgroundColor: `${overlayColor}${Math.round(modalOverlayTransparency * 2.55).toString(16).padStart(2, '0')}` }}
+            >
                 <div
                     ref={modalRef}
-                    className="bg-white rounded-lg shadow-2xl overflow-hidden flex flex-col border border-gray-200"
+                    className="relative z-[1] bg-white rounded-lg shadow-2xl overflow-hidden flex flex-col border border-gray-200"
                     style={{
                         width: `${modalWidth}%`,
                         height: `${modalHeight}%`,
@@ -558,7 +704,7 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
 
                     {/* Modal Settings Panel */}
                     {showModalSettings && (
-                        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black bg-opacity-50" aria-modal="true">
+                        <div className="fixed inset-0 z-[135] flex items-center justify-center bg-black bg-opacity-50" aria-modal="true">
                             <div className="bg-white rounded-lg shadow-xl mx-4 flex flex-col"
                                 style={{
                                     width: `${modalWidth * 0.8}%`,
@@ -889,6 +1035,7 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
                                         <DisplaySettingsSection
                                             config={modalConfig}
                                             onChange={handleChange}
+                                            onFreezePaneMasterToggle={handleFreezePaneMasterToggle}
                                             modalHeaderFontSize={modalHeaderFontSize}
                                             modalContentFontSize={modalContentFontSize}
                                             onNavigateToTab={setActiveTab}
@@ -911,6 +1058,7 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
                                             modalHeaderFontSize={modalHeaderFontSize}
                                             modalContentFontSize={modalContentFontSize}
                                             fieldMappings={fieldMappings}
+                                            inlineEditCandidateKeys={inlineEditCandidateKeys}
                                         />
                                     )}
 
@@ -952,6 +1100,7 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
                                             currentConfig={modalConfig}
                                             currentTableQueryState={tableQueryState}
                                         onPresetSelect={onPresetSelect}
+                                            platformConfigScope={platformConfigScope}
                                         />
                                     )}
 
@@ -981,25 +1130,60 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
 
                     {/* Footer */}
                     <div
-                        className="flex justify-between items-center p-4 border-t border-gray-200"
+                        className="flex flex-nowrap items-end justify-between gap-2 min-w-0 p-4 border-t border-gray-200"
                         style={{
                             backgroundColor: modalFooterBackgroundColor,
                             fontSize: `${modalContentFontSize}px`
                         }}
                     >
                         <button
+                            type="button"
                             onClick={handleFactoryReset}
-                            className="btn btn-secondary text-red-600 hover:bg-red-50 border-red-300 hover:border-red-400"
+                            className="btn btn-secondary text-red-600 hover:bg-red-50 border-red-300 hover:border-red-400 shrink-0 whitespace-nowrap text-sm px-2.5 py-1.5"
                         >
-                            <RotateCcw size={16} className="mr-2" />
+                            <RotateCcw size={14} className="mr-1.5 shrink-0" />
                             Reset to System Default
                         </button>
-                        <div className="flex space-x-2">
-                            <button onClick={onClose} className="btn btn-secondary">
+                        <div className="flex flex-col min-w-0 flex-1 basis-0 mx-1 max-w-[min(100%,12rem)] sm:max-w-[14rem]">
+                            <label
+                                htmlFor="table-settings-save-preset"
+                                className="text-gray-600 text-xs leading-tight mb-0.5 truncate"
+                            >
+                                Apply Changes To
+                            </label>
+                            <select
+                                id="table-settings-save-preset"
+                                className="w-full min-w-0 border border-gray-300 rounded-md px-1.5 py-1 bg-white text-gray-900 text-sm"
+                                value={saveTargetPresetId}
+                                onChange={(e) => setSaveTargetPresetId(e.target.value)}
+                            >
+                                {presets.map((p) => (
+                                    <option
+                                        key={p.id}
+                                        value={p.id}
+                                    >
+                                        {p.name}
+                                        {p.isDefault || p.id === 'default' ? ' (System Defined)' : ''}
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <div className="flex flex-nowrap gap-1.5 shrink-0">
+                            <button type="button" onClick={onClose} className="btn btn-secondary text-sm px-2.5 py-1.5 whitespace-nowrap">
                                 Cancel
                             </button>
-                            <button onClick={handleSave} className="btn btn-primary">
-                                <Save size={16} className="mr-2" /> Save Changes
+                            <button
+                                type="button"
+                                onClick={() => void handleSave()}
+                                className="btn btn-primary text-sm px-2.5 py-1.5 whitespace-nowrap"
+                                disabled={!saveTargetPresetId}
+                                title={
+                                    !saveTargetPresetId
+                                        ? 'Select a preset/bookmark to save table settings'
+                                        : undefined
+                                }
+                            >
+                                <Save size={14} className="mr-1.5 shrink-0" /> Save Changes
                             </button>
                         </div>
                     </div>
@@ -1008,15 +1192,40 @@ const TableSettingsModal: React.FC<TableSettingsModalProps> = ({
 
             {/* Reset Confirmation Modal */}
             {showResetConfirm && (
-                <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black bg-opacity-60">
+                <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black bg-opacity-60">
                     <div className="bg-white rounded-lg shadow-xl p-6 max-w-md w-full mx-4">
                         <div className="flex items-center space-x-3 mb-4">
                             <AlertTriangle size={24} className="text-red-500" />
                             <h3 className="text-lg font-semibold text-gray-900">Reset to System Default</h3>
                         </div>
                         <p className="text-gray-600 mb-6">
-                            Overwrite the <strong>Default</strong> bookmark and protected tab bar in the database with the built-in values from application code. Other bookmarks and custom presets are not removed. This cannot be undone.
+                            Overwrite the <strong>Default</strong> bookmark and protected tab bar in the database with the
+                            built-in values from application code. Other bookmarks and custom presets are not removed. This cannot be
+                            undone.
                         </p>
+                        <div className="flex w-full items-center justify-end gap-2 mb-6">
+                            <span className="text-sm text-gray-700 shrink-0" id="erase-the-trace-label">
+                                Erase the Trace
+                            </span>
+                            <button
+                                type="button"
+                                role="switch"
+                                aria-checked={eraseTheTrace}
+                                aria-labelledby="erase-the-trace-label"
+                                onClick={() => setEraseTheTrace((v) => !v)}
+                                className={cn(
+                                    'relative inline-flex h-5 w-9 shrink-0 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-primary focus:ring-offset-1',
+                                    eraseTheTrace ? 'bg-blue-600' : 'bg-gray-200',
+                                )}
+                            >
+                                <span
+                                    className={cn(
+                                        'pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow mt-0.5 transition-transform',
+                                        eraseTheTrace ? 'translate-x-4' : 'translate-x-0.5',
+                                    )}
+                                />
+                            </button>
+                        </div>
                         <div className="flex justify-end space-x-3">
                             <button
                                 onClick={() => setShowResetConfirm(false)}

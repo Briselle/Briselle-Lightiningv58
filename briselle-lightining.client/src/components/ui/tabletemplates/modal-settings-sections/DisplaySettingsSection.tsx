@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { GripVertical, ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from '../../../../utils/helpers';
 import { getButtonOrder, BUTTON_DEFINITIONS } from '../utils/actionPanelOrder';
+import { TableSettingsColorFieldWithClear } from '../utils/tabSettingsColorInputs';
 
 function Toggle({ checked, onChange, disabled }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean }) {
     return (
@@ -61,10 +62,13 @@ function CollapsibleSection({
 function TableBodyOptionsSection({
     config,
     onChange,
+    onFreezePaneMasterToggle,
     modalHeaderFontSize,
 }: {
     config: Record<string, any>;
     onChange: (key: string, value: any) => void;
+    /** Sync master + row/column flags together (Table Settings modal). */
+    onFreezePaneMasterToggle?: (enabled: boolean) => void;
     modalHeaderFontSize: number;
 }) {
     const [open, setOpen] = useState<Record<string, boolean>>({
@@ -87,19 +91,26 @@ function TableBodyOptionsSection({
                 <CollapsibleSection id="freeze" title="Enable Freeze Pane" open={open.freeze ?? false} onToggle={toggle('freeze')} fontSize={modalHeaderFontSize}>
                     <div className="space-y-1">
                         <div className="flex items-center justify-between py-2 border-b border-gray-100">
-                            <span className="text-sm text-gray-700">Enable Freeze Pane</span>
-                            <Toggle checked={!!config.enableFreezePane} onChange={(v) => onChange('enableFreezePane', v)} />
+                            <div>
+                                <span className="text-sm text-gray-700">Enable Freeze Pane</span>
+                                <p className="text-xs text-gray-500 mt-0.5 max-w-md">
+                                    Controls sticky freeze on the table only. The Freeze button in the action bar stays available.
+                                </p>
+                            </div>
+                            <Toggle
+                                checked={config.enableFreezePane !== false}
+                                onChange={(v) => {
+                                    if (onFreezePaneMasterToggle) onFreezePaneMasterToggle(v);
+                                    else onChange('enableFreezePane', v);
+                                }}
+                            />
                         </div>
-                        {config.enableFreezePane && (
-                            <>
-                                <div className="grid grid-cols-3 gap-4 items-center py-2 border-b border-gray-100">
-                                    <div className="text-sm font-medium text-gray-500 uppercase">Feature</div>
-                                    <div className="text-sm font-medium text-gray-500 uppercase">Row</div>
-                                    <div className="text-sm font-medium text-gray-500 uppercase">Column</div>
-                                </div>
-                                {row('Freeze Pane', <Toggle checked={!!config.enableFreezePaneRowHeader} onChange={(v) => onChange('enableFreezePaneRowHeader', v)} />, <Toggle checked={!!config.enablefreezePaneColumnIndex} onChange={(v) => onChange('enablefreezePaneColumnIndex', v)} />)}
-                            </>
-                        )}
+                        <div className="grid grid-cols-3 gap-4 items-center py-2 border-b border-gray-100">
+                            <div className="text-sm font-medium text-gray-500 uppercase">Feature</div>
+                            <div className="text-sm font-medium text-gray-500 uppercase">Row</div>
+                            <div className="text-sm font-medium text-gray-500 uppercase">Column</div>
+                        </div>
+                        {row('Freeze Pane', <Toggle checked={!!config.enableFreezePaneRowHeader} onChange={(v) => onChange('enableFreezePaneRowHeader', v)} />, <Toggle checked={!!config.enablefreezePaneColumnIndex} onChange={(v) => onChange('enablefreezePaneColumnIndex', v)} />)}
                     </div>
                 </CollapsibleSection>
                 <CollapsibleSection id="tableView" title="Table View" open={open.tableView ?? false} onToggle={toggle('tableView')} fontSize={modalHeaderFontSize}>
@@ -108,6 +119,7 @@ function TableBodyOptionsSection({
                             <span className="text-sm text-gray-700">Table Row View</span>
                             <select className="input text-sm border border-gray-300 rounded w-40" value={config.tableView || 'default'} onChange={(e) => onChange('tableView', e.target.value)}>
                                 <option value="default">Default</option>
+                                <option value="max-compact">Max-compact</option>
                                 <option value="compact">Compact</option>
                                 <option value="comfortable">Comfortable</option>
                                 <option value="spacious">Spacious</option>
@@ -161,6 +173,22 @@ function TableBodyOptionsSection({
                 </CollapsibleSection>
                 <CollapsibleSection id="wrap" title="Wrap & Clip" open={open.wrap ?? false} onToggle={toggle('wrap')} fontSize={modalHeaderFontSize}>
                     {row('Enable Wrap & Clip Option', <Toggle checked={!!config.enableWrapClipOption} onChange={(v) => onChange('enableWrapClipOption', v)} />, null)}
+                    <div className="py-3 border-b border-gray-100 last:border-b-0 space-y-1">
+                        <div className="text-sm font-medium text-gray-700">Custom badge next to name</div>
+                        <p className="text-xs text-gray-500">
+                            Controls how the “Custom” pill groups with the value when space is tight. “Follow” uses per-column Wrap/Clip when that option is on.
+                        </p>
+                        <select
+                            className="input text-sm border border-gray-300 rounded-md w-full max-w-md bg-white"
+                            value={(config.customRowBadgeOverflowMode as string) ?? 'follow'}
+                            onChange={(e) => onChange('customRowBadgeOverflowMode', e.target.value)}
+                        >
+                            <option value="follow">Follow column (Wrap & Clip when enabled)</option>
+                            <option value="wrap">Wrap — pill can move to the next line</option>
+                            <option value="clip">Clip — single line with ellipsis</option>
+                            <option value="none">None — no clip/wrap (may overflow the cell)</option>
+                        </select>
+                    </div>
                 </CollapsibleSection>
                 <CollapsibleSection id="background" title="Table Background" open={open.background ?? false} onToggle={toggle('background')} fontSize={modalHeaderFontSize}>
                     <div className="space-y-2">
@@ -258,6 +286,8 @@ interface DisplaySettingsSectionProps {
         enablePagination: boolean;
         enableTableTotals: boolean;
         enableWrapClipOption: boolean;
+        /** Custom row badge + name: follow | wrap | clip | none */
+        customRowBadgeOverflowMode?: string;
         tablePanelSpacing: number;
         newButtonType: 'icon' | 'button';
         tabPanelSpacing: number;
@@ -279,6 +309,8 @@ interface DisplaySettingsSectionProps {
     modalHeaderFontSize: number;
     modalContentFontSize: number;
     onChange: (key: string, value: any) => void;
+    /** Master freeze toggle: keeps row/column flags in sync (modal only). */
+    onFreezePaneMasterToggle?: (enabled: boolean) => void;
     /** When provided, Configure button in Tab Panel section will switch modal to this tab */
     onNavigateToTab?: (tabId: string) => void;
 }
@@ -288,6 +320,7 @@ const DisplaySettingsSection: React.FC<DisplaySettingsSectionProps> = ({
     modalHeaderFontSize,
     modalContentFontSize,
     onChange,
+    onFreezePaneMasterToggle,
     onNavigateToTab,
 }) => {
     const [displaySectionOpen, setDisplaySectionOpen] = useState({ titlePanel: true, tabPanel: true, tablePanel: true, tablePanelEnablement: true, tablePanelActions: true, bodyAndFooter: true, tableBody: true, tableFooter: true });
@@ -362,10 +395,11 @@ const DisplaySettingsSection: React.FC<DisplaySettingsSectionProps> = ({
                                 <div className="text-sm text-gray-700 px-3 py-2 border-b border-gray-100 flex items-center">Enable Title Background</div>
                                 <div className="px-3 py-2 border-b border-gray-100 flex items-center min-w-0">
                                     {config.enableTitleBackground && (
-                                        <div className="flex items-center gap-2">
-                                            <input type="color" value={config.titleBackgroundColor || '#ffffff'} onChange={(e) => onChange('titleBackgroundColor', e.target.value)} className="w-8 h-8 rounded border border-gray-300 cursor-pointer" />
-                                            <button type="button" onClick={() => onChange('titleBackgroundColor', '#ffffff')} className="text-xs px-2 py-1 bg-gray-200 rounded hover:bg-gray-300">Clear</button>
-                                        </div>
+                                        <TableSettingsColorFieldWithClear
+                                            value={config.titleBackgroundColor || '#ffffff'}
+                                            onChange={(hex) => onChange('titleBackgroundColor', hex)}
+                                            onClear={() => onChange('titleBackgroundColor', '#ffffff')}
+                                        />
                                     )}
                                 </div>
                                 <div className="px-3 py-2 border-b border-gray-100 flex items-center justify-end">
@@ -484,11 +518,18 @@ const DisplaySettingsSection: React.FC<DisplaySettingsSectionProps> = ({
                                     <span>Order</span>
                                 </div>
                                 {buttonOrder.map((button, index) => {
-                                    const isEnabled = config[button.enableKey as keyof typeof config] as boolean;
+                                    const ignoreEnableKeyForPanel = !!(button as { ignoreEnableKeyForPanel?: boolean })
+                                        .ignoreEnableKeyForPanel;
+                                    const rawEnabled = config[button.enableKey as keyof typeof config] as boolean;
+                                    const isEnabled = ignoreEnableKeyForPanel ? true : rawEnabled;
                                     const frozenEnableOnly = !!(button as { frozenEnableOnly?: boolean }).frozenEnableOnly;
-                                    const enableChecked = frozenEnableOnly ? true : isEnabled;
-                                    const enableDisabled = !!button.disabled;
-                                    const typeAlignDisabled = frozenEnableOnly ? false : !isEnabled;
+                                    const enableChecked = frozenEnableOnly || ignoreEnableKeyForPanel ? true : rawEnabled;
+                                    const enableDisabled = !!button.disabled || ignoreEnableKeyForPanel;
+                                    const typeAlignDisabled = ignoreEnableKeyForPanel
+                                        ? false
+                                        : frozenEnableOnly
+                                          ? false
+                                          : !rawEnabled;
                                     return (
                                         <div
                                             key={button.key}
@@ -530,7 +571,12 @@ const DisplaySettingsSection: React.FC<DisplaySettingsSectionProps> = ({
                     <div className="space-y-4">
                         {/* Table Body Options - sub collapsible (content intact as-is) */}
                         <CollapsibleSection id="tableBody" title="Table Body Options" open={displaySectionOpen.tableBody} onToggle={toggleDisplaySection('tableBody')} fontSize={modalHeaderFontSize}>
-                            <TableBodyOptionsSection config={config} onChange={onChange} modalHeaderFontSize={modalHeaderFontSize} />
+                            <TableBodyOptionsSection
+                                config={config}
+                                onChange={onChange}
+                                onFreezePaneMasterToggle={onFreezePaneMasterToggle}
+                                modalHeaderFontSize={modalHeaderFontSize}
+                            />
                         </CollapsibleSection>
 
                         {/* Table Footer Options - sub collapsible with enable toggle row like Title/Tab Panel */}

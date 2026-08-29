@@ -1,17 +1,98 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Eye, EyeOff, ChevronUp, ChevronDown, X } from 'lucide-react';
+import React, { useState, useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
+import { Eye, EyeOff, ChevronUp, ChevronDown, X, WrapText } from 'lucide-react';
 import { cn } from '../../../../utils/helpers';
+
+const MIN_COL_PX = 80;
+const MAX_COL_PX = 4000;
+
+/** Width in px; placeholder “Auto” when empty. Unit “px” to the right of the input. */
+const ColumnWidthPxInput: React.FC<{
+    colKey: string;
+    widthPx?: number;
+    onCommit: (px: number | null) => void;
+}> = ({ colKey, widthPx, onCommit }) => {
+    const [text, setText] = useState(widthPx != null ? String(widthPx) : '');
+
+    useEffect(() => {
+        setText(widthPx != null ? String(widthPx) : '');
+    }, [widthPx, colKey]);
+
+    return (
+        <div className="flex flex-row items-center gap-0.5 shrink-0">
+            <input
+                type="number"
+                min={MIN_COL_PX}
+                max={MAX_COL_PX}
+                placeholder="Auto"
+                className={cn(
+                    'h-[1.375rem] w-[2.592rem] min-w-[2.592rem] shrink-0 rounded border border-gray-300 bg-white px-1 py-0',
+                    'text-xs tabular-nums text-gray-800 text-center outline-none ring-0 focus:border-gray-400 focus:ring-1 focus:ring-gray-300',
+                    'placeholder:text-gray-400 placeholder:font-normal',
+                    '[appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none'
+                )}
+                value={text}
+                onClick={(e) => e.stopPropagation()}
+                onChange={(e) => {
+                    e.stopPropagation();
+                    const v = e.target.value;
+                    setText(v);
+                    const t = v.trim();
+                    if (t === '') {
+                        onCommit(null);
+                        return;
+                    }
+                    const n = Number(t);
+                    if (Number.isFinite(n) && n >= MIN_COL_PX && n <= MAX_COL_PX) {
+                        onCommit(Math.round(n));
+                    }
+                }}
+                onBlur={() => {
+                    const t = text.trim();
+                    if (!t) {
+                        onCommit(null);
+                        setText('');
+                        return;
+                    }
+                    const n = Number(t);
+                    if (!Number.isFinite(n)) {
+                        setText(widthPx != null ? String(widthPx) : '');
+                        return;
+                    }
+                    const c = Math.min(MAX_COL_PX, Math.max(MIN_COL_PX, Math.round(n)));
+                    setText(String(c));
+                    onCommit(c);
+                }}
+                title="Automatic column width when empty. Or enter pixels (80–4000)."
+                aria-label="Column width in pixels; leave empty for automatic width"
+            />
+            <span className="text-xs text-gray-600 whitespace-nowrap leading-none" title="pixels">
+                px
+            </span>
+        </div>
+    );
+};
 
 interface Action_ColumnVisibilityProps {
     enableColumnVisibility: boolean;
     columnVisibilityButtonType: 'icon' | 'button';
     columnVisibilityButtonAlign: 'left' | 'right';
     fieldMappings: Record<string, string>;
+    preferredColumns?: string[];
     allColumns: string[];
     activeColumns: string[];
     visibleColumns: string[];
     onActiveColumnsChange: (columns: string[]) => void;
     onVisibleColumnsChange: (columns: string[]) => void;
+    columnWidths: Record<string, number>;
+    onColumnWidthsChange: Dispatch<SetStateAction<Record<string, number>>>;
+    columnWrapStates: Record<string, 'wrap' | 'clip'>;
+    onToggleColumnWrapClip: (column: string) => void;
+    onApplyColumnSettings?: (payload: {
+        activeColumns: string[];
+        visibleColumns: string[];
+        columnWidths: Record<string, number>;
+        columnWrapStates: Record<string, 'wrap' | 'clip'>;
+    }) => void | Promise<void>;
 }
 
 const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
@@ -19,11 +100,17 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
     columnVisibilityButtonType,
     columnVisibilityButtonAlign,
     fieldMappings,
+    preferredColumns,
     allColumns,
     activeColumns,
     visibleColumns,
     onActiveColumnsChange,
     onVisibleColumnsChange,
+    columnWidths,
+    onColumnWidthsChange,
+    columnWrapStates,
+    onToggleColumnWrapClip,
+    onApplyColumnSettings,
 }) => {
     const [showColumnDropdown, setShowColumnDropdown] = useState(false);
     const dropdownRef = useRef<HTMLDivElement>(null);
@@ -71,9 +158,38 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
 
     const removeColumn = (key: string) => {
         if (activeColumns.length === 1) return;
-        
+
         onActiveColumnsChange(activeColumns.filter(col => col !== key));
         onVisibleColumnsChange(visibleColumns.filter(col => col !== key));
+        onColumnWidthsChange((prev) => {
+            const next = { ...prev };
+            delete next[key];
+            return next;
+        });
+    };
+
+    const MIN_PX = 80;
+    const MAX_PX = 4000;
+
+    const commitColumnWidthPx = (key: string, raw: string) => {
+        const t = raw.trim();
+        if (!t) {
+            onColumnWidthsChange((prev) => {
+                const next = { ...prev };
+                delete next[key];
+                return next;
+            });
+            return;
+        }
+        const num = Number(t);
+        if (!Number.isFinite(num)) return;
+        const clamped = Math.min(MAX_PX, Math.max(MIN_PX, Math.round(num)));
+        onColumnWidthsChange((prev) => ({ ...prev, [key]: clamped }));
+    };
+
+    const commitWidthForKey = (key: string, px: number | null) => {
+        const raw = px == null ? '' : String(px);
+        commitColumnWidthPx(key, raw);
     };
 
     const addColumn = (key: string) => {
@@ -95,6 +211,9 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
     };
 
     const getPreferredColumns = () => {
+        if (Array.isArray(preferredColumns) && preferredColumns.length > 0) {
+            return preferredColumns.filter((key) => allColumns.includes(key));
+        }
         return Object.entries(fieldMappings)
             .filter(([, value]) => typeof value === 'object' && (value as any).preferred)
             .map(([key]) => key);
@@ -158,7 +277,7 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
             >
                 {getButtonContent(
                     <Eye size={16} />,
-                    'Columns',
+                    'Column Visibilty',
                     columnVisibilityButtonType || 'icon'
                 )}
             </button>
@@ -166,7 +285,7 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
             {showColumnDropdown && (
                 <div
                     className={cn(
-                        "absolute top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-72",
+                        'absolute top-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg z-50 min-w-[24.7rem] max-w-[95vw]',
                         columnVisibilityButtonAlign === 'left' ? 'left-0' : 'right-0'
                     )}
                     onMouseDown={(e) => e.stopPropagation()}
@@ -176,7 +295,7 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
                         {/* Header */}
                         <div className="flex items-center justify-between mb-3">
                             <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">
-                                Columns
+                                Column Visibilty
                             </div>
 
                             {/* Actions */}
@@ -225,6 +344,12 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
                                         e.stopPropagation();
                                         onActiveColumnsChange(activeColumns);
                                         onVisibleColumnsChange(visibleColumns);
+                                        void onApplyColumnSettings?.({
+                                            activeColumns,
+                                            visibleColumns,
+                                            columnWidths,
+                                            columnWrapStates,
+                                        });
                                         setShowColumnDropdown(false);
                                     }}
                                     className="text-xs px-2 py-1 bg-primary text-white rounded hover:opacity-90"
@@ -233,7 +358,7 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
                                 </button>
                             </div>
 
-                            <div className="max-h-40 overflow-y-auto space-y-1">
+                            <div className="max-h-64 overflow-y-auto space-y-1">
                                 {activeColumns.map((key, index) => {
                                     const isOnlyOne = activeColumns.length === 1;
                                     const isVisible = visibleColumns.includes(key);
@@ -241,14 +366,25 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
                                     return (
                                         <div
                                             key={key}
-                                            className="flex items-center justify-between p-2 bg-blue-50 rounded"
+                                            className="flex items-start gap-2 p-2 bg-blue-50 rounded min-w-0"
                                         >
-                                            <span className="text-sm text-blue-700">
+                                            <span className="text-sm text-blue-700 min-w-0 flex-1 break-words [overflow-wrap:anywhere] leading-snug pr-1">
                                                 {fieldMappings[key] ?? key}
                                             </span>
 
-                                            <div className="flex items-center gap-2">
-                                                {/* Eye toggle */}
+                                            <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end self-start pt-0.5">
+                                                {isVisible ? (
+                                                    <ColumnWidthPxInput
+                                                        colKey={key}
+                                                        widthPx={columnWidths[key]}
+                                                        onCommit={(px) => commitWidthForKey(key, px)}
+                                                    />
+                                                ) : (
+                                                    <span className="text-xs text-gray-400 w-[3.42rem] shrink-0 text-center leading-[1.375rem]">
+                                                        —
+                                                    </span>
+                                                )}
+
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
@@ -261,11 +397,53 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
                                                             : 'text-blue-600 hover:text-blue-800'
                                                     )}
                                                     title="Show / Hide column"
+                                                    type="button"
                                                 >
                                                     {isVisible ? <Eye size={14} /> : <EyeOff size={14} />}
                                                 </button>
 
-                                                {/* Close */}
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        moveActiveColumn(key, 'up');
+                                                    }}
+                                                    disabled={index === 0}
+                                                    className="text-gray-500 hover:text-primary disabled:text-gray-300"
+                                                    title="Move up"
+                                                    type="button"
+                                                >
+                                                    <ChevronUp size={14} />
+                                                </button>
+
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        moveActiveColumn(key, 'down');
+                                                    }}
+                                                    disabled={index === activeColumns.length - 1}
+                                                    className="text-gray-500 hover:text-primary disabled:text-gray-300"
+                                                    title="Move down"
+                                                    type="button"
+                                                >
+                                                    <ChevronDown size={14} />
+                                                </button>
+
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        onToggleColumnWrapClip(key);
+                                                    }}
+                                                    className={cn(
+                                                        columnWrapStates[key] === 'wrap'
+                                                            ? 'text-blue-700 hover:text-blue-800'
+                                                            : 'text-gray-500 hover:text-primary'
+                                                    )}
+                                                    title={columnWrapStates[key] === 'wrap' ? 'Wrap enabled (switch to clip)' : 'Clip enabled (switch to wrap)'}
+                                                    type="button"
+                                                >
+                                                    <WrapText size={14} />
+                                                </button>
+
                                                 <button
                                                     onClick={(e) => {
                                                         e.stopPropagation();
@@ -278,34 +456,9 @@ const Action_ColumnVisibility: React.FC<Action_ColumnVisibilityProps> = ({
                                                             : 'text-blue-600 hover:text-blue-800'
                                                     )}
                                                     title="Remove column"
+                                                    type="button"
                                                 >
                                                     <X size={14} />
-                                                </button>
-
-                                                {/* Move up */}
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        moveActiveColumn(key, 'up');
-                                                    }}
-                                                    disabled={index === 0}
-                                                    className="text-gray-500 hover:text-primary disabled:text-gray-300"
-                                                    title="Move up"
-                                                >
-                                                    <ChevronUp size={14} />
-                                                </button>
-
-                                                {/* Move down */}
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        moveActiveColumn(key, 'down');
-                                                    }}
-                                                    disabled={index === activeColumns.length - 1}
-                                                    className="text-gray-500 hover:text-primary disabled:text-gray-300"
-                                                    title="Move down"
-                                                >
-                                                    <ChevronDown size={14} />
                                                 </button>
                                             </div>
                                         </div>

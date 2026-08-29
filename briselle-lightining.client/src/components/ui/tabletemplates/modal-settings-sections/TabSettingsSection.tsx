@@ -4,6 +4,7 @@ import { TabItem, TabBarPlacement, TabMenuStyle } from '../table-components/Tabl
 import { cn } from '../../../../utils/helpers';
 import { TAB_ICON_CUSTOM_KEY, TabBarIcon, TabIconPickerSelect } from '../utils/tabBarIcons';
 import { normalizeTabShape } from '../utils/tabBarNormalize';
+import { TabSettingsColorInput } from '../utils/tabSettingsColorInputs';
 import { TablePreset } from '../action-components/Action_Preset';
 import { isProtectedDefaultTab } from '../utils/canonicalObjectLoaderDefaults';
 
@@ -437,34 +438,34 @@ const TabSettingsSection: React.FC<TabSettingsSectionProps> = ({
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">Height</label>
-                                    <select
+                                <select 
                                         className="input text-sm w-full"
-                                        value={config.tabHeight}
-                                        onChange={(e) => onChange('tabHeight', e.target.value)}
-                                    >
-                                        <option value="small">Small (20px)</option>
-                                        <option value="medium">Medium (26px)</option>
-                                        <option value="large">Large (30px)</option>
-                                    </select>
-                                </div>
-                                <div>
+                                    value={config.tabHeight} 
+                                    onChange={(e) => onChange('tabHeight', e.target.value)}
+                                >
+                                    <option value="small">Small (20px)</option>
+                                    <option value="medium">Medium (26px)</option>
+                                    <option value="large">Large (30px)</option>
+                                </select>
+                            </div>
+                            <div>
                                     <FieldLabelWithInfo
                                         htmlFor="tab-alignment"
                                         hint="Horizontal bar: align tabs in the row. Vertical rail: stack tabs toward top, center, or bottom; also aligns content inside each tab."
                                     >
                                         Alignment
                                     </FieldLabelWithInfo>
-                                    <select
+                                <select 
                                         id="tab-alignment"
                                         className="input text-sm w-full"
-                                        value={config.tabAlignment}
-                                        onChange={(e) => onChange('tabAlignment', e.target.value)}
-                                    >
-                                        <option value="left">Left</option>
-                                        <option value="center">Center</option>
-                                        <option value="right">Right</option>
-                                    </select>
-                                </div>
+                                    value={config.tabAlignment} 
+                                    onChange={(e) => onChange('tabAlignment', e.target.value)}
+                                >
+                                    <option value="left">Left</option>
+                                    <option value="center">Center</option>
+                                    <option value="right">Right</option>
+                                </select>
+                            </div>
                             </div>
                             <div>
                                 <FieldLabelWithInfo
@@ -487,7 +488,7 @@ const TabSettingsSection: React.FC<TabSettingsSectionProps> = ({
                                 <FieldLabelWithInfo hint="Extra space above the tab bar when orientation is horizontal.">
                                     Top ({marginTop}px)
                                 </FieldLabelWithInfo>
-                                <input
+                                <input 
                                     type="range"
                                     min={0}
                                     max={80}
@@ -508,7 +509,7 @@ const TabSettingsSection: React.FC<TabSettingsSectionProps> = ({
                                     onChange={(e) => onChange('tabPanelSpacing', Number(e.target.value))}
                                     className="w-full max-w-md"
                                 />
-                            </div>
+                        </div>
                             <div>
                                 <FieldLabelWithInfo
                                     htmlFor="tab-icon-size-slider"
@@ -528,12 +529,12 @@ const TabSettingsSection: React.FC<TabSettingsSectionProps> = ({
                                     }}
                                     className="w-full max-w-md"
                                 />
-                            </div>
+                    </div>
                             <div>
                                 <FieldLabelWithInfo hint="Horizontal gap between adjacent tabs (horizontal bar) or vertical gap in the rail.">
                                     Gap ({config.tabGap ?? 8}px)
                                 </FieldLabelWithInfo>
-                                <input
+                                <input 
                                     type="range"
                                     min={0}
                                     max={24}
@@ -576,15 +577,13 @@ const TabSettingsSection: React.FC<TabSettingsSectionProps> = ({
                                 <div className="flex items-center gap-2 min-w-0">
                                     <span className="text-sm font-medium text-gray-800 shrink-0">Tab Background</span>
                                     {useCustomPanelBg && (
-                                        <input
-                                            type="color"
+                                        <TabSettingsColorInput
                                             value={config.tabPanelBackground || '#ffffff'}
-                                            onChange={(e) => {
-                                                onChange('tabPanelBackground', e.target.value);
+                                            title="Background fill (when on)"
+                                            onChange={(hex) => {
+                                                onChange('tabPanelBackground', hex);
                                                 onChange('tabUseCustomPanelBackground', true);
                                             }}
-                                            className="w-8 h-8 rounded border border-gray-300 cursor-pointer shrink-0"
-                                            title="Background fill (when on)"
                                         />
                                     )}
                                     <Toggle
@@ -601,12 +600,10 @@ const TabSettingsSection: React.FC<TabSettingsSectionProps> = ({
                                 <div className="flex items-center gap-2 min-w-0">
                                     <span className="text-sm font-medium text-gray-800 shrink-0">Selection</span>
                                     {config.tabCustomSelection && (
-                                        <input
-                                            type="color"
+                                        <TabSettingsColorInput
                                             value={selectionColorValue}
-                                            onChange={(e) => onChange('tabSelectionColor', e.target.value)}
-                                            className="w-8 h-8 rounded border border-gray-300 cursor-pointer shrink-0"
                                             title="Active tab emphasis"
+                                            onChange={(hex) => onChange('tabSelectionColor', hex)}
                                         />
                                     )}
                                     <Toggle
@@ -623,12 +620,10 @@ const TabSettingsSection: React.FC<TabSettingsSectionProps> = ({
                                 <div className="flex items-center gap-2 min-w-0">
                                     <span className="text-sm font-medium text-gray-800 shrink-0">Hover</span>
                                     {config.tabCustomHover && (
-                                        <input
-                                            type="color"
+                                        <TabSettingsColorInput
                                             value={hoverColorValue}
-                                            onChange={(e) => onChange('tabHoverColor', e.target.value)}
-                                            className="w-8 h-8 rounded border border-gray-300 cursor-pointer shrink-0"
                                             title="Hover highlight"
+                                            onChange={(hex) => onChange('tabHoverColor', hex)}
                                         />
                                     )}
                                     <Toggle
@@ -657,22 +652,22 @@ const TabSettingsSection: React.FC<TabSettingsSectionProps> = ({
                     >
                         <div className="space-y-3">
                             <div className="flex flex-nowrap items-center gap-2 w-full min-w-0 rounded-lg border border-gray-200 bg-gray-50/80 px-3 py-2">
-                                <input
-                                    type="text"
+                            <input 
+                                type="text" 
                                     placeholder="Tab name"
                                     aria-label="New tab name"
-                                    value={newTabLabel}
+                                value={newTabLabel} 
                                     onChange={(e) => {
                                         setNewTabLabelUserEdited(true);
                                         setNewTabLabel(e.target.value);
                                     }}
                                     className="input text-sm h-9 min-w-[6.5rem] shrink-[2] flex-1 basis-0 max-w-[12rem]"
-                                />
-                                <select
+                            />
+                            <select 
                                     className="input text-sm h-9 min-w-[7rem] shrink flex-1 basis-0 max-w-[11rem]"
                                     aria-label="Linked bookmark for new tab"
-                                    value={newTabPreset}
-                                    onChange={(e) => setNewTabPreset(e.target.value)}
+                                value={newTabPreset} 
+                                onChange={(e) => setNewTabPreset(e.target.value)}
                                     disabled={presets.length === 0}
                                 >
                                     <option value="">
@@ -708,16 +703,16 @@ const TabSettingsSection: React.FC<TabSettingsSectionProps> = ({
                                         maxLength={8}
                                     />
                                 )}
-                                <button
+                            <button 
                                     type="button"
-                                    onClick={handleAddTab}
+                                onClick={handleAddTab} 
                                     disabled={!newTabLabel.trim() || !newTabPreset || presets.length === 0}
                                     className="btn btn-primary text-sm h-9 px-3 inline-flex items-center justify-center gap-1 shrink-0 ml-auto"
-                                >
+                            >
                                     <Plus size={16} strokeWidth={2} /> Add tab
-                                </button>
-                            </div>
-
+                            </button>
+                        </div>
+                        
                             {(config.tabList || []).length > 0 ? (
                                 <div className="border border-gray-200 rounded-lg overflow-x-auto shadow-sm">
                                     <table className="w-full text-sm min-w-[800px] border-collapse table-fixed">
@@ -738,9 +733,9 @@ const TabSettingsSection: React.FC<TabSettingsSectionProps> = ({
                                                 <th className="px-2 py-2.5 text-right text-xs font-semibold text-gray-600 uppercase tracking-wide w-[20%]">
                                                     Actions
                                                 </th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
                                             {(config.tabList || []).map((tab, index) => {
                                                 const linkedName =
                                                     presets.find((p) => p.id === tab.presetId)?.name ?? tab.presetId;
@@ -887,21 +882,21 @@ const TabSettingsSection: React.FC<TabSettingsSectionProps> = ({
                                                                     aria-label="Delete tab"
                                                                 >
                                                                     <Trash2 size={16} />
-                                                                </button>
+                                                    </button>
                                                             </div>
-                                                        </td>
-                                                    </tr>
+                                                </td>
+                                            </tr>
                                                 );
                                             })}
-                                        </tbody>
-                                    </table>
-                                </div>
-                            ) : (
-                                <div className="text-center py-4 text-gray-500 text-sm border border-gray-200 rounded-lg bg-gray-50">
+                                    </tbody>
+                                </table>
+                            </div>
+                        ) : (
+                            <div className="text-center py-4 text-gray-500 text-sm border border-gray-200 rounded-lg bg-gray-50">
                                     No tabs. A default tab will be added when you enable Tabs and save.
-                                </div>
-                            )}
-                        </div>
+                            </div>
+                        )}
+                    </div>
                     </CollapsibleSection>
                 </div>
             )}

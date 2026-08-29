@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, Trash2, ChevronDown, ChevronRight } from 'lucide-react';
 import { cn } from '../../../../utils/helpers';
+import { isExcludedFromInlineEditSystemPicker } from '../../../../modules/objects/FieldRelated/platformSystemFields';
 
 interface BehaviorSettingsSectionProps {
     config: Record<string, any>;
@@ -9,6 +10,11 @@ interface BehaviorSettingsSectionProps {
     modalContentFontSize?: number;
     /** Column keys to display labels (same as table); used for inline edit column list and labels */
     fieldMappings?: Record<string, string>;
+    /**
+     * Keys allowed in the “add inline edit column” dropdown. When set, only these keys appear (intersected with `fieldMappings` when present).
+     * When omitted, all `fieldMappings` keys are offered (legacy templates).
+     */
+    inlineEditCandidateKeys?: string[] | null;
 }
 
 function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
@@ -62,20 +68,13 @@ function CollapsibleSection({
     );
 }
 
-const DEFAULT_INLINE_EDIT_FIELDS = [
-    'dobj_name_display',
-    'dobj_name_system',
-    'dobj_description',
-    'dobj_status',
-    'dobj_updated_at',
-];
-
 const BehaviorSettingsSection: React.FC<BehaviorSettingsSectionProps> = ({
     config,
     onChange,
     modalHeaderFontSize = 16,
     modalContentFontSize = 14,
     fieldMappings,
+    inlineEditCandidateKeys = null,
 }) => {
     const [newInlineEditField, setNewInlineEditField] = useState('');
     const [open, setOpen] = useState<Record<string, boolean>>({
@@ -86,7 +85,12 @@ const BehaviorSettingsSection: React.FC<BehaviorSettingsSectionProps> = ({
     const toggle = (k: string) => () => setOpen((s) => ({ ...s, [k]: !s[k] }));
 
     const enabledRowActions = config.enabledRowActions ?? ['view', 'edit', 'copy', 'delete'];
-    const availableFields = fieldMappings ? Object.keys(fieldMappings) : DEFAULT_INLINE_EDIT_FIELDS;
+    const availableFields = (() => {
+        const mappingKeys = Object.keys(fieldMappings ?? {});
+        const allow = inlineEditCandidateKeys != null ? new Set(inlineEditCandidateKeys) : null;
+        const base = allow != null ? mappingKeys.filter((k) => allow.has(k)) : mappingKeys;
+        return base.filter((k) => !isExcludedFromInlineEditSystemPicker(k));
+    })();
 
     const handleAddInlineEditField = () => {
         const current = config.enableInlineEdit ?? [];
@@ -115,9 +119,9 @@ const BehaviorSettingsSection: React.FC<BehaviorSettingsSectionProps> = ({
                 <h3 className="text-lg font-semibold text-gray-900 mb-4 pb-2 border-b border-gray-200">Behavior Settings</h3>
             </div>
 
-            {/* Row Selection Controls - table-like rows */}
+            {/* Selection controls (row + cell range) */}
             <CollapsibleSection
-                title="Row Selection Controls"
+                title="Selection controls"
                 open={open.selection ?? false}
                 onToggle={toggle('selection')}
                 fontSize={modalHeaderFontSize}
@@ -126,6 +130,20 @@ const BehaviorSettingsSection: React.FC<BehaviorSettingsSectionProps> = ({
                     <div className={tableRowClass}>
                         <span className="text-sm font-medium text-gray-700">Enable Row Selection</span>
                         <Toggle checked={!!config.enableRowSelection} onChange={(v) => onChange('enableRowSelection', v)} />
+                    </div>
+                    <div className={tableRowClass}>
+                        <span className="text-sm font-medium text-gray-700">Select table cells (rows and columns)</span>
+                        <Toggle
+                            checked={config.enableTableCellSelection !== false}
+                            onChange={(v) => onChange('enableTableCellSelection', v)}
+                        />
+                    </div>
+                    <div className={tableRowClass}>
+                        <span className="text-sm font-medium text-gray-700">Quick add row (+ at bottom / per group)</span>
+                        <Toggle
+                            checked={config.enableQuickAddRow !== false}
+                            onChange={(v) => onChange('enableQuickAddRow', v)}
+                        />
                     </div>
                     {config.enableRowSelection && (
                         <div className="grid grid-cols-[auto_auto_auto_auto_auto_auto] gap-x-3 py-1.5 items-center">

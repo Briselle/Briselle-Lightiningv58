@@ -221,7 +221,7 @@ const TableActionPanel: React.FC<TableActionPanelProps> = ({
 
     const getButtonClass = (type: 'icon' | 'button') =>
         cn(
-            'salesforce-button h-9 flex items-center justify-center transition-all duration-200',
+            'table-toolbar-button h-9 flex items-center justify-center transition-all duration-200',
             type === 'icon' 
                 ? 'w-9 p-2 border border-gray-300 rounded-md hover:bg-gray-50 hover:border-gray-400' 
                 : 'px-3 py-2 border border-gray-300 rounded-md hover:bg-gray-50 hover:border-gray-400'
@@ -595,7 +595,7 @@ const TableActionPanel: React.FC<TableActionPanelProps> = ({
     //                    <div className="text-sm font-medium text-gray-900 mb-2 px-2">Select Preset</div>
     //                    <div className="space-y-1">
     //                        <button className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 rounded">Default</button>
-    //                        <button className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 rounded">Salesforce Classic</button>
+    //                        <button className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 rounded">Classic</button>
     //                        <button className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 rounded">Minimal</button>
     //                        <button className="w-full text-left px-2 py-1 text-sm hover:bg-gray-100 rounded">Professional</button>
     //                    </div>

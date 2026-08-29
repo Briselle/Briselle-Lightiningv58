@@ -6,14 +6,91 @@ import {
     injectCanonicalDefaultTab,
     isProtectedDefaultTab,
 } from './canonicalObjectLoaderDefaults';
+import { getDefaultPreset } from './presets';
 
 const TABLE = 'platform_config';
 const OBJECT_LOADER_TYPE = 3;
+/** `platform_config` row for durable auto-number counters (`config_name` = ObjectCounter). */
+export const OBJECT_COUNTER_CONFIG_TYPE = 7;
 /** Must match `TABLE_TAB_URL_PARAM` in TableTabPanel (used when saving settings to sync active tab) */
 const TABLE_TAB_QUERY_PARAM = 'tableTab';
 
 export const DB_ENTITY_ID = 1000000000;
 export const DB_DOBJ_ID = 1000000001;
+
+/**
+ * Reserved `dobj_id` for the Object Manager list (`/objects`) so its ObjectLoader config
+ * does not collide with business objects (e.g. Accounts uses `dobj_id` = system id).
+ */
+export const OBJECT_REGISTRY_LIST_DOBJ_ID = 1000000000;
+
+export type PlatformConfigScope = {
+    entityId: number;
+    dobjId: number;
+};
+
+function buildMinimalObjectLoaderConfigFromCode(): ConfigJsonPayload {
+    const codeDefault = getDefaultPreset();
+    const stripped = stripObjectTabBarFromConfig(codeDefault.config as Record<string, unknown>);
+    const entry = presetToEntry({ ...codeDefault, config: stripped as TablePreset['config'] }, 0);
+    const tabSlice = extractObjectTabBarFromConfig(codeDefault.config as Record<string, unknown>);
+    const mergedTabList = injectCanonicalDefaultTab(tabSlice.tabList);
+    return {
+        activePresetId: 'default',
+        activeTabId: CANONICAL_DEFAULT_TAB_ITEM.id,
+        objectTabBar: { ...tabSlice, tabList: mergedTabList },
+        presets: [entry],
+    };
+}
+
+/**
+ * Ensures a `platform_config` row exists for ObjectLoader (config_type=3) for the given scope.
+ * Clones from the canonical seed scope when possible; otherwise builds a minimal document from code defaults.
+ */
+export async function ensureObjectLoaderPlatformConfigRow(
+    entityId: number,
+    dobjId: number,
+    options?: { cloneFromEntityId?: number; cloneFromDobjId?: number },
+): Promise<{ success: boolean; error: string | null }> {
+    const existing = await fetchRawDocument(entityId, dobjId);
+    if (existing.payload) return { success: true, error: null };
+
+    const srcE = options?.cloneFromEntityId ?? DB_ENTITY_ID;
+    const srcD = options?.cloneFromDobjId ?? DB_DOBJ_ID;
+    const clone = await fetchRawDocument(srcE, srcD);
+
+    let configJson: ConfigJsonPayload;
+    if (clone.payload) {
+        configJson = JSON.parse(JSON.stringify(clone.payload)) as ConfigJsonPayload;
+        configJson.activePresetId = configJson.activePresetId || 'default';
+        configJson.activeTabId = configJson.activeTabId || CANONICAL_DEFAULT_TAB_ITEM.id;
+    } else {
+        configJson = buildMinimalObjectLoaderConfigFromCode();
+    }
+
+    try {
+        const { error } = await supabase.from(TABLE).insert({
+            entity_id: entityId,
+            dobj_id: dobjId,
+            user_ids_linked: '["1"]',
+            config_name: 'ObjectLoader',
+            config_type: OBJECT_LOADER_TYPE,
+            config_description: `ObjectLoader presets for entity ${entityId}, dobj ${dobjId}`,
+            config_version: 1,
+            is_default: true,
+            is_active: true,
+            auth_edit_ids_linked: '["1"]',
+            auth_delete_ids_linked: '["1"]',
+            config_json: configJson as unknown as Record<string, unknown>,
+            created_by_user_id: '1',
+            modified_by_user_id: '1',
+        });
+        if (error) return { success: false, error: error.message };
+        return { success: true, error: null };
+    } catch (e) {
+        return { success: false, error: e instanceof Error ? e.message : String(e) };
+    }
+}
 
 export interface PresetJsonEntry {
     id: string;
@@ -33,6 +110,19 @@ export interface ConfigJsonPayload {
     activeTabId?: string;
     /** Tab strip + tab chrome: single source for all presets on this object */
     objectTabBar?: Record<string, unknown>;
+    /** Opaque share-link settings keyed by short token. */
+    shareLinks?: Record<string, {
+        restrictCopy: boolean;
+        panelAllowed: boolean;
+        scope?: string;
+        createdAt?: string;
+        linkName?: string;
+        presetId?: string;
+        lockedPresetId?: string;
+        lockedTabId?: string;
+        requireCredentials?: boolean;
+        allowedEmailOrDomain?: string;
+    }>;
     presets: PresetJsonEntry[];
 }
 
@@ -205,6 +295,10 @@ export async function fetchPresetsFromDB(
 export type SaveTableSettingsOptions = {
     /** When set, preferred over URL / stored active tab if it exists in tabList */
     activeTabIdOverride?: string | null;
+    /** Allow writing the Default preset body in DB (normally protected). */
+    allowDefaultPresetBodyOverwrite?: boolean;
+    /** Merged into preset `config` in DB (filter/sort/columns/widths, etc.) */
+    savedQueryState?: Record<string, unknown> | null;
 };
 
 /**
@@ -257,12 +351,26 @@ export async function saveTableSettingsToDB(
     if (idx === -1) return { success: false, error: `Preset "${selectedPresetId}" not found in DB document` };
 
     let didSkipDefaultPresetBody = false;
-    if (selectedPresetId === 'default') {
+    if (selectedPresetId === 'default' && options?.allowDefaultPresetBodyOverwrite !== true) {
         didSkipDefaultPresetBody = true;
     } else {
+        const stripped = stripObjectTabBarFromConfig(fullLayoutConfig) as Record<string, unknown>;
+        const existingConfig =
+            (p.presets[idx].config && typeof p.presets[idx].config === 'object'
+                ? (p.presets[idx].config as Record<string, unknown>)
+                : {});
+        const existingSavedQueryState =
+            existingConfig.savedQueryState && typeof existingConfig.savedQueryState === 'object'
+                ? (existingConfig.savedQueryState as Record<string, unknown>)
+                : undefined;
+        const sq = options?.savedQueryState ?? existingSavedQueryState;
+        const configBody =
+            sq != null && typeof sq === 'object'
+                ? { ...stripped, savedQueryState: sq }
+                : stripped;
         p.presets[idx] = {
             ...p.presets[idx],
-            config: stripObjectTabBarFromConfig(fullLayoutConfig),
+            config: configBody as (typeof p.presets)[number]['config'],
         };
     }
 
@@ -314,6 +422,51 @@ export async function resetDefaultToCodeInDB(
         tabList: [CANONICAL_DEFAULT_TAB_ITEM, ...restTabs],
     };
 
+    p.activePresetId = 'default';
+    p.activeTabId = CANONICAL_DEFAULT_TAB_ITEM.id;
+
+    return writeRawDocument(entityId, dobjId, p, userId);
+}
+
+/**
+ * Platform reset (config_type = OBJECT_LOADER_TYPE): keep only default-tagged presets,
+ * set tab row to the protected Default tab only, and point active context at default.
+ * Does not replace default preset body with code — DB default entry is preserved (normalized id/default flags).
+ */
+export async function pruneObjectLoaderToDefaultOnlyInDB(
+    entityId: number = DB_ENTITY_ID,
+    dobjId: number = DB_DOBJ_ID,
+    userId: string = '1',
+): Promise<{ success: boolean; error: string | null }> {
+    const { payload, error } = await fetchRawDocument(entityId, dobjId);
+    if (error || !payload) return { success: false, error: error || 'No data' };
+
+    const p = payload as ConfigJsonPayload;
+    const tagged = p.presets.filter((e) => e.isDefault === true || e.id === 'default');
+    let defaultRow =
+        tagged.find((e) => e.id === 'default') ?? tagged[0];
+
+    if (!defaultRow) {
+        return { success: false, error: 'No default-tagged preset in document' };
+    }
+
+    defaultRow = {
+        ...defaultRow,
+        id: 'default',
+        isDefault: true,
+        name: 'Default',
+        presetOrder: 0,
+        isActive: true,
+    };
+
+    p.presets = [defaultRow];
+
+    const tabSlice = extractObjectTabBarFromConfig(defaultRow.config as Record<string, unknown>);
+    p.objectTabBar = {
+        ...(p.objectTabBar && typeof p.objectTabBar === 'object' ? p.objectTabBar : {}),
+        ...tabSlice,
+        tabList: [CANONICAL_DEFAULT_TAB_ITEM],
+    };
     p.activePresetId = 'default';
     p.activeTabId = CANONICAL_DEFAULT_TAB_ITEM.id;
 
@@ -437,6 +590,150 @@ export async function savePresetOrderToDB(
     return writeRawDocument(entityId, dobjId, payload, userId);
 }
 
-// Legacy wrappers for backward compatibility
+// Shorter aliases (same behavior as append/remove preset helpers)
 export const savePresetToDB = appendPresetToDB;
 export const deletePresetFromDB = removePresetFromDB;
+
+export async function upsertShareLinkSettingsInDB(
+    token: string,
+    settings: {
+        restrictCopy: boolean;
+        panelAllowed: boolean;
+        scope?: string;
+        linkName?: string;
+        presetId?: string;
+        lockedPresetId?: string;
+        lockedTabId?: string;
+        requireCredentials?: boolean;
+        allowedEmailOrDomain?: string;
+    },
+    entityId: number = DB_ENTITY_ID,
+    dobjId: number = DB_DOBJ_ID,
+    userId: string = '1',
+): Promise<{ success: boolean; error: string | null }> {
+    const { payload, error } = await fetchRawDocument(entityId, dobjId);
+    if (error || !payload) return { success: false, error: error || 'No data' };
+    const p = payload as ConfigJsonPayload;
+    p.shareLinks = {
+        ...(p.shareLinks ?? {}),
+        [token]: {
+            restrictCopy: Boolean(settings.restrictCopy),
+            panelAllowed: Boolean(settings.panelAllowed),
+            scope: settings.scope ?? 'title-to-footer',
+            linkName: settings.linkName?.trim() || undefined,
+            presetId: settings.presetId,
+            lockedPresetId: settings.lockedPresetId,
+            lockedTabId: settings.lockedTabId,
+            requireCredentials: Boolean(settings.requireCredentials),
+            allowedEmailOrDomain: settings.allowedEmailOrDomain?.trim() || undefined,
+            createdAt: new Date().toISOString(),
+        },
+    };
+    return writeRawDocument(entityId, dobjId, p, userId);
+}
+
+export async function resolveShareLinkSettingsFromDB(
+    token: string,
+    entityId: number = DB_ENTITY_ID,
+    dobjId: number = DB_DOBJ_ID,
+): Promise<{
+    settings: {
+        restrictCopy: boolean;
+        panelAllowed: boolean;
+        scope?: string;
+        linkName?: string;
+        presetId?: string;
+        lockedPresetId?: string;
+        lockedTabId?: string;
+        requireCredentials?: boolean;
+        allowedEmailOrDomain?: string;
+    } | null;
+    error: string | null;
+}> {
+    const { payload, error } = await fetchRawDocument(entityId, dobjId);
+    if (error || !payload) return { settings: null, error: error || 'No data' };
+    const p = payload as ConfigJsonPayload;
+    const entry = p.shareLinks?.[token];
+    if (!entry) return { settings: null, error: null };
+    return {
+        settings: {
+            restrictCopy: Boolean(entry.restrictCopy),
+            panelAllowed: Boolean(entry.panelAllowed),
+            scope: entry.scope ?? 'title-to-footer',
+            linkName: entry.linkName,
+            presetId: entry.presetId,
+            lockedPresetId: entry.lockedPresetId,
+            lockedTabId: entry.lockedTabId,
+            requireCredentials: Boolean(entry.requireCredentials),
+            allowedEmailOrDomain: entry.allowedEmailOrDomain,
+        },
+        error: null,
+    };
+}
+
+export async function listShareLinksForPresetFromDB(
+    presetId: string,
+    entityId: number = DB_ENTITY_ID,
+    dobjId: number = DB_DOBJ_ID,
+): Promise<{
+    links: Array<{
+        token: string;
+        linkName: string;
+        createdAt?: string;
+        lockedTabId?: string;
+        panelAllowed: boolean;
+        restrictCopy: boolean;
+    }>;
+    error: string | null;
+}> {
+    const { payload, error } = await fetchRawDocument(entityId, dobjId);
+    if (error || !payload) return { links: [], error: error || 'No data' };
+    const p = payload as ConfigJsonPayload;
+    const links = Object.entries(p.shareLinks ?? {})
+        .filter(([, v]) => (v.presetId ?? v.lockedPresetId ?? 'default') === presetId)
+        .map(([token, v]) => ({
+            token,
+            linkName: v.linkName?.trim() || `Link ${token.slice(0, 6)}`,
+            createdAt: v.createdAt,
+            lockedTabId: v.lockedTabId,
+            panelAllowed: Boolean(v.panelAllowed),
+            restrictCopy: Boolean(v.restrictCopy),
+        }))
+        .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
+    return { links, error: null };
+}
+
+export async function deleteShareLinkFromDB(
+    token: string,
+    entityId: number = DB_ENTITY_ID,
+    dobjId: number = DB_DOBJ_ID,
+    userId: string = '1',
+): Promise<{ success: boolean; error: string | null }> {
+    const { payload, error } = await fetchRawDocument(entityId, dobjId);
+    if (error || !payload) return { success: false, error: error || 'No data' };
+    const p = payload as ConfigJsonPayload;
+    if (!p.shareLinks?.[token]) return { success: true, error: null };
+    const next = { ...(p.shareLinks ?? {}) };
+    delete next[token];
+    p.shareLinks = next;
+    return writeRawDocument(entityId, dobjId, p, userId);
+}
+
+export async function deleteShareLinksForPresetFromDB(
+    presetId: string,
+    entityId: number = DB_ENTITY_ID,
+    dobjId: number = DB_DOBJ_ID,
+    userId: string = '1',
+): Promise<{ success: boolean; error: string | null; deletedCount: number }> {
+    const { payload, error } = await fetchRawDocument(entityId, dobjId);
+    if (error || !payload) return { success: false, error: error || 'No data', deletedCount: 0 };
+    const p = payload as ConfigJsonPayload;
+    const entries = Object.entries(p.shareLinks ?? {});
+    const keep = Object.fromEntries(
+        entries.filter(([, v]) => (v.presetId ?? v.lockedPresetId ?? 'default') !== presetId),
+    );
+    const deletedCount = entries.length - Object.keys(keep).length;
+    p.shareLinks = keep;
+    const saved = await writeRawDocument(entityId, dobjId, p, userId);
+    return { success: saved.success, error: saved.error, deletedCount };
+}

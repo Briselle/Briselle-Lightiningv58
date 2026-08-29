@@ -105,6 +105,7 @@ const DataTable: React.FC<DataTableProps> = ({
 
     const getDensityClass = (density: string) => {
         switch (density) {
+            case 'max-compact': return 'max-compact';
             case 'compact': return 'compact';
             case 'comfortable': return 'comfortable';
             case 'spacious': return 'spacious';

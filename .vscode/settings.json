@@ -1,0 +1,6 @@
+{
+    "claudegate.fileWatcher.enabled": true,
+    "claudegate.groupBySession": true,
+    "claudegate.hookLog.enabled": true,
+    "claudegate.autoAdvance": false
+}

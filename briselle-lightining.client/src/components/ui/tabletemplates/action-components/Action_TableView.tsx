@@ -5,8 +5,8 @@ import { cn } from '../../../../utils/helpers';
 interface Action_TableViewProps {
     tableViewButtonType: 'icon' | 'button';
     tableViewButtonAlign: 'left' | 'right';
-    currentTableView: 'default' | 'compact' | 'comfortable' | 'spacious';
-    onTableViewChange: (view: 'default' | 'compact' | 'comfortable' | 'spacious') => void;
+    currentTableView: 'default' | 'max-compact' | 'compact' | 'comfortable' | 'spacious';
+    onTableViewChange: (view: 'default' | 'max-compact' | 'compact' | 'comfortable' | 'spacious') => void;
 }
 
 const Action_TableView: React.FC<Action_TableViewProps> = ({
@@ -48,12 +48,12 @@ const Action_TableView: React.FC<Action_TableViewProps> = ({
                         tableViewButtonAlign === 'left' ? 'left-0' : 'right-0'
                     )}
                 >
-                    {['default', 'compact', 'comfortable', 'spacious'].map((view) => (
+                    {['default', 'max-compact', 'compact', 'comfortable', 'spacious'].map((view) => (
                         <button
                             key={view}
                             onClick={(e) => {
                                 e.stopPropagation();
-                                onTableViewChange(view as 'default' | 'compact' | 'comfortable' | 'spacious');
+                                onTableViewChange(view as 'default' | 'max-compact' | 'compact' | 'comfortable' | 'spacious');
                                 setShowTableViewDropdown(false);
                             }}
                             className={cn(

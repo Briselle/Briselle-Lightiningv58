@@ -2,6 +2,7 @@ import { TablePreset } from '../action-components/Action_Preset';
 import { TableConfig } from '../ConfigurableListTemplate';
 import { DEFAULT_ACTION_PANEL_ORDER } from './actionPanelOrder';
 import { CANONICAL_DEFAULT_TAB_ITEM } from './canonicalObjectLoaderDefaults';
+import { TAB_BAR_OBJECT_LOADER_KEYS } from './mergePresetConfig';
 
 /**
  * Code-level failover preset — only the Default is kept in code.
@@ -138,7 +139,7 @@ export const DEFAULT_PRESETS: TablePreset[] = [
                 "enableSettings": true,
                 "freezePaneColumnIndexNo": 1,
                 "enableTooltips": true,
-                "enableInlineEdit": ["dobj_name_display", "dobj_description"],
+                "enableInlineEdit": [],
                 "enableBulkActions": true,
                 "editActionButtonType": "icon",
                 "editActionButtonAlign": "right",
@@ -202,7 +203,19 @@ export const loadCustomPresetsFromStorage = (): TablePreset[] => {
     try {
         const stored = localStorage.getItem('customTablePresets');
         if (stored) {
-            return JSON.parse(stored);
+            const parsed = JSON.parse(stored) as unknown;
+            if (!Array.isArray(parsed)) return [];
+            return parsed.map((preset) => {
+                if (!preset || typeof preset !== 'object') return preset as TablePreset;
+                const rec = preset as TablePreset;
+                const cfg = (rec.config && typeof rec.config === 'object')
+                    ? { ...(rec.config as Record<string, unknown>) }
+                    : {};
+                for (const key of TAB_BAR_OBJECT_LOADER_KEYS) {
+                    delete cfg[key];
+                }
+                return { ...rec, config: cfg as TableConfig };
+            });
         }
     } catch (error) {
         console.error('Error loading custom presets from storage:', error);
@@ -216,7 +229,16 @@ export const loadCustomPresetsFromStorage = (): TablePreset[] => {
  */
 export const saveCustomPresetsToStorage = (presets: TablePreset[]): void => {
     try {
-        localStorage.setItem('customTablePresets', JSON.stringify(presets));
+        const sanitized = presets.map((preset) => {
+            const cfg = (preset.config && typeof preset.config === 'object')
+                ? { ...(preset.config as Record<string, unknown>) }
+                : {};
+            for (const key of TAB_BAR_OBJECT_LOADER_KEYS) {
+                delete cfg[key];
+            }
+            return { ...preset, config: cfg as TableConfig };
+        });
+        localStorage.setItem('customTablePresets', JSON.stringify(sanitized));
     } catch (error) {
         console.error('Error saving custom presets to storage:', error);
     }

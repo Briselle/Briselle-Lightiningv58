@@ -1,0 +1,11 @@
+# Briselle Platform — Supabase local/CLI configuration
+# Created At: 2026-08-22 | Task: BRIS-AI-T158
+
+project_id = "briselle-lightning"
+
+[functions.ai-gateway]
+# JWT verification is enforced INSIDE the function (step 1) rather than by
+# the platform, so the function can return an actionable 401 body instead
+# of an opaque gateway rejection. Do not set this to true without also
+# removing the explicit check in index.ts — one of the two must hold.
+verify_jwt = false
